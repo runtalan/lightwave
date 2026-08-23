@@ -874,7 +874,7 @@ func (a *App) snapshotLocked() HUDState {
 		v := SlotView{
 			Number:   i,
 			DeviceID: s.DeviceID,
-			Name:     s.Name,
+			Name:     s.Label(),
 			Model:    s.Model,
 			IP:       s.IP,
 			Active:   a.pool[i],
@@ -1378,6 +1378,34 @@ func (a *App) FillRemaining() HUDState {
 	a.mu.Unlock()
 	a.emitState()
 	return a.snapshot()
+}
+
+// RenameSlot gives a pad a custom label. An empty name clears the rename and
+// falls back to the discovered name. Persisted immediately: a rename is a
+// deliberate edit, not part of the pad map the user still has to save.
+func (a *App) RenameSlot(slot int, name string) (HUDState, error) {
+	if slot < 1 || slot > 9 {
+		return a.snapshot(), fmt.Errorf("slot must be 1-9")
+	}
+	name = strings.TrimSpace(name)
+	if len(name) > 40 {
+		name = name[:40]
+	}
+	a.mu.Lock()
+	if slot > len(a.slots) || a.slots[slot-1].DeviceID == "" {
+		st := a.snapshotLocked()
+		a.mu.Unlock()
+		return st, fmt.Errorf("pad %d has no light bound", slot)
+	}
+	a.slots[slot-1].Custom = name
+	snapshot := config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	st := a.snapshotLocked()
+	a.mu.Unlock()
+	if err := config.SaveSlotFile(snapshot); err != nil {
+		log.Printf("rename: save failed: %v", err)
+	}
+	a.emitState()
+	return st, nil
 }
 
 func (a *App) AssignSlot(slot int, deviceID string) (HUDState, error) {

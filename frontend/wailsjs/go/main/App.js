@@ -82,6 +82,10 @@ export function MoveSlot(arg1, arg2) {
   return window['go']['main']['App']['MoveSlot'](arg1, arg2);
 }
 
+export function RenameSlot(arg1, arg2) {
+  return window['go']['main']['App']['RenameSlot'](arg1, arg2);
+}
+
 export function OpenConfig() {
   return window['go']['main']['App']['OpenConfig']();
 }

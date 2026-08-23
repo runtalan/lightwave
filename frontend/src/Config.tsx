@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   MoveSlot,
+  RenameSlot,
   AssignSlot,
   CloseConfig,
   CommitMappings,
@@ -102,6 +103,19 @@ function LightsPane({
   const [busy, setBusy] = useState(false)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
+  const [renaming, setRenaming] = useState<number | null>(null)
+
+  async function rename(slot: number, value: string) {
+    setRenaming(null)
+    setErr('')
+    try {
+      const next = await RenameSlot(slot, value)
+      onState(next)
+      setNote(value.trim() ? `Renamed pad ${slot}.` : `Pad ${slot} back to its discovered name.`)
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
 
   async function move(from: number, to: number) {
     setErr('')
@@ -124,6 +138,9 @@ function LightsPane({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Typing in the rename field must not be captured as pad navigation.
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
       const map: Record<string, number> = {
         Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9,
         Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
@@ -160,7 +177,7 @@ function LightsPane({
 
   return (
     <div className="pane lights-pane">
-      <p className="lede">Bind numpad 1–9. A light can live on one pad only. Drag a bound pad onto another to move it — dropping on an occupied pad swaps the two.</p>
+      <p className="lede">Bind numpad 1–9. A light can live on one pad only. Drag a bound pad onto another to move it — dropping on an occupied pad swaps the two. Click ✎ to rename.</p>
       <div className="grid" role="grid" aria-label="Numpad slots">
         {NUMPAD_ORDER.map((n) => {
           const slot = slotByNumber(state, n)
@@ -198,10 +215,39 @@ function LightsPane({
               }}
             >
               <span className="pad">{n}</span>
-              <span className="name">{mapped ? slot?.name : 'empty'}</span>
+              {renaming === n ? (
+                <input
+                  className="rename-field"
+                  autoFocus
+                  defaultValue={slot?.name ?? ''}
+                  maxLength={40}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => void rename(n, e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') void rename(n, e.currentTarget.value)
+                    if (e.key === 'Escape') setRenaming(null)
+                  }}
+                />
+              ) : (
+                <span className="name">{mapped ? slot?.name : 'empty'}</span>
+              )}
               {mapped && !slot?.ip && <span className="warn">no link</span>}
               {mapped && slot?.ip?.startsWith('ble:') && <span className="linkway">BLE</span>}
-              {mapped && (
+              {mapped && renaming !== n && (
+                <span
+                  className="rename"
+                  title="Rename"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setFocus(n)
+                    setRenaming(n)
+                  }}
+                >
+                  ✎
+                </span>
+              )}
+              {mapped && renaming !== n && (
                 <span
                   className="unbind"
                   onClick={(e) => {

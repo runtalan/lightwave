@@ -44,6 +44,8 @@ export function MarkUIReady():Promise<void>;
 
 export function MoveSlot(arg1:number,arg2:number):Promise<main.HUDState>;
 
+export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
+
 export function OpenConfig():Promise<void>;
 
 export function OpenSetup():Promise<void>;

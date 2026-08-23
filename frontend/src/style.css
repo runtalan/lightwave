@@ -219,15 +219,26 @@ a,
   font-size: 18px;
 }
 
+/* The pad grid is the panel's flexible element: it takes the height left over
+   after the header, keymap, slider and footer, and divides it into three equal
+   rows. Sizing rows from tile aspect-ratio instead made pad height a function
+   of window width, so the bottom row (1-2-3) overflowed the window. */
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  flex: 1;
+  min-height: 0;
 }
 
 .tile {
   position: relative;
-  aspect-ratio: 1;
+  /* Fill exactly one grid row and never grow past it. Without an explicit
+     height a tile sizes to its content (pad number + two-line name + badges),
+     which pushed the bottom row past the grid and over the device list. */
+  height: 100%;
+  min-height: 0;
   border-radius: 14px;
   border: 1px solid rgba(176, 38, 255, 0.22);
   background:
@@ -312,6 +323,35 @@ a,
   right: 6px;
   font-size: 14px;
   opacity: 0.7;
+}
+
+.rename {
+  position: absolute;
+  top: 5px;
+  right: 24px;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.rename:hover,
+.unbind:hover {
+  opacity: 1;
+  color: var(--magenta);
+}
+
+/* Inline rename editor: sits where the name label was, so the tile does not
+   change size while editing. */
+.rename-field {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ice);
+  background: rgba(4, 2, 10, 0.9);
+  border: 1px solid var(--neon);
+  border-radius: 6px;
+  padding: 3px 5px;
+  outline: none;
 }
 
 @keyframes plasma {
@@ -553,6 +593,21 @@ a,
 
 .lights-pane .device-list {
   min-height: 150px;
+}
+
+/* In Config the pad grid shares the pane with the device list, so it keeps a
+   fixed row height instead of expanding to fill (which would starve the list). */
+.lights-pane .grid {
+  flex: 0 0 auto;
+  grid-template-rows: repeat(3, 104px);
+}
+
+/* Short window: give the pads less height rather than letting the bottom row
+   fall below the fold. */
+@media (max-height: 720px) {
+  .lights-pane .grid {
+    grid-template-rows: repeat(3, 78px);
+  }
 }
 
 .form-pane {

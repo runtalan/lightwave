@@ -25,6 +25,19 @@ type SlotBinding struct {
 	Name     string `json:"name"`
 	Model    string `json:"model"`
 	IP       string `json:"ip"`
+	// Custom is a name the user typed. Discovery refreshes Name from the
+	// cloud/BLE catalog on every scan, so a rename has to be recorded
+	// separately or it would be overwritten minutes later.
+	Custom string `json:"custom,omitempty"`
+}
+
+// Label is the name to display: the user's rename when set, else whatever
+// discovery last supplied.
+func (s SlotBinding) Label() string {
+	if strings.TrimSpace(s.Custom) != "" {
+		return s.Custom
+	}
+	return s.Name
 }
 
 type SlotFile struct {
