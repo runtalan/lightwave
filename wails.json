@@ -1,0 +1,21 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "lightwave",
+  "outputfilename": "lightwave",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "./frontend",
+  "author": {
+    "name": "Renato Untalan",
+    "email": "renatountalan@gmail.com"
+  },
+  "info": {
+    "companyName": "Ren",
+    "productName": "Lightwave",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2026 Ren",
+    "comments": "Local Govee lighting control center"
+  }
+}

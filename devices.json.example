@@ -1,0 +1,14 @@
+{
+  "slots": [
+    { "slot": 1, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 2, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 3, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 4, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 5, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 6, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 7, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 8, "deviceId": "", "name": "", "model": "", "ip": "" },
+    { "slot": 9, "deviceId": "", "name": "", "model": "", "ip": "" }
+  ],
+  "configured": false
+}

@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1d0c33"/><stop offset="44%" stop-color="#13081f"/><stop offset="100%" stop-color="#0a0416"/>
+    </linearGradient>
+    <linearGradient id="gridline" gradientUnits="userSpaceOnUse" x1="0" y1="380" x2="0" y2="1010">
+      <stop offset="0%" stop-color="#c04dff"/><stop offset="55%" stop-color="#ff2ec8"/><stop offset="100%" stop-color="#ff7fdc"/>
+    </linearGradient>
+    <linearGradient id="sparkgrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="45%" stop-color="#ff8ae2"/><stop offset="100%" stop-color="#b026ff"/>
+    </linearGradient>
+    <radialGradient id="sparkcore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="35%" stop-color="#ff2ec8"/><stop offset="100%" stop-color="#b026ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="skyglow" cx="50%" cy="42%" r="55%">
+      <stop offset="0%" stop-color="#ff2ec8" stop-opacity="0.34"/><stop offset="55%" stop-color="#b026ff" stop-opacity="0.12"/><stop offset="100%" stop-color="#b026ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="neon" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="11" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="gridglow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="sparkglow" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="40"/></filter>
+    <clipPath id="squircle"><path d="M100 322 C100 175, 175 100, 322 100 L702 100 C849 100, 924 175, 924 322 L924 702 C924 849, 849 924, 702 924 L322 924 C175 924, 100 849, 100 702 Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#skyglow)"/>
+    <g fill="none" stroke-linecap="round" filter="url(#gridglow)">
+      <path d="M512.0 430.0 L-838.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L-688.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L-538.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L-388.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L-238.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L-88.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L62.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L212.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L362.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L512.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L662.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L812.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L962.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L1112.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L1262.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L1412.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L1562.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L1712.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M512.0 430.0 L1862.0 40.0" stroke="url(#gridline)" stroke-width="3" opacity="0.20"/>
+      <path d="M386.6 403.6 L637.4 403.6" stroke="url(#gridline)" stroke-width="3.3" opacity="0.16"/>
+      <path d="M299.1 370.7 L724.9 370.7" stroke="url(#gridline)" stroke-width="3.6" opacity="0.18"/>
+      <path d="M184.5 324.5 L839.5 324.5" stroke="url(#gridline)" stroke-width="4.1" opacity="0.21"/>
+      <path d="M44.3 265.2 L979.7 265.2" stroke="url(#gridline)" stroke-width="4.7" opacity="0.25"/>
+      <path d="M-120.2 192.7 L1144.2 192.7" stroke="url(#gridline)" stroke-width="5.4" opacity="0.30"/>
+      <path d="M-308.4 107.0 L1332.4 107.0" stroke="url(#gridline)" stroke-width="6.3" opacity="0.36"/>
+      <path d="M512.0 430.0 L-838.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L-688.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L-538.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L-388.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L-238.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L-88.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L62.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L212.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L362.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L512.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L662.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L812.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L962.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L1112.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L1262.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L1412.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L1562.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L1712.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M512.0 430.0 L1862.0 1010.0" stroke="url(#gridline)" stroke-width="4" opacity="0.62"/>
+      <path d="M416.9 446.8 L607.1 446.8" stroke="url(#gridline)" stroke-width="5.3" opacity="0.56"/>
+      <path d="M362.0 467.7 L662.0 467.7" stroke="url(#gridline)" stroke-width="5.6" opacity="0.58"/>
+      <path d="M290.1 497.0 L733.9 497.0" stroke="url(#gridline)" stroke-width="6.0" opacity="0.60"/>
+      <path d="M202.2 534.8 L821.8 534.8" stroke="url(#gridline)" stroke-width="6.6" opacity="0.63"/>
+      <path d="M99.0 580.9 L925.0 580.9" stroke="url(#gridline)" stroke-width="7.3" opacity="0.67"/>
+      <path d="M-19.0 635.3 L1043.0 635.3" stroke="url(#gridline)" stroke-width="8.2" opacity="0.71"/>
+      <path d="M-151.4 698.2 L1175.4 698.2" stroke="url(#gridline)" stroke-width="9.2" opacity="0.76"/>
+      <path d="M-297.6 769.4 L1321.6 769.4" stroke="url(#gridline)" stroke-width="10.3" opacity="0.81"/>
+      <path d="M-457.5 849.0 L1481.5 849.0" stroke="url(#gridline)" stroke-width="11.5" opacity="0.88"/>
+      <path d="M-630.7 937.1 L1654.7 937.1" stroke="url(#gridline)" stroke-width="12.9" opacity="0.94"/>
+    </g>
+    <rect x="96" y="427" width="832" height="6" fill="#ff2ec8" opacity="0.75" filter="url(#gridglow)"/>
+    <g filter="url(#sparkglow)"><circle cx="512" cy="430" r="104" fill="url(#sparkcore)" opacity="0.6"/></g>
+    <g filter="url(#neon)">
+      <path d="M512 300 L528 414 L512 560 L496 414 Z" fill="url(#sparkgrad)"/>
+      <path d="M350 430 L470 445 L674 430 L470 415 Z" fill="url(#sparkgrad)"/>
+      <path d="M424 344 L516 416 L600 516 L508 444 Z" fill="url(#sparkgrad)" opacity="0.7"/>
+      <path d="M600 344 L508 416 L424 516 L516 444 Z" fill="url(#sparkgrad)" opacity="0.7"/>
+    </g>
+    <circle cx="512" cy="430" r="22" fill="#ffffff"/>
+    <circle cx="512" cy="430" r="40" fill="none" stroke="#ffd6f5" stroke-width="4" opacity="0.9"/>
+    <path d="M100 322 C100 175, 175 100, 322 100 L702 100 C849 100, 924 175, 924 322 L924 702 C924 849, 849 924, 702 924 L322 924 C175 924, 100 849, 100 702 Z" fill="none" stroke="#b026ff" stroke-width="9" opacity="0.6"/>
+  </g>
+</svg>
