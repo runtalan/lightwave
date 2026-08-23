@@ -1,162 +1,245 @@
 # Lightwave
 
-A lightning-fast local control center for a Govee lighting ecosystem. Native Apple Silicon binary via Wails v2 (Go + React). Triggered from an Elgato Stream Deck, driven in real time by a Glorious numpad (QMK/VIA/MIDI).
+**Instant, local control of your Govee lights — from a keypad, a dial, or a Stream Deck.**
 
-Cloud REST is used **only** for first-run device discovery. Live control is Govee LAN UDP, with a Bluetooth LE fallback for lamps that have no LAN Control (CoreBluetooth, macOS).
+Lightwave is a small macOS app that talks to Govee lights **directly on your own network and over Bluetooth**. No cloud round-trip when you turn a light on, no lag, and it keeps working when your internet is down. Turn a knob and the room responds immediately.
+
+![The Lightwave HUD](docs/img/hud.png)
+
+---
+
+## Why this exists
+
+The Govee app is fine for setting up a light and forgetting about it. It's less fine when you want to *use* your lights constantly — dimming while you work, killing everything when a movie starts, shifting the room warm in the evening. Reaching for your phone, waiting for a cloud request, and hunting through menus is too much friction for something you do thirty times a day.
+
+Lightwave puts your lights on physical controls. A number key toggles a lamp. A slider dims everything at once. One key turns the whole room off. It's the difference between operating your lights and *playing* them.
+
+**Local control means:**
+
+- **Fast** — commands go straight to the light over your LAN or Bluetooth, typically in milliseconds
+- **Private** — light commands never leave your network
+- **Reliable** — works during an internet outage
+- **Gentle on rate limits** — Govee's cloud API caps requests; local control has no such ceiling
+
+The cloud is used for exactly one thing: reading your light *names* during setup, so your keys say "Bedroom Lamp" instead of "H6072."
+
+---
+
+## What you can do
+
+| Control | What it does |
+|---|---|
+| **1–9** | Toggle that light on or off |
+| **0** | Toggle every light — all off, or all back on |
+| **Slider / dial** | Dim every lit light together, smoothly |
+| **+ / −** | Cycle color palettes |
+| **\*** | Start or stop a slow color fade across the room |
+| **Enter** | Hide the window (it keeps running) |
+| **.** | Quit |
+
+Lights that are on glow on screen, so the window is a live map of the room. If you change a light in the Govee app or flip a physical switch, Lightwave notices and updates.
+
+### Color palettes
+
+Eight built-in palettes: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, and Sunset.
+
+When several lights are on, they don't all get the same color — Lightwave spreads related shades across the group, so a room reads as *composed* rather than uniform. Press `*` and those colors drift slowly through the palette, each light offset from the next.
+
+---
+
+## Requirements
+
+- **macOS 11 or later** (Apple Silicon or Intel)
+- **Govee lights** — see [compatibility](#which-lights-work) below
+- **A Govee API key** (free) for reading light names — [get one here](https://developer.govee.com/reference/apply-you-govee-api-key)
+- Optionally: a MIDI keypad, a USB dial, or a Stream Deck
+
+---
+
+## Which lights work
+
+Lightwave reaches lights two ways, and prefers whichever is faster.
+
+### Wi-Fi (LAN control) — best
+
+The fastest and most reliable path. Enable it per light in the Govee app: **Device Settings → LAN Control → on**.
+
+Govee's officially LAN-capable models include **H6046, H6047, H6051, H6056, H6059, H6061, H6062, H6065, H6066, H6067, H6072, H6073, H6076, H6078, H6087, H6088, H610A, H610B, H6110, H6117, H6159, H615A, H615B, H615C, H615D, H6163, H6168, H6172, H6173, H6175, H6176, H618A, H618C, H618E, H618F, H619A, H619B, H619C, H619D, H619E, H619Z, H61A0, H61A1, H61A2, H61A3, H61A5, H61A8, H61B2, H61E1, H61E5, H6640, H6641, H7012, H7013, H7021, H7028, H7041, H7042, H7050, H7051, H7055, H705A, H705B, H705C, H7060, H7061, H7062, H7065, H7066, H7075, H70B1, H70C1, H70C2, H7099** — plus others Govee adds over time.
+
+The list is a guide, not a wall: some models support LAN control without appearing on it. Lightwave discovers whatever answers on your network, so **try your light even if it isn't listed**.
+
+📖 [Govee's official LAN API documentation](https://app-h5.govee.com/user-manual/wlan-guide)
+
+### Bluetooth — the fallback
+
+Lights with no LAN support are driven over Bluetooth LE instead. Lightwave finds any Govee light advertising nearby and controls power, brightness, and color. This covers many strips and bulbs Govee never exposed to LAN control, including **H617A** and similar RGBIC strips.
+
+Bluetooth is slightly slower than Wi-Fi and needs the light in range of your Mac. When a light supports both, **Wi-Fi always wins**.
+
+> **First launch:** macOS will ask for Bluetooth permission. Lightwave can't find Bluetooth lights without it.
+
+### Which is my light using?
+
+Look at the pad in the app. **BLE** means Bluetooth; an IP address means Wi-Fi; **no link** means it hasn't been found yet — check that the light is powered on, and that LAN Control is enabled in the Govee app.
+
+---
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and set `GOVEE_API_KEY` from [Govee Developer](https://developer.govee.com).
-2. On each Govee device, enable **LAN Control** (Settings → LAN Control).
-3. Install toolchain: Go 1.22+, [Wails v2](https://wails.io), Node. Wails lives in `$HOME/go/bin` (Go’s `GOBIN`). That directory is on PATH via a small block in `~/.zshrc` and `~/.zprofile`; open a new terminal (or `source ~/.zshrc`) after first setup.
+1. **Install and launch.** On first run, Lightwave opens its Config screen.
+2. **Add your API key** in the **Account** tab (or put `GOVEE_API_KEY=...` in a `.env` file). This is only for reading light names.
+3. **Enable LAN Control** on each supported light in the Govee app.
+4. **Scan** with the **Scan LAN + BLE** button.
+5. **Bind your lights.** Click a numbered pad, then a light. Repeat.
+6. **Save map.**
 
-```bash
-cd /Users/runtalan/LightWave
-./scripts/dev.sh      # live HUD (prepends $HOME/go/bin even if this shell has not reloaded rc)
-./scripts/build.sh    # macOS app at build/bin/lightwave.app (ad-hoc signed)
-# or, in a new terminal: wails dev / wails build
-```
+![Config screen](docs/img/config.png)
 
-**Launch the built app** (do not double-click a half-built bundle — `Contents/MacOS` must contain `lightwave`):
+Useful extras: **drag a pad onto another** to move or swap it, and click the **✎** on a pad to rename a light for yourself. Renames survive rescans.
 
-```bash
-open /Users/runtalan/LightWave/build/bin/lightwave.app
-```
+---
 
-Hot reload during development is `./scripts/dev.sh` (`wails dev`), not the `.app`. Stream Deck `--toggle` should point at the inner binary:
+## Using a keypad, knob, or dial
 
-```bash
-/Users/runtalan/LightWave/build/bin/lightwave.app/Contents/MacOS/lightwave --toggle
-```
+Lightwave listens to **any MIDI controller**. It's built around a numpad, but a knob box, a DJ controller, or a MIDI foot pedal works just as well — anything that sends MIDI over USB.
 
-`./scripts/build.sh` ad-hoc signs the bundle (`codesign --force --deep --sign -`) and clears quarantine xattrs so Finder does not report the app as damaged. If you ever see that dialog after a failed or interrupted build, run `./scripts/build.sh` again — do not keep opening the incomplete `.app`.
+### The quick path: auto-learn
 
-## Config (in-app)
+Lightwave learns your dial automatically. Open the app, **turn the knob back and forth a few times**, and it will adopt it for brightness.
 
-The HUD **Config** button (also `,` / `G`, or `lightwave --config`) opens a settings deck. First launch lands on **Lights** until you save a pad map.
+The rule it uses: a control that reports *more than one distinct value* is a real dial; one that always sends the same number is a button. That distinction matters, and it's the source of the most common problem below.
 
-| Section | What it does |
-| --- | --- |
-| **Lights** | Bind numpad 7–8–9 / 4–5–6 / 1–2–3 to Govee devices. Duplicate guard, unbind, link badges (LAN IP / BLE / no link), rescan, fill remaining, **Save map**. |
-| **MIDI** | Brightness CC (default 7), alt CC, color +/− note numbers. |
-| **HUD** | Brightness preview. The HUD never hides on its own; press `Enter` to dismiss it. |
-| **Account** | API key present/missing, `.env` path, optional key stored in prefs, cloud + LAN scan. |
+### Doing it manually
 
-Persisted under `~/Library/Application Support/Lightwave/`:
+If auto-learn picks the wrong control, set it explicitly in **Config → MIDI**:
 
-- `slots.json` — pad mappings
-- `config.json` — MIDI, optional API key
+| Setting | What it controls |
+|---|---|
+| Brightness CC | The dial or fader that dims your lights |
+| Alternate CC | A second dial, if you have one |
+| Color + / − note | Buttons that cycle palettes |
 
-`.env` `GOVEE_API_KEY` still wins if both exist. **Done** returns to the HUD (first run requires a saved map).
+To find your controller's numbers, use a free MIDI monitor ([MIDI Monitor](https://www.snoize.com/midimonitor/) on macOS), turn the knob, and read the **CC number** it reports.
 
-## Stream Deck
+### Known-good controllers
 
-Bind a key to the binary with `--toggle`. Single-instance IPC (`/tmp/lightwave.sock`) show/hides the HUD without spawning extra processes. If Lightwave is not running, `--toggle` starts it and shows the HUD.
+Anything class-compliant over USB works. Common choices:
 
-The HUD never hides on its own. Press `Enter` (or numpad Enter) to dismiss it, or use `--toggle`. Hide uses WindowHide — the process keeps running. Launch again or `--toggle` to show it. Press `.` to quit the process outright.
+- **[GMMK Numpad](https://www.gloriousgaming.com/products/gmmk-numpad)** — a numpad with a fader; the layout Lightwave was designed around
+- **Korg nanoKONTROL2** — eight faders and knobs, great for per-room dimming
+- **Behringer X-Touch Mini** — eight rotary encoders plus buttons
+- **Akai MIDImix / LPD8** — plenty of knobs and pads
+- Any MIDI keyboard with a mod wheel or assignable knob
 
-```bash
-lightwave --toggle
-```
+### ⚠️ If your dial doesn't do anything
 
-## MIDI (Glorious numpad)
+**The most common cause isn't Lightwave — it's the controller's own firmware.**
 
-| Input | Default | Env |
-| --- | --- | --- |
-| Brightness slider | CC 7 (also CC 1) | `MIDI_CC`, `MIDI_CC_ALT` |
-| Color engine + | Note 60 or keyboard `+` / NumpadAdd | `MIDI_NOTE_PLUS` |
-| Color engine − | Note 61 or keyboard `-` / NumpadSubtract | `MIDI_NOTE_MINUS` |
+Many keypads (the GMMK Numpad included) ship with the fader mapped as a *button* rather than a continuous control, so it sends the same value forever no matter where you move it. Lightwave deliberately ignores such a control, because acting on it would jam brightness at one value and fight every other input.
 
-CC 0–127 maps to 0–100% brightness for **all lights in the active pool**. Missing MIDI hardware is fine — the app still launches.
+**The fix is in your controller's configuration software** — [VIA](https://usevia.app/) for QMK keyboards, or the vendor's editor:
 
-## Control HUD
+1. Open the configurator and select your device
+2. Find the fader or knob in the key map
+3. Set it to send a **MIDI CC (Control Change)** with an **absolute/continuous** value — not a button, note, or key press
+4. Save to the device
+5. Restart Lightwave and turn the knob
 
-- Keys **1–9** / numpad **1–9** toggle that pad into the active pool (ignite)
-- **\*** / numpad **\*** starts/stops a slow colour fade across every pooled light
-- **0** / numpad **0** toggles every bound light: all off, or all back on at the current slider level and palette
-- **Enter** / numpad **Enter** dismisses the HUD (the process keeps running; `--toggle` brings it back)
-- **.** / numpad **.** quits Lightwave entirely (relaunch with `open` or the Stream Deck key)
-- `+` / `-` cycle the Color Engine palettes: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset
-- Multiple pooled lights get adjacent/complementary colors from the palette, not clones
-- Tiles reached over Bluetooth show **BLE**; tiles with no route at all show **no link**
+In a MIDI monitor, a correctly configured dial shows values *sweeping* across 0–127. If you only ever see one number, it's still bound as a button.
 
-## LAN protocol
-
-- Scan multicast `239.255.255.250:4001`, listen `:4002`
-- Control JSON to device IP `:4003` (`turn`, `brightness`, `color`, `colorwc`)
-
-## BLE protocol (fallback)
-
-Lamps without LAN Control (e.g. H6168) are discovered by advertised name
-(`Govee_…`, `ihoment_…`, `GBK_…`) and controlled over GATT:
-
-- Service `00010203-0405-0607-0809-0a0b0c0d1910`, characteristic `…2b11`,
-  Write Without Response
-- 20-byte frames, XOR checksum in byte 19; keep-alive `0xAA01` every 2s
-- Addressed by CoreBluetooth UUID (`ble:` prefix in slot storage); a LAN IP
-  always wins over BLE when a lamp has both
-- All CoreBluetooth work runs on a private dispatch queue
-  (`internal/govee/ble_darwin.m`) — never the AppKit main thread
+---
 
 ## Stream Deck plugin
 
-`streamdeck/` holds a native Stream Deck plugin. It is a protocol adapter, not
-a second copy of the app: Stream Deck events come in over its WebSocket, and
-commands go out to the running Lightwave app over `/tmp/lightwave.sock`. All
-device logic stays in Lightwave — which is also what makes Bluetooth work, since
-macOS gates CoreBluetooth on the responsible process and the Stream Deck app
-declares no Bluetooth usage string.
+Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck alongside everything else.
+
+![Stream Deck action icons](docs/img/action-icons.png)
+
+| Action | What it does |
+|---|---|
+| **Status** | Live display: palette name, its actual colors, fade state, and how many lights are on |
+| **Light** | Toggle one light; the key shows its name and lights up when on |
+| **All Lights** | Everything off — or back on when all are off |
+| **Brightness** | Nudge up or down; on **Stream Deck +**, turn the dial |
+| **Palette** | Cycle color palettes |
+| **Color Fade** | Start or stop the slow fade |
+
+### The Status key
+
+A live, animated readout of your lighting, drawn in the Lightwave style — neon waves over a dark grid, with the palette's real colors along the bottom:
+
+![Status key in several states](docs/img/indicator-states.png)
+
+- **Palette name and swatches** — the exact colors currently in play
+- **Pips, top-left** — one per bound light, lit when that light is on
+- **Dot, top-right** — glowing and pulsing while the color fade runs, a hollow ring when idle
+- **The wave** drifts gently, and speeds up while the fade is running
+
+Press it to cycle palettes.
+
+### Install
 
 ```bash
-./streamdeck/build.sh --install   # build universal binary, install, restart Stream Deck
+./streamdeck/build.sh --install
 ```
 
-Actions: **Light** (toggle one pad, key shows the light's name and lights up when
-on), **All Lights** (everything off, or back on), **Palette**, **Color Fade**, **Brightness** (key nudge, or the
-dial on Stream Deck +). Keys track state pushed from Lightwave, so they stay
-correct when lights are changed from the HUD, the numpad, or the Govee app.
+Then open Stream Deck and drag **Lightwave** actions onto your keys. A ready-made two-page layout is included — open `streamdeck/Lightwave.streamDeckProfile` to import it, then set which light each key controls.
 
-Lightwave must be running; a key press when it is not shows an alert, and the
-plugin reconnects on its own once the app is back. Plugin log:
-`~/Library/Logs/Lightwave/streamdeck-plugin.log`.
+**Stream Deck keys stay in sync.** Turn a light off from the app, the numpad, or the Govee app, and the key updates. Lightwave must be running; the plugin reconnects on its own if you restart it.
 
-### Profile
+---
 
-`streamdeck/Lightwave.streamDeckProfile` is a ready-made two-page layout — open
-it to import. Page 1 holds four lights plus All Lights / Dimmer / Brighter / Color
-Fade; page 2 holds the rest plus the palette controls.
+## Everything talks to everything
 
-Regenerate it after rebinding pads (it reads the live pad map, so keys carry
-your real light names):
+Every control drives the same shared state, so nothing gets out of step:
+
+```
+  Keypad / dial  ─┐
+  Stream Deck    ─┼──►  Lightwave  ──┬──►  Wi-Fi (LAN)  ──►  your lights
+  The app window ─┘                  └──►  Bluetooth    ──┘
+```
+
+Dim with the knob and the on-screen slider moves. Toggle a light on the deck and the app's pad lights up.
+
+---
+
+## Troubleshooting
+
+**No lights found.** Enable LAN Control in the Govee app, confirm your Mac is on the same network as the lights, then **Scan LAN + BLE**. If your lights are on a guest network or separate VLAN, move them to the same subnet as your Mac — network isolation blocks local discovery.
+
+**A light shows "no link."** It's known from your Govee account but hasn't answered locally. Check that it's powered on and in Bluetooth range, or enable LAN Control.
+
+**Bluetooth lights don't appear.** Confirm macOS Bluetooth permission was granted (**System Settings → Privacy & Security → Bluetooth**). Bluetooth range is much shorter than Wi-Fi.
+
+**Names show as model numbers** (like "H6072"). Add your Govee API key in the **Account** tab and rescan. Lights not registered in your Govee account have no name to fetch — rename them yourself with the **✎** button.
+
+**The dial does nothing.** See [the warning above](#️-if-your-dial-doesnt-do-anything) — it's almost always the controller's firmware mapping.
+
+**Stream Deck keys say "offline."** Lightwave isn't running. Start it; the keys recover automatically.
+
+---
+
+## Privacy
+
+Lightwave runs entirely on your machine. Light commands go directly to your lights over your own network or Bluetooth — never through a server. Your Govee API key is stored locally and used only to fetch device names.
+
+---
+
+## Building from source
+
+Go, Node, and [Wails](https://github.com/wailsapp/wails) required:
 
 ```bash
-python3 streamdeck/makeprofile.py
+./scripts/build.sh              # the app
+./streamdeck/build.sh --install # the Stream Deck plugin
 ```
 
-Icons are generated too — `python3 streamdeck/genicons.py` from the `imgs`
-directory redraws the set.
+Architecture, the local protocols, and development notes are in [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
-### IPC command surface
+---
 
-The socket accepts one line per command and replies with `STATE <json>`:
-`PING`, `STATE`, `TOGGLE_SLOT <1-9>`, `SLOT_ON`/`SLOT_OFF <1-9>`,
-`BRIGHTNESS <0-100|+n|-n>`, `ALL_OFF`, `ALL_ON`, `ALL_TOGGLE`, `DANCE`,
-`PALETTE <+1|-1>`. `SUBSCRIBE`
-holds the connection open and streams state on every change.
+## License
 
-## Project layout
+MIT — see [LICENSE](LICENSE).
 
-```
-main.go                 CLI, single-instance, Wails window
-app.go                  Bindings, inactivity hide, setup/HUD
-internal/govee/         Cloud REST + LAN UDP + BLE (CoreBluetooth)
-internal/midi/          CoreMIDI listener
-internal/color/         Palette engine
-internal/config/        .env + slots.json
-internal/ipc/           /tmp/lightwave.sock
-remote.go               IPC command surface for external controllers
-streamdeck/             Stream Deck plugin (Go, native binary)
-frontend/src            HUD + Config
-```
-
-Do not commit `.env`.
+Lightwave is an independent project. It is not affiliated with, endorsed by, or supported by Govee or Elgato. Govee and Elgato are trademarks of their respective owners.

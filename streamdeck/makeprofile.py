@@ -41,11 +41,15 @@ def action(uuid_suffix, name, settings=None, states=1):
 def page(actions):
     return {"Controllers": [{"Actions": actions, "Type": "Keypad"}], "Icon": "", "Name": ""}
 
-def build(dest_dir, out_file):
-    pads = lightwave_pads()
+def build(dest_dir, out_file, personal=False):
+    """Build a profile. By default keys are labelled generically ("Light 1")
+    so the file is safe to publish; pass --mine to bake in the names of the
+    lights currently bound in Lightwave."""
+    pads = lightwave_pads() if personal else []
     if not pads:
-        pads = [{"n": n, "name": f"Pad {n}"} for n in (7, 8, 9, 4)]
-        print("lightwave not reachable — using generic pad layout")
+        pads = [{"n": n, "name": f"Light {n}"} for n in (1, 2, 3, 4, 5, 6, 7, 8)]
+        if personal:
+            print("lightwave not reachable — using generic pad layout")
 
     # Page 1: first four lights on the top row, controls beneath.
     p1, p2 = {}, {}
@@ -106,4 +110,6 @@ def build(dest_dir, out_file):
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
-    build(here, os.path.join(here, "Lightwave.streamDeckProfile"))
+    personal = "--mine" in sys.argv
+    out = "Lightwave-MyLights.streamDeckProfile" if personal else "Lightwave.streamDeckProfile"
+    build(here, os.path.join(here, out), personal=personal)

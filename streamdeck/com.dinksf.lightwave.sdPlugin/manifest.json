@@ -21,6 +21,22 @@
   ],
   "Actions": [
     {
+      "UUID": "com.dinksf.lightwave.status",
+      "Name": "Status",
+      "Icon": "imgs/actions/status",
+      "Tooltip": "Live display of the palette, its colours, the colour fade, and how many lights are on. Press to cycle palettes.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/status-key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
       "UUID": "com.dinksf.lightwave.pad",
       "Name": "Light",
       "Icon": "imgs/actions/pad",

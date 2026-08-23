@@ -129,10 +129,19 @@ func (a *App) RemoteCommand(cmd string) string {
 // smaller than HUDState: a key controller needs pad labels and on/off, not the
 // whole device catalog.
 type RemoteState struct {
-	Pads       []RemotePad `json:"pads"`
-	Brightness int         `json:"brightness"`
-	Palette    string      `json:"palette"`
-	Dancing    bool        `json:"dancing"`
+	Pads       []RemotePad   `json:"pads"`
+	Brightness int           `json:"brightness"`
+	Palette    string        `json:"palette"`
+	Dancing    bool          `json:"dancing"`
+	Swatches   []RemoteColor `json:"swatches"`
+}
+
+// RemoteColor is one palette colour, so a controller can draw the palette
+// rather than just name it.
+type RemoteColor struct {
+	R int `json:"r"`
+	G int `json:"g"`
+	B int `json:"b"`
 }
 
 type RemotePad struct {
@@ -145,11 +154,16 @@ type RemotePad struct {
 
 func (a *App) remoteState() string {
 	a.mu.Lock()
+	pal := a.engine.Palette()
 	st := RemoteState{
 		Pads:       make([]RemotePad, 0, 9),
 		Brightness: a.brightness,
-		Palette:    a.engine.Name(),
+		Palette:    pal.Name,
 		Dancing:    a.dancing,
+		Swatches:   make([]RemoteColor, 0, len(pal.Colors)),
+	}
+	for _, c := range pal.Colors {
+		st.Swatches = append(st.Swatches, RemoteColor{R: c.R, G: c.G, B: c.B})
 	}
 	for i := 1; i <= 9 && i <= len(a.slots); i++ {
 		s := a.slots[i-1]

@@ -8,8 +8,7 @@
   "frontend:dev:serverUrl": "auto",
   "wailsjsdir": "./frontend",
   "author": {
-    "name": "Renato Untalan",
-    "email": "renatountalan@gmail.com"
+    "name": "Renato Untalan"
   },
   "info": {
     "companyName": "Ren",

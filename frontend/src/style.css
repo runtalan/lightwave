@@ -269,7 +269,7 @@ a,
   line-height: 1.25;
   max-width: 100%;
   overflow: hidden;
-  /* Multi-word device names ("Living Room Cubby") need two lines: a single
+  /* Multi-word device names ("Living Room Lamp") need two lines: a single
      nowrap line ellipsised them away. Clamp at 2 so tiles stay uniform. */
   display: -webkit-box;
   -webkit-line-clamp: 2;

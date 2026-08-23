@@ -231,6 +231,15 @@ func (w *Conn) SetTitle(context, title string) {
 	})
 }
 
+// SetImage sets a key's image. data must be a data: URI (base64 PNG).
+func (w *Conn) SetImage(context, data string) {
+	_ = w.send(map[string]any{
+		"event":   "setImage",
+		"context": context,
+		"payload": map[string]any{"image": data, "target": 0},
+	})
+}
+
 func (w *Conn) SetState(context string, state int) {
 	_ = w.send(map[string]any{
 		"event":   "setState",

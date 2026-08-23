@@ -30,10 +30,32 @@ type Pad struct {
 
 // State is the snapshot Lightwave pushes to subscribers.
 type State struct {
-	Pads       []Pad  `json:"pads"`
-	Brightness int    `json:"brightness"`
-	Palette    string `json:"palette"`
-	Dancing    bool   `json:"dancing"`
+	Pads       []Pad   `json:"pads"`
+	Brightness int     `json:"brightness"`
+	Palette    string  `json:"palette"`
+	Dancing    bool    `json:"dancing"`
+	Swatches   []Color `json:"swatches"`
+}
+
+// Color is one palette swatch.
+type Color struct {
+	R int `json:"r"`
+	G int `json:"g"`
+	B int `json:"b"`
+}
+
+// CountOn returns how many lights are lit and how many are bound.
+func (s State) CountOn() (on, total int) {
+	for i := range s.Pads {
+		if !s.Pads[i].Bound {
+			continue
+		}
+		total++
+		if s.Pads[i].On {
+			on++
+		}
+	}
+	return on, total
 }
 
 // AnyOn reports whether at least one light is currently lit.

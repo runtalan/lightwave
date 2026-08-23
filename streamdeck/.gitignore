@@ -1,2 +1,4 @@
 .build-arm64
 .build-amd64
+# Generated with --mine: contains the user's own light names.
+Lightwave-MyLights.streamDeckProfile

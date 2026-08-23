@@ -77,7 +77,7 @@ func TestBLEPacketColor(t *testing.T) {
 
 func TestBLEAddrHelpers(t *testing.T) {
 	addr := "ble:12345678-ABCD-1234-ABCD-123456789ABC"
-	if !IsBLE(addr) || IsBLE("192.168.8.23") || IsBLE("") {
+	if !IsBLE(addr) || IsBLE("192.0.2.23") || IsBLE("") {
 		t.Fatal("IsBLE misclassified")
 	}
 	if BLEAddrUUID(addr) != "12345678-ABCD-1234-ABCD-123456789ABC" {

@@ -22,7 +22,10 @@ import (
 	"strings"
 	"sync"
 
+	"time"
+
 	"lightwave-sd/internal/lw"
+	"lightwave-sd/internal/render"
 	"lightwave-sd/internal/sd"
 )
 
@@ -33,6 +36,7 @@ const (
 	actPalette    = "com.dinksf.lightwave.palette"
 	actDance      = "com.dinksf.lightwave.dance"
 	actBrightness = "com.dinksf.lightwave.brightness"
+	actStatus     = "com.dinksf.lightwave.status"
 )
 
 func main() {
@@ -64,6 +68,7 @@ func main() {
 	// Lightwave state pushes drive key appearance, so keys reflect changes made
 	// from the HUD, the numpad, or the lamps themselves.
 	go p.client.Subscribe(p.onLightwaveState)
+	go p.animate()
 
 	conn.Run(p.onEvent)
 }
@@ -103,10 +108,11 @@ type plugin struct {
 	sd     *sd.Conn
 	client *lw.Client
 
-	mu       sync.Mutex
-	contexts map[string]*instance
-	state    lw.State
+	mu        sync.Mutex
+	contexts  map[string]*instance
+	state     lw.State
 	haveState bool
+	phase     float64
 }
 
 func (p *plugin) onEvent(ev sd.Event) {
@@ -171,6 +177,10 @@ func (p *plugin) press(ev sd.Event) {
 		} else {
 			cmd = "PALETTE +1"
 		}
+	case actStatus:
+		// Pressing the status key cycles the palette — the key already shows
+		// which palette is active, so advancing from it is the natural gesture.
+		cmd = "PALETTE +1"
 	case actBrightness:
 		step := inst.settings.Step
 		if step == 0 {
@@ -283,6 +293,8 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		} else {
 			p.sd.SetState(inst.context, 0)
 		}
+	case actStatus:
+		p.renderStatus(inst, st)
 	case actAllOff:
 		// Two states so the key shows whether anything is currently lit.
 		if st.AnyOn() {
@@ -322,4 +334,70 @@ func wrapTitle(s string) string {
 		lines = lines[:3]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderStatus draws the live indicator key: palette name and colours, fade
+// state, and how many lights are lit.
+func (p *plugin) renderStatus(inst *instance, st lw.State) {
+	on, total := st.CountOn()
+	sw := make([]render.Swatch, 0, len(st.Swatches))
+	for _, c := range st.Swatches {
+		sw = append(sw, render.Swatch{R: c.R, G: c.G, B: c.B})
+	}
+	p.mu.Lock()
+	phase := p.phase
+	p.mu.Unlock()
+	img, err := render.Indicator(render.Status{
+		Palette:  st.Palette,
+		Swatches: sw,
+		Dancing:  st.Dancing,
+		LightsOn: on,
+		Total:    total,
+		Phase:    phase,
+	})
+	if err != nil {
+		log.Printf("indicator render: %v", err)
+		return
+	}
+	p.sd.SetImage(inst.context, img)
+}
+
+// animate advances the indicator's wave. It only redraws while a status key is
+// actually on screen, and runs slowly when the fade animation is off, so an
+// idle deck is not repainted for no reason.
+func (p *plugin) animate() {
+	const step = 220 * time.Millisecond
+	t := time.NewTicker(step)
+	defer t.Stop()
+	for range t.C {
+		p.mu.Lock()
+		var keys []*instance
+		for _, inst := range p.contexts {
+			if inst.action == actStatus {
+				keys = append(keys, inst)
+			}
+		}
+		if len(keys) == 0 {
+			p.mu.Unlock()
+			continue
+		}
+		st, have := p.state, p.haveState
+		// A drifting wave when idle, faster while the colour fade runs, so the
+		// key's motion mirrors what the lights are doing.
+		inc := 0.012
+		if st.Dancing {
+			inc = 0.05
+		}
+		p.phase += inc
+		if p.phase > 1 {
+			p.phase -= 1
+		}
+		p.mu.Unlock()
+		if !have {
+			continue
+		}
+		for _, inst := range keys {
+			p.renderStatus(inst, st)
+		}
+	}
 }

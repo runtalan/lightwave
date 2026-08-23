@@ -189,7 +189,7 @@ func (u *UDP) handle(raw []byte, from string) {
 		return
 	}
 	// A LAN scan reply carries no friendly name — only the SKU. Leaving Name
-	// empty keeps the cloud-provided name (e.g. "Bedroom Floor Lamp") from
+	// empty keeps the cloud-provided name (e.g. "Bedroom Lamp") from
 	// being overwritten with a model number by Merge.
 	d := Device{
 		ID:     NormalizeID(data.Device),
