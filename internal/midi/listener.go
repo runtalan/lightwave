@@ -180,7 +180,16 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 	if v&midiPresent == 0 {
 		return 0, 0, false
 	}
-	return uint8(v >> 8), uint8(v), true
+	cc, val = uint8(v>>8), uint8(v)
+	// A control that has only ever reported one value is not a working slider:
+	// the GMMK numpad's fader, bound as a button in VIA/QMK, streams a constant
+	// 0 many times a second. Acting on it would peg brightness at that value
+	// and fight every other brightness source. Ignore it until it proves it
+	// varies.
+	if cc < 128 && l.learnVary[cc].Load() != 1 {
+		return 0, 0, false
+	}
+	return cc, val, true
 }
 
 func (l *Listener) TakeNote() (note uint8, ok bool) {

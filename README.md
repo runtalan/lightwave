@@ -98,6 +98,34 @@ Lamps without LAN Control (e.g. H6168) are discovered by advertised name
 - All CoreBluetooth work runs on a private dispatch queue
   (`internal/govee/ble_darwin.m`) — never the AppKit main thread
 
+## Stream Deck plugin
+
+`streamdeck/` holds a native Stream Deck plugin. It is a protocol adapter, not
+a second copy of the app: Stream Deck events come in over its WebSocket, and
+commands go out to the running Lightwave app over `/tmp/lightwave.sock`. All
+device logic stays in Lightwave — which is also what makes Bluetooth work, since
+macOS gates CoreBluetooth on the responsible process and the Stream Deck app
+declares no Bluetooth usage string.
+
+```bash
+./streamdeck/build.sh --install   # build universal binary, install, restart Stream Deck
+```
+
+Actions: **Light** (toggle one pad, key shows the light's name and lights up when
+on), **All Off**, **Palette**, **Color Fade**, **Brightness** (key nudge, or the
+dial on Stream Deck +). Keys track state pushed from Lightwave, so they stay
+correct when lights are changed from the HUD, the numpad, or the Govee app.
+
+Lightwave must be running; a key press when it is not shows an alert. Plugin log:
+`~/Library/Logs/Lightwave/streamdeck-plugin.log`.
+
+### IPC command surface
+
+The socket accepts one line per command and replies with `STATE <json>`:
+`PING`, `STATE`, `TOGGLE_SLOT <1-9>`, `SLOT_ON`/`SLOT_OFF <1-9>`,
+`BRIGHTNESS <0-100|+n|-n>`, `ALL_OFF`, `DANCE`, `PALETTE <+1|-1>`. `SUBSCRIBE`
+holds the connection open and streams state on every change.
+
 ## Project layout
 
 ```
@@ -108,6 +136,8 @@ internal/midi/          CoreMIDI listener
 internal/color/         Palette engine
 internal/config/        .env + slots.json
 internal/ipc/           /tmp/lightwave.sock
+remote.go               IPC command surface for external controllers
+streamdeck/             Stream Deck plugin (Go, native binary)
 frontend/src            HUD + Config
 ```
 

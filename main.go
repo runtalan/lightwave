@@ -54,6 +54,9 @@ func main() {
 		return
 	}
 	defer srv.Close()
+	// Hand the socket to the app so external controllers (the Stream Deck
+	// plugin) can drive lights and subscribe to state.
+	app.SetIPCServer(srv)
 
 	err = wails.Run(&options.App{
 		Title:             "Lightwave",

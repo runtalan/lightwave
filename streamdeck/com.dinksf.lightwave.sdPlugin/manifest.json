@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Name": "Lightwave",
+  "UUID": "com.dinksf.lightwave",
+  "Author": "Paul",
+  "Version": "1.0.0.0",
+  "Description": "Control Govee lights over LAN and Bluetooth through the Lightwave app.",
+  "Category": "Lightwave",
+  "CategoryIcon": "imgs/category",
+  "Icon": "imgs/plugin",
+  "CodePath": "bin/lightwave-sd",
+  "SDKVersion": 2,
+  "Software": { "MinimumVersion": "6.4" },
+  "OS": [{ "Platform": "mac", "MinimumVersion": "10.15" }],
+  "Actions": [
+    {
+      "UUID": "com.dinksf.lightwave.pad",
+      "Name": "Light",
+      "Icon": "imgs/actions/pad",
+      "Tooltip": "Toggle one Lightwave pad (1-9).",
+      "Controllers": ["Keypad"],
+      "PropertyInspectorPath": "ui/pad.html",
+      "States": [
+        { "Image": "imgs/actions/pad-off", "TitleAlignment": "bottom" },
+        { "Image": "imgs/actions/pad-on", "TitleAlignment": "bottom" }
+      ]
+    },
+    {
+      "UUID": "com.dinksf.lightwave.alloff",
+      "Name": "All Off",
+      "Icon": "imgs/actions/alloff",
+      "Tooltip": "Turn every pooled light off.",
+      "Controllers": ["Keypad"],
+      "States": [{ "Image": "imgs/actions/alloff-key", "TitleAlignment": "bottom" }]
+    },
+    {
+      "UUID": "com.dinksf.lightwave.palette",
+      "Name": "Palette",
+      "Icon": "imgs/actions/palette",
+      "Tooltip": "Cycle the color palette.",
+      "Controllers": ["Keypad"],
+      "PropertyInspectorPath": "ui/palette.html",
+      "States": [{ "Image": "imgs/actions/palette-key", "TitleAlignment": "bottom" }]
+    },
+    {
+      "UUID": "com.dinksf.lightwave.dance",
+      "Name": "Color Fade",
+      "Icon": "imgs/actions/dance",
+      "Tooltip": "Start or stop the slow color fade across pooled lights.",
+      "Controllers": ["Keypad"],
+      "States": [
+        { "Image": "imgs/actions/dance-off", "TitleAlignment": "bottom" },
+        { "Image": "imgs/actions/dance-on", "TitleAlignment": "bottom" }
+      ]
+    },
+    {
+      "UUID": "com.dinksf.lightwave.brightness",
+      "Name": "Brightness",
+      "Icon": "imgs/actions/brightness",
+      "Tooltip": "Nudge brightness, or turn the dial on Stream Deck +.",
+      "Controllers": ["Keypad", "Encoder"],
+      "PropertyInspectorPath": "ui/brightness.html",
+      "Encoder": {
+        "layout": "$B1",
+        "TriggerDescription": { "Rotate": "Brightness", "Push": "Nudge" }
+      },
+      "States": [{ "Image": "imgs/actions/brightness-key", "TitleAlignment": "bottom" }]
+    }
+  ]
+}

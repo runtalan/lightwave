@@ -6,6 +6,7 @@ export namespace config {
 	    name: string;
 	    model: string;
 	    ip: string;
+	    custom?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SlotBinding(source);
@@ -18,6 +19,7 @@ export namespace config {
 	        this.name = source["name"];
 	        this.model = source["model"];
 	        this.ip = source["ip"];
+	        this.custom = source["custom"];
 	    }
 	}
 
@@ -43,6 +45,23 @@ export namespace govee {
 	        this.model = source["model"];
 	        this.ip = source["ip"];
 	        this.online = source["online"];
+	    }
+	}
+
+}
+
+export namespace ipc {
+	
+	export class Server {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new Server(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
 	    }
 	}
 

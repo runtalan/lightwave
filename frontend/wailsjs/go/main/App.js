@@ -82,10 +82,6 @@ export function MoveSlot(arg1, arg2) {
   return window['go']['main']['App']['MoveSlot'](arg1, arg2);
 }
 
-export function RenameSlot(arg1, arg2) {
-  return window['go']['main']['App']['RenameSlot'](arg1, arg2);
-}
-
 export function OpenConfig() {
   return window['go']['main']['App']['OpenConfig']();
 }
@@ -106,6 +102,14 @@ export function Quit() {
   return window['go']['main']['App']['Quit']();
 }
 
+export function RemoteCommand(arg1) {
+  return window['go']['main']['App']['RemoteCommand'](arg1);
+}
+
+export function RenameSlot(arg1, arg2) {
+  return window['go']['main']['App']['RenameSlot'](arg1, arg2);
+}
+
 export function SaveMappings(arg1) {
   return window['go']['main']['App']['SaveMappings'](arg1);
 }
@@ -124,6 +128,10 @@ export function SetBrightness(arg1) {
 
 export function SetConfigAPIKey(arg1) {
   return window['go']['main']['App']['SetConfigAPIKey'](arg1);
+}
+
+export function SetIPCServer(arg1) {
+  return window['go']['main']['App']['SetIPCServer'](arg1);
 }
 
 export function ShowHUD() {

@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {govee} from '../models';
 import {config} from '../models';
+import {ipc} from '../models';
 
 export function AllOff():Promise<main.HUDState>;
 
@@ -44,8 +45,6 @@ export function MarkUIReady():Promise<void>;
 
 export function MoveSlot(arg1:number,arg2:number):Promise<main.HUDState>;
 
-export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
-
 export function OpenConfig():Promise<void>;
 
 export function OpenSetup():Promise<void>;
@@ -56,6 +55,10 @@ export function PingMotion():Promise<void>;
 
 export function Quit():Promise<void>;
 
+export function RemoteCommand(arg1:string):Promise<string>;
+
+export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
+
 export function SaveMappings(arg1:Array<config.SlotBinding>):Promise<void>;
 
 export function SaveSettings(arg1:main.SettingsView):Promise<void>;
@@ -65,6 +68,8 @@ export function ScanLAN():Promise<main.HUDState>;
 export function SetBrightness(arg1:number):Promise<void>;
 
 export function SetConfigAPIKey(arg1:string):Promise<void>;
+
+export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
 export function ShowHUD():Promise<void>;
 

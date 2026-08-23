@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
+<body>
+  <div class="row">
+    <label for="dir">Direction</label>
+    <select id="dir"><option value="next">Next palette</option><option value="prev">Previous palette</option></select>
+  </div>
+  <p class="hint">Cycles Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset.</p>
+  <script>
+    const sel = document.getElementById('dir');
+    document.addEventListener('pi-ready', (e) => { if (e.detail.direction) sel.value = e.detail.direction; });
+    bindField(sel, 'direction');
+  </script>
+</body></html>

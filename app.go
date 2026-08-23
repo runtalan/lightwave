@@ -12,6 +12,7 @@ import (
 	"lightwave/internal/color"
 	"lightwave/internal/config"
 	"lightwave/internal/govee"
+	"lightwave/internal/ipc"
 	midilstn "lightwave/internal/midi"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -154,6 +155,9 @@ type App struct {
 	fadeCancel   int
 	sizedMode    int // 0 never sized, 1 HUD, 2 config
 
+	ipcSrv       atomic.Pointer[ipc.Server]
+	lastRemoteMu sync.Mutex
+	lastRemote   string
 	udp      *govee.UDP
 	ble      *govee.BLE
 	midi     *midilstn.Listener
@@ -975,7 +979,20 @@ func (a *App) emit(name string, data ...interface{}) {
 
 func (a *App) emitState() {
 	a.emit("state", a.snapshot())
+	// External controllers (the Stream Deck plugin) subscribe over the IPC
+	// socket; pushing here means their keys track the HUD, the numpad, and
+	// status polling without any extra plumbing at each call site.
+	a.publishRemoteState()
 }
+
+// SetIPCServer hands the app the socket server so it can answer remote
+// commands and push state. Safe before or after startup.
+func (a *App) SetIPCServer(s *ipc.Server) {
+	a.ipcSrv.Store(s)
+	s.SetReplier(a.RemoteCommand)
+}
+
+func (a *App) ipcServer() *ipc.Server { return a.ipcSrv.Load() }
 
 func (a *App) GetState() HUDState {
 	return a.snapshot()

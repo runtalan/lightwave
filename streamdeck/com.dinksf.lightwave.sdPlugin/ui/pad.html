@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
+<body>
+  <div class="row">
+    <label for="pad">Light</label>
+    <select id="pad">
+      <option value="7">Pad 7</option><option value="8">Pad 8</option><option value="9">Pad 9</option>
+      <option value="4">Pad 4</option><option value="5">Pad 5</option><option value="6">Pad 6</option>
+      <option value="1">Pad 1</option><option value="2">Pad 2</option><option value="3">Pad 3</option>
+    </select>
+  </div>
+  <p class="hint">Matches the numpad layout in Lightwave. The key shows the light's name and lights up when it is on.</p>
+  <script>
+    const sel = document.getElementById('pad');
+    document.addEventListener('pi-ready', (e) => { if (e.detail.pad) sel.value = String(e.detail.pad); });
+    bindField(sel, 'pad', Number);
+  </script>
+</body></html>

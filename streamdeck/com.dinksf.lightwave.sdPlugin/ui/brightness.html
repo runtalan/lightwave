@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
+<body>
+  <div class="row">
+    <label for="mode">Key press</label>
+    <select id="mode"><option value="up">Brighter</option><option value="down">Dimmer</option></select>
+  </div>
+  <div class="row">
+    <label for="step">Step</label>
+    <input id="step" type="number" min="1" max="50" value="10">
+  </div>
+  <p class="hint">On Stream Deck + the dial adjusts brightness directly. The bottom of the range dims rather than turning lights off.</p>
+  <script>
+    const mode = document.getElementById('mode'), step = document.getElementById('step');
+    document.addEventListener('pi-ready', (e) => {
+      if (e.detail.mode) mode.value = e.detail.mode;
+      if (e.detail.step) step.value = e.detail.step;
+    });
+    bindField(mode, 'mode'); bindField(step, 'step', Number);
+  </script>
+</body></html>
