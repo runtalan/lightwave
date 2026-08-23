@@ -162,7 +162,7 @@ func (p *plugin) press(ev sd.Event) {
 		}
 		cmd = "TOGGLE_SLOT " + strconv.Itoa(inst.settings.Pad)
 	case actAllOff:
-		cmd = "ALL_OFF"
+		cmd = "ALL_TOGGLE"
 	case actDance:
 		cmd = "DANCE"
 	case actPalette:
@@ -284,7 +284,12 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			p.sd.SetState(inst.context, 0)
 		}
 	case actAllOff:
-		// Static key; nothing to reflect.
+		// Two states so the key shows whether anything is currently lit.
+		if st.AnyOn() {
+			p.sd.SetState(inst.context, 1)
+		} else {
+			p.sd.SetState(inst.context, 0)
+		}
 	}
 }
 

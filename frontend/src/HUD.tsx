@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import {
-  AllOff,
+  ToggleAll,
   CycleColor,
   Quit,
   ToggleDance,
@@ -66,7 +66,7 @@ export function HUD({ state }: Props) {
       }
       if (e.code === 'Digit0' || e.code === 'Numpad0') {
         e.preventDefault()
-        void AllOff()
+        void ToggleAll()
         return
       }
       const slot = keyToSlot(e)
@@ -124,7 +124,7 @@ export function HUD({ state }: Props) {
         </li>
         <li>
           <kbd>0</kbd>
-          <span>all off</span>
+          <span>all on/off</span>
         </li>
         <li>
           <kbd>Enter</kbd>

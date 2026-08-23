@@ -74,8 +74,13 @@ func blePacketPower(on bool) []byte {
 	return blePacket([]byte{0x33, 0x01, v})
 }
 
-// blePacketBrightness maps 1-100 percent onto the 0-255 byte most Govee BLE
-// firmwares expect.
+// blePacketBrightness sends brightness as a 1-100 percentage.
+//
+// Do not "helpfully" rescale this to 0-255. RGBIC strips (H617A and kin) treat
+// the byte as a percentage, and a value above 100 spills into the controller's
+// colour/scene state — the lamp visibly changes hue while you are only moving
+// the brightness slider. 1-100 is the range Govee's own BLE traffic uses and is
+// accepted by both the RGBIC strips and the older single-zone lamps.
 func blePacketBrightness(percent int) []byte {
 	if percent < 1 {
 		percent = 1
@@ -83,11 +88,7 @@ func blePacketBrightness(percent int) []byte {
 	if percent > 100 {
 		percent = 100
 	}
-	v := byte((percent*255 + 50) / 100)
-	if v == 0 {
-		v = 1
-	}
-	return blePacket([]byte{0x33, 0x04, v})
+	return blePacket([]byte{0x33, 0x04, byte(percent)})
 }
 
 // blePacketColorLegacy sets the whole lamp via manual-color mode 0x02 —

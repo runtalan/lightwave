@@ -1122,6 +1122,77 @@ func (a *App) ToggleSlot(n int) error {
 // AllOff turns off every light currently in the active pool and empties the
 // pool. Bound to key 0 / numpad 0. Devices without a LAN IP are skipped, the
 // same as every other control path.
+// ToggleAll switches every bound light off, or — when nothing is lit — brings
+// them all back on at the current slider level and palette. Key 0 and the
+// Stream Deck "All Lights" action both land here.
+func (a *App) ToggleAll() HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("toggle all recovered: %v", r)
+		}
+	}()
+	a.mu.Lock()
+	anyLit := len(a.pool) > 0
+	a.mu.Unlock()
+	if anyLit {
+		return a.AllOff()
+	}
+	return a.AllOn()
+}
+
+// AllOn ignites every bound light, matching what pressing each pad would do:
+// power on, brightness at the slider level, then the palette spread across the
+// group so no two lamps come up identical.
+func (a *App) AllOn() HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("all on recovered: %v", r)
+		}
+	}()
+	a.recordUserActivity()
+	a.mu.Lock()
+	if a.pool == nil {
+		a.pool = map[int]bool{}
+	}
+	if a.slotTouched == nil {
+		a.slotTouched = map[int]time.Time{}
+	}
+	now := time.Now()
+	type target struct {
+		n  int
+		ip string
+	}
+	var targets []target
+	limit := len(a.slots)
+	if limit > 9 {
+		limit = 9
+	}
+	for n := 1; n <= limit; n++ {
+		s := a.slots[n-1]
+		ip := strings.TrimSpace(s.IP)
+		if s.DeviceID == "" || ip == "" {
+			continue
+		}
+		a.pool[n] = true
+		a.slotTouched[n] = now
+		targets = append(targets, target{n: n, ip: ip})
+	}
+	bright := clampBrightness(a.brightness)
+	// The pool changed, so the pump's "same value, skip it" shortcut no longer
+	// reflects reality.
+	a.lastSentBright = -1
+	a.mu.Unlock()
+
+	for _, t := range targets {
+		_ = sendTurn(t.ip, true)
+		_ = govee.SendBrightness(t.ip, bright)
+	}
+	a.applyPaletteToPool()
+	a.emitState()
+	a.emit("pool:allon")
+	return a.snapshot()
+}
+
 func (a *App) AllOff() HUDState {
 	defer func() {
 		if r := recover(); r != nil {

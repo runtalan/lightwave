@@ -21,6 +21,8 @@ import (
 //	BRIGHTNESS <0-100> -> absolute level for the pool
 //	BRIGHTNESS +/-<n>  -> relative nudge
 //	ALL_OFF            -> everything off, pool cleared
+//	ALL_ON             -> every bound light on at the slider level
+//	ALL_TOGGLE         -> all off if anything is lit, else all on
 //	DANCE              -> toggle the colour animation
 //	PALETTE <+1|-1>    -> cycle palettes
 //	PING               -> liveness probe
@@ -94,6 +96,14 @@ func (a *App) RemoteCommand(cmd string) string {
 
 	case "ALL_OFF":
 		a.AllOff()
+		return a.remoteState()
+
+	case "ALL_ON":
+		a.AllOn()
+		return a.remoteState()
+
+	case "ALL_TOGGLE":
+		a.ToggleAll()
 		return a.remoteState()
 
 	case "DANCE":

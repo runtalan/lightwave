@@ -45,13 +45,20 @@ func TestBLEPacketPower(t *testing.T) {
 func TestBLEPacketBrightness(t *testing.T) {
 	full := blePacketBrightness(100)
 	xorCheck(t, full)
-	if full[2] != 0xFF || full[19] != 0xC8 {
-		t.Fatalf("brightness 100 = % x", full)
+	if full[2] != 100 {
+		t.Fatalf("brightness 100 payload = %d, want 100", full[2])
 	}
 	dim := blePacketBrightness(0) // clamped to 1%
 	xorCheck(t, dim)
-	if dim[2] == 0 {
-		t.Fatalf("brightness floor reached zero: % x", dim)
+	if dim[2] != 1 {
+		t.Fatalf("brightness floor = %d, want 1", dim[2])
+	}
+	// Never exceed 100: RGBIC firmware reads a larger byte into its colour
+	// state, which shifts the lamp's hue during a brightness change.
+	for _, p := range []int{50, 99, 100, 150, 255, 1000} {
+		if v := blePacketBrightness(p)[2]; v < 1 || v > 100 {
+			t.Fatalf("brightness(%d) payload = %d, outside 1-100", p, v)
+		}
 	}
 }
 

@@ -10,47 +10,88 @@
   "Icon": "imgs/plugin",
   "CodePath": "bin/lightwave-sd",
   "SDKVersion": 2,
-  "Software": { "MinimumVersion": "6.4" },
-  "OS": [{ "Platform": "mac", "MinimumVersion": "10.15" }],
+  "Software": {
+    "MinimumVersion": "6.4"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "10.15"
+    }
+  ],
   "Actions": [
     {
       "UUID": "com.dinksf.lightwave.pad",
       "Name": "Light",
       "Icon": "imgs/actions/pad",
       "Tooltip": "Toggle one Lightwave pad (1-9).",
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "PropertyInspectorPath": "ui/pad.html",
       "States": [
-        { "Image": "imgs/actions/pad-off", "TitleAlignment": "bottom" },
-        { "Image": "imgs/actions/pad-on", "TitleAlignment": "bottom" }
+        {
+          "Image": "imgs/actions/pad-off",
+          "TitleAlignment": "bottom"
+        },
+        {
+          "Image": "imgs/actions/pad-on",
+          "TitleAlignment": "bottom"
+        }
       ]
     },
     {
       "UUID": "com.dinksf.lightwave.alloff",
-      "Name": "All Off",
+      "Name": "All Lights",
       "Icon": "imgs/actions/alloff",
-      "Tooltip": "Turn every pooled light off.",
-      "Controllers": ["Keypad"],
-      "States": [{ "Image": "imgs/actions/alloff-key", "TitleAlignment": "bottom" }]
+      "Tooltip": "Turn every light off, or back on when all are off.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/alloff-key",
+          "TitleAlignment": "bottom"
+        },
+        {
+          "Image": "imgs/actions/allon-key",
+          "TitleAlignment": "bottom"
+        }
+      ]
     },
     {
       "UUID": "com.dinksf.lightwave.palette",
       "Name": "Palette",
       "Icon": "imgs/actions/palette",
       "Tooltip": "Cycle the color palette.",
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "PropertyInspectorPath": "ui/palette.html",
-      "States": [{ "Image": "imgs/actions/palette-key", "TitleAlignment": "bottom" }]
+      "States": [
+        {
+          "Image": "imgs/actions/palette-key",
+          "TitleAlignment": "bottom"
+        }
+      ]
     },
     {
       "UUID": "com.dinksf.lightwave.dance",
       "Name": "Color Fade",
       "Icon": "imgs/actions/dance",
       "Tooltip": "Start or stop the slow color fade across pooled lights.",
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "States": [
-        { "Image": "imgs/actions/dance-off", "TitleAlignment": "bottom" },
-        { "Image": "imgs/actions/dance-on", "TitleAlignment": "bottom" }
+        {
+          "Image": "imgs/actions/dance-off",
+          "TitleAlignment": "bottom"
+        },
+        {
+          "Image": "imgs/actions/dance-on",
+          "TitleAlignment": "bottom"
+        }
       ]
     },
     {
@@ -58,13 +99,24 @@
       "Name": "Brightness",
       "Icon": "imgs/actions/brightness",
       "Tooltip": "Nudge brightness, or turn the dial on Stream Deck +.",
-      "Controllers": ["Keypad", "Encoder"],
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
       "PropertyInspectorPath": "ui/brightness.html",
       "Encoder": {
         "layout": "$B1",
-        "TriggerDescription": { "Rotate": "Brightness", "Push": "Nudge" }
+        "TriggerDescription": {
+          "Rotate": "Brightness",
+          "Push": "Nudge"
+        }
       },
-      "States": [{ "Image": "imgs/actions/brightness-key", "TitleAlignment": "bottom" }]
+      "States": [
+        {
+          "Image": "imgs/actions/brightness-key",
+          "TitleAlignment": "bottom"
+        }
+      ]
     }
   ]
 }

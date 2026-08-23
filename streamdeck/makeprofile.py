@@ -52,7 +52,7 @@ def build(dest_dir, out_file):
     first, rest = pads[:4], pads[4:]
     for i, pad in enumerate(first):
         p1[f"{i},0"] = action("pad", pad["name"], {"pad": pad["n"]}, states=2)
-    p1["0,1"] = action("alloff", "All Off")
+    p1["0,1"] = action("alloff", "All Lights", states=2)
     p1["1,1"] = action("brightness", "Dimmer", {"mode": "down", "step": 10})
     p1["2,1"] = action("brightness", "Brighter", {"mode": "up", "step": 10})
     p1["3,1"] = action("dance", "Color Fade", states=2)
@@ -60,7 +60,7 @@ def build(dest_dir, out_file):
     # Page 2: remaining lights, palette controls.
     for i, pad in enumerate(rest[:4]):
         p2[f"{i},0"] = action("pad", pad["name"], {"pad": pad["n"]}, states=2)
-    p2["0,1"] = action("alloff", "All Off")
+    p2["0,1"] = action("alloff", "All Lights", states=2)
     p2["1,1"] = action("palette", "Palette −", {"direction": "prev"})
     p2["2,1"] = action("palette", "Palette +", {"direction": "next"})
     p2["3,1"] = action("dance", "Color Fade", states=2)
@@ -100,9 +100,9 @@ def build(dest_dir, out_file):
     shutil.rmtree(root)
     names = [p["name"] for p in pads]
     print(f"profile: {out_file}")
-    print(f"  page 1: {', '.join(n for n in names[:4])} + All Off, Dimmer, Brighter, Color Fade")
+    print(f"  page 1: {', '.join(n for n in names[:4])} + All Lights, Dimmer, Brighter, Color Fade")
     if rest:
-        print(f"  page 2: {', '.join(n for n in names[4:8])} + All Off, Palette -/+, Color Fade")
+        print(f"  page 2: {', '.join(n for n in names[4:8])} + All Lights, Palette -/+, Color Fade")
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))

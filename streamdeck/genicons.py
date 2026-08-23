@@ -43,20 +43,68 @@ def grid_bg(nx, ny, col, strength=1.0):
     return c, plate_a
 
 def spark(nx, ny, t=1.0):
-    """Four-point spark. Returns (colour, alpha)."""
-    col = mix(MAG, NEON, (ny+1)/2)
+    """A four-point sparkle: long tapered needles, not a plus sign.
+
+    The previous version modulated radius by cos(2a), which gives four stubby
+    equal lobes — visually a plus. Here each ray is drawn as a spine that
+    narrows to a point, the vertical pair runs longer than the horizontal, and
+    short diagonals fill the gaps so the silhouette reads as a star burst.
+    """
+    col = mix(MAG, NEON, (ny + 1) / 2)
     d = math.hypot(nx, ny)
-    ang = math.atan2(ny, nx)
-    # star: radius modulated by 4-fold symmetry
-    k = abs(math.cos(2*ang))
-    rad = 0.16 + 0.40*(k**2.2)
-    a = smooth(rad, rad*0.45, d) * t
-    # hot core
-    core = smooth(0.19, 0.0, d)
-    c = mix(col, (255,255,255), core*0.85)
-    # soft bloom
-    bloom = smooth(0.72, 0.10, d)*0.5*t
-    return c, min(1.0, a + bloom*0.55)
+
+    def needle(u, v, length, width):
+        """Ray along +/-u: |v| must shrink to 0 as |u| approaches length."""
+        au = abs(u)
+        if au > length:
+            return 0.0
+        # Concave taper: fat near the core, a fine point at the tip.
+        prof = (1.0 - au / length) ** 1.9
+        halfw = width * prof
+        if halfw <= 0.0005:
+            return 0.0
+        return smooth(halfw, halfw * 0.25, abs(v))
+
+    a = 0.0
+    a = max(a, needle(ny, nx, 0.92, 0.135))   # vertical, longest
+    a = max(a, needle(nx, ny, 0.74, 0.115))   # horizontal
+    # Diagonals at 45 degrees, shorter and finer, to break up the cross.
+    r2 = 0.70710678
+    du, dv = (nx + ny) * r2, (nx - ny) * r2
+    a = max(a, needle(du, dv, 0.40, 0.055))
+    a = max(a, needle(dv, du, 0.40, 0.055))
+
+    # Hot core and surrounding bloom.
+    core = smooth(0.17, 0.0, d)
+    a = max(a, core)
+    c = mix(col, (255, 255, 255), core * 0.9)
+    bloom = smooth(0.85, 0.12, d) * 0.42 * t
+    return c, min(1.0, a * t + bloom * 0.5)
+
+
+def spark_outline(nx, ny, weight=0.075):
+    """Hollow version of spark(), for the unlit state."""
+    col = mix(MAG, NEON, (ny + 1) / 2)
+
+    def edge(u, v, length, width):
+        au = abs(u)
+        if au > length:
+            return 0.0
+        prof = (1.0 - au / length) ** 1.9
+        halfw = width * prof
+        if halfw <= 0.0005:
+            return 0.0
+        return smooth(weight, weight * 0.3, abs(abs(v) - halfw))
+
+    a = 0.0
+    a = max(a, edge(ny, nx, 0.92, 0.135))
+    a = max(a, edge(nx, ny, 0.74, 0.115))
+    r2 = 0.70710678
+    du, dv = (nx + ny) * r2, (nx - ny) * r2
+    a = max(a, edge(du, dv, 0.40, 0.055))
+    a = max(a, edge(dv, du, 0.40, 0.055))
+    return col, a
+
 
 def render(path, size, fn):
     w=h=size
@@ -96,19 +144,15 @@ def pad(on):
             sc,sa = spark(nx*1.5, ny*1.5)
             if sa>0: c = over(c, sc, sa)
         else:
-            # Unlit: the spark's silhouette drawn as a thin outline, so the key
-            # reads as the same object switched off rather than a blank plate.
-            col = mix(NEON,MAG,(nx+1)/2)
-            d=math.hypot(nx*1.5, ny*1.5)
-            ang=math.atan2(ny,nx); k=abs(math.cos(2*ang))
-            rad=0.16+0.40*(k**2.2)
-            band = smooth(0.10,0.03,abs(d-rad))
-            if band>0: c = over(c, mix(col,(0,0,0),0.25), 0.62*band)
+            # Unlit: the same silhouette as the lit spark, drawn hollow, so the
+            # two states read as one object switching rather than two shapes.
+            sc, sa = spark_outline(nx*1.5, ny*1.5)
+            if sa>0: c = over(c, mix(sc,(0,0,0),0.15), 0.72*sa)
         return c,a
     return f
 
-def power(nx,ny):
-    c,a = grid_bg(nx,ny,None,0.8)
+def power(nx,ny,lit=False):
+    c,a = grid_bg(nx,ny,None, 1.0 if lit else 0.8)
     if a<=0: return (0,0,0),0.0
     col = mix(NEON,MAG,(nx+1)/2)
     d=math.hypot(nx,ny)
@@ -117,7 +161,12 @@ def power(nx,ny):
     ring = ring*(1-gap)
     stem = smooth(0.10,0.06,abs(nx))*smooth(0.06,0.0,max(0,ny-0.02))*smooth(-0.70,-0.64,ny)
     m = max(ring, stem)
-    if m>0: c = over(c, mix(col,(255,255,255),0.25*m), 0.95*m)
+    if m>0:
+        c = over(c, mix(col,(255,255,255),(0.45 if lit else 0.25)*m), 0.96*m)
+    if lit:
+        # Bloom behind the glyph so "all on" reads as energised at a glance.
+        glow = smooth(0.86, 0.12, d) * 0.40
+        if glow>0: c = over(c, col, glow)
     return c,a
 
 def palette(nx,ny):
@@ -165,7 +214,9 @@ def logo(nx,ny):
     return c,a
 
 targets=[("actions/pad-off",pad(False)),("actions/pad-on",pad(True)),("actions/pad",pad(True)),
- ("actions/alloff",power),("actions/alloff-key",power),
+ ("actions/alloff",lambda x,y: power(x,y,False)),
+ ("actions/alloff-key",lambda x,y: power(x,y,False)),
+ ("actions/allon-key",lambda x,y: power(x,y,True)),
  ("actions/palette",palette),("actions/palette-key",palette),
  ("actions/dance",dance(True)),("actions/dance-off",dance(False)),("actions/dance-on",dance(True)),
  ("actions/brightness",brightness),("actions/brightness-key",brightness),

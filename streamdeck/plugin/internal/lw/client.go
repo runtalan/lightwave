@@ -36,6 +36,16 @@ type State struct {
 	Dancing    bool   `json:"dancing"`
 }
 
+// AnyOn reports whether at least one light is currently lit.
+func (s State) AnyOn() bool {
+	for i := range s.Pads {
+		if s.Pads[i].On {
+			return true
+		}
+	}
+	return false
+}
+
 // Pad returns the pad with this number, or nil.
 func (s State) Pad(n int) *Pad {
 	for i := range s.Pads {

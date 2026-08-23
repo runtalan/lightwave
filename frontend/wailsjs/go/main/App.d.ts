@@ -5,6 +5,10 @@ import {govee} from '../models';
 import {config} from '../models';
 import {ipc} from '../models';
 
+export function ToggleAll():Promise<main.HUDState>;
+
+export function AllOn():Promise<main.HUDState>;
+
 export function AllOff():Promise<main.HUDState>;
 
 export function AssignSlot(arg1:number,arg2:string):Promise<main.HUDState>;

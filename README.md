@@ -73,7 +73,7 @@ CC 0–127 maps to 0–100% brightness for **all lights in the active pool**. Mi
 
 - Keys **1–9** / numpad **1–9** toggle that pad into the active pool (ignite)
 - **\*** / numpad **\*** starts/stops a slow colour fade across every pooled light
-- **0** / numpad **0** turns every pooled light off and clears the pool
+- **0** / numpad **0** toggles every bound light: all off, or all back on at the current slider level and palette
 - **Enter** / numpad **Enter** dismisses the HUD (the process keeps running; `--toggle` brings it back)
 - **.** / numpad **.** quits Lightwave entirely (relaunch with `open` or the Stream Deck key)
 - `+` / `-` cycle the Color Engine palettes: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset
@@ -112,7 +112,7 @@ declares no Bluetooth usage string.
 ```
 
 Actions: **Light** (toggle one pad, key shows the light's name and lights up when
-on), **All Off**, **Palette**, **Color Fade**, **Brightness** (key nudge, or the
+on), **All Lights** (everything off, or back on), **Palette**, **Color Fade**, **Brightness** (key nudge, or the
 dial on Stream Deck +). Keys track state pushed from Lightwave, so they stay
 correct when lights are changed from the HUD, the numpad, or the Govee app.
 
@@ -123,7 +123,7 @@ plugin reconnects on its own once the app is back. Plugin log:
 ### Profile
 
 `streamdeck/Lightwave.streamDeckProfile` is a ready-made two-page layout — open
-it to import. Page 1 holds four lights plus All Off / Dimmer / Brighter / Color
+it to import. Page 1 holds four lights plus All Lights / Dimmer / Brighter / Color
 Fade; page 2 holds the rest plus the palette controls.
 
 Regenerate it after rebinding pads (it reads the live pad map, so keys carry
@@ -140,7 +140,8 @@ directory redraws the set.
 
 The socket accepts one line per command and replies with `STATE <json>`:
 `PING`, `STATE`, `TOGGLE_SLOT <1-9>`, `SLOT_ON`/`SLOT_OFF <1-9>`,
-`BRIGHTNESS <0-100|+n|-n>`, `ALL_OFF`, `DANCE`, `PALETTE <+1|-1>`. `SUBSCRIBE`
+`BRIGHTNESS <0-100|+n|-n>`, `ALL_OFF`, `ALL_ON`, `ALL_TOGGLE`, `DANCE`,
+`PALETTE <+1|-1>`. `SUBSCRIBE`
 holds the connection open and streams state on every change.
 
 ## Project layout
