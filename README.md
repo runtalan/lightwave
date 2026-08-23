@@ -116,8 +116,25 @@ on), **All Off**, **Palette**, **Color Fade**, **Brightness** (key nudge, or the
 dial on Stream Deck +). Keys track state pushed from Lightwave, so they stay
 correct when lights are changed from the HUD, the numpad, or the Govee app.
 
-Lightwave must be running; a key press when it is not shows an alert. Plugin log:
+Lightwave must be running; a key press when it is not shows an alert, and the
+plugin reconnects on its own once the app is back. Plugin log:
 `~/Library/Logs/Lightwave/streamdeck-plugin.log`.
+
+### Profile
+
+`streamdeck/Lightwave.streamDeckProfile` is a ready-made two-page layout — open
+it to import. Page 1 holds four lights plus All Off / Dimmer / Brighter / Color
+Fade; page 2 holds the rest plus the palette controls.
+
+Regenerate it after rebinding pads (it reads the live pad map, so keys carry
+your real light names):
+
+```bash
+python3 streamdeck/makeprofile.py
+```
+
+Icons are generated too — `python3 streamdeck/genicons.py` from the `imgs`
+directory redraws the set.
 
 ### IPC command surface
 
