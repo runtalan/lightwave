@@ -9,10 +9,45 @@
       <option value="1">Pad 1</option><option value="2">Pad 2</option><option value="3">Pad 3</option>
     </select>
   </div>
-  <p class="hint">Matches the numpad layout in Lightwave. The key shows the light's name and lights up when it is on.</p>
+  <p class="hint" id="hint">Matches the numpad layout in Lightwave. The key shows the light's name and lights up when it is on.</p>
   <script>
     const sel = document.getElementById('pad');
-    document.addEventListener('pi-ready', (e) => { if (e.detail.pad) sel.value = String(e.detail.pad); });
+    const hint = document.getElementById('hint');
+    // Numpad order, so the list reads the way the keypad is laid out.
+    const ORDER = [7, 8, 9, 4, 5, 6, 1, 2, 3];
+    let chosen = null;
+
+    document.addEventListener('pi-ready', (e) => {
+      if (e.detail.pad) { chosen = Number(e.detail.pad); sel.value = String(chosen); }
+      // Ask in case the inspector opened before the plugin pushed anything.
+      askPlugin({ want: 'pads' });
+    });
+
+    // The plugin sends the live pads; rebuild the list with real device names.
+    document.addEventListener('pi-data', (e) => {
+      const pads = e.detail && e.detail.pads;
+      if (!Array.isArray(pads) || !pads.length) return;
+      const by = new Map(pads.map((p) => [p.pad, p]));
+      let anyBound = false;
+      sel.innerHTML = '';
+      for (const n of ORDER) {
+        const p = by.get(n) || { pad: n, name: 'Pad ' + n, bound: false };
+        const o = document.createElement('option');
+        o.value = String(n);
+        // Keep the pad number alongside the name: it is how the light is
+        // addressed everywhere else (numpad, HUD, wire protocol).
+        o.textContent = p.bound ? p.name + '  ·  pad ' + n : 'Pad ' + n + '  ·  unbound';
+        if (!p.bound) o.disabled = false;
+        if (p.bound) anyBound = true;
+        sel.appendChild(o);
+      }
+      if (chosen != null) sel.value = String(chosen);
+      hint.textContent = anyBound
+        ? 'Lights bound in Lightwave, in numpad order. The key shows the name and lights up when it is on.'
+        : 'Lightwave is not running, so only pad numbers are available. Reopen this once it is up to pick by name.';
+    });
+
+    sel.addEventListener('change', () => { chosen = Number(sel.value); });
     bindField(sel, 'pad', Number);
   </script>
 </body></html>

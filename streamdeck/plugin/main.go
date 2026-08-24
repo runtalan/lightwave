@@ -138,6 +138,10 @@ func (p *plugin) onEvent(ev sd.Event) {
 		p.refreshOne(ev.Context)
 	case "titleParametersDidChange":
 		p.onTitleChanged(ev)
+	case "propertyInspectorDidAppear", "sendToPlugin":
+		// The inspector cannot reach Lightwave itself, so hand it the current
+		// pads as soon as it opens (and again if it asks).
+		p.sendPads(ev)
 	case "keyUp":
 		p.trackContext(ev)
 		p.press(ev)
@@ -148,6 +152,46 @@ func (p *plugin) onEvent(ev sd.Event) {
 		p.trackContext(ev)
 		p.press(ev)
 	}
+}
+
+// onTitleChanged records whether the title on a pad key is the plugin's own
+// seeded light name or something the user typed. Stream Deck sends this both
+// padOption is one entry in the Property Inspector's light dropdown.
+type padOption struct {
+	Pad   int    `json:"pad"`
+	Name  string `json:"name"`
+	Bound bool   `json:"bound"`
+}
+
+// sendPads hands the Property Inspector the nine pads with whatever Lightwave
+// currently has bound to them, so the dropdown can offer real device names
+// instead of "Pad 8". Falls back to the bare pad numbers when the daemon is not
+// reachable — an inspector that lists nothing would be worse than one that
+// lists numbers.
+func (p *plugin) sendPads(ev sd.Event) {
+	if ev.Action != actPad {
+		return
+	}
+	p.mu.Lock()
+	st, have := p.state, p.haveState
+	p.mu.Unlock()
+	if !have {
+		if fresh, err := p.client.Command("STATE"); err == nil {
+			p.applyState(fresh)
+			st, have = fresh, true
+		}
+	}
+	opts := make([]padOption, 0, 9)
+	for n := 1; n <= 9; n++ {
+		o := padOption{Pad: n, Name: "Pad " + strconv.Itoa(n)}
+		if have {
+			if pad := st.Pad(n); pad != nil && pad.Bound && strings.TrimSpace(pad.Name) != "" {
+				o.Name, o.Bound = pad.Name, true
+			}
+		}
+		opts = append(opts, o)
+	}
+	p.sd.SendToPropertyInspector(ev.Context, ev.Action, map[string]any{"pads": opts})
 }
 
 // onTitleChanged records whether the title on a pad key is the plugin's own

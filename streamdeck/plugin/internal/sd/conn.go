@@ -267,3 +267,16 @@ func (w *Conn) ShowOK(context string) {
 func (w *Conn) SetSettings(context string, v any) {
 	_ = w.send(map[string]any{"event": "setSettings", "context": context, "payload": v})
 }
+
+// SendToPropertyInspector pushes a payload to the open Property Inspector for
+// this action. The inspector is a sandboxed web view with no route to
+// Lightwave's socket, so anything it needs from the daemon — the bound lights
+// and their names — has to arrive this way.
+func (w *Conn) SendToPropertyInspector(context, action string, v any) {
+	_ = w.send(map[string]any{
+		"event":   "sendToPropertyInspector",
+		"context": context,
+		"action":  action,
+		"payload": v,
+	})
+}
