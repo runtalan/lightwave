@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/joho/godotenv"
 )
@@ -232,7 +233,23 @@ func SaveSettings(s Settings) error {
 	return os.WriteFile(path, b, 0o600)
 }
 
+// EnvFileHint names the .env file the app loaded, for display in Config.
+// Computed once: env files are only read at startup (LoadEnv), so the hint
+// must describe that moment anyway — and this is called from every state
+// snapshot, which must not stat a dozen paths each time.
+var (
+	envHintOnce sync.Once
+	envHint     string
+)
+
 func EnvFileHint() string {
+	envHintOnce.Do(func() {
+		envHint = findEnvFile()
+	})
+	return envHint
+}
+
+func findEnvFile() string {
 	for _, p := range envSearchPaths() {
 		if _, err := os.Stat(p); err == nil {
 			if abs, err := filepath.Abs(p); err == nil {
@@ -266,16 +283,30 @@ func uint8Env(key string, fallback uint8) uint8 {
 	return uint8(n)
 }
 
+// ConfigDir resolves and creates the per-user config directory once. It is on
+// the path of every settings/mapping lookup — including each state snapshot —
+// so it must not re-run MkdirAll per call.
+var (
+	configDirOnce sync.Once
+	configDirPath string
+	configDirErr  error
+)
+
 func ConfigDir() (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(base, AppName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	configDirOnce.Do(func() {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			configDirErr = err
+			return
+		}
+		dir := filepath.Join(base, AppName)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			configDirErr = err
+			return
+		}
+		configDirPath = dir
+	})
+	return configDirPath, configDirErr
 }
 
 func MappingPath() string {

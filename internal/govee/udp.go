@@ -150,6 +150,9 @@ func (u *UDP) readLoop() {
 		if addr != nil {
 			src = addr.IP.String()
 		}
+		// handle runs synchronously and json.Unmarshal copies whatever it
+		// keeps, so the read buffer can be reused as-is: copying every
+		// packet here was one allocation per status reply for nothing.
 		func(raw []byte, from string) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -157,7 +160,7 @@ func (u *UDP) readLoop() {
 				}
 			}()
 			u.handle(raw, from)
-		}(append([]byte(nil), buf[:n]...), src)
+		}(buf[:n], src)
 	}
 }
 

@@ -92,7 +92,17 @@ export function BrightnessSlider({
 
 export function bindWindowActivity() {
   const ping = () => void PingActivity()
-  const motion = () => void PingMotion()
+  // Pointer motion only feeds coarse idle bookkeeping in Go (its thresholds
+  // are measured in seconds). Relaying every raw mousemove crossed the
+  // JS→Go bridge ~120 times a second — a throttled ping carries the same
+  // information at a fraction of the traffic and garbage.
+  let lastMotion = 0
+  const motion = () => {
+    const now = Date.now()
+    if (now - lastMotion < 250) return
+    lastMotion = now
+    void PingMotion()
+  }
   const endDrag = () => void EndWindowDrag()
   window.addEventListener('mousemove', motion)
   window.addEventListener('pointerdown', ping)

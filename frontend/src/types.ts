@@ -79,8 +79,13 @@ export function clampNum(n: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, Math.round(v)))
 }
 
+// Shared read-only defaults for normalizeState. State objects are treated as
+// immutable throughout the app, so the fallback slots/settings can be shared
+// across every incoming event instead of rebuilding 9 slot objects per push.
+let baseState: HUDState | null = null
+
 export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDState {
-  const base = emptyState()
+  const base = (baseState ??= emptyState())
   if (!raw) return base
   return {
     ...base,

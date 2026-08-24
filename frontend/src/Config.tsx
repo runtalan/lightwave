@@ -20,6 +20,11 @@ type Props = {
   onState: (s: HUDState) => void
 }
 
+const PAD_KEYS: Record<string, number> = {
+  Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9,
+  Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
+}
+
 const TABS: { id: ConfigTab; label: string }[] = [
   { id: 'lights', label: 'Lights' },
   { id: 'midi', label: 'MIDI' },
@@ -141,11 +146,7 @@ function LightsPane({
       // Typing in the rename field must not be captured as pad navigation.
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
-      const map: Record<string, number> = {
-        Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9,
-        Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9,
-      }
-      const n = map[e.code]
+      const n = PAD_KEYS[e.code]
       if (n) {
         e.preventDefault()
         setFocus(n)

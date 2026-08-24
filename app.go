@@ -158,11 +158,11 @@ type App struct {
 	ipcSrv       atomic.Pointer[ipc.Server]
 	lastRemoteMu sync.Mutex
 	lastRemote   string
-	udp      *govee.UDP
-	ble      *govee.BLE
-	midi     *midilstn.Listener
-	midiCfg  config.MIDI
-	settings config.Settings
+	udp          *govee.UDP
+	ble          *govee.BLE
+	midi         *midilstn.Listener
+	midiCfg      config.MIDI
+	settings     config.Settings
 
 	stop            chan struct{}
 	brightKick      chan struct{}
@@ -247,11 +247,9 @@ func (a *App) ctxOK() (context.Context, bool) {
 
 func (a *App) startup(ctx context.Context) {
 	a.setCtx(ctx)
-	config.LoadEnv()
-	a.mu.Lock()
-	a.settings = config.LoadSettings()
-	a.midiCfg = a.settings.MIDI()
-	a.mu.Unlock()
+	// Env and settings were already loaded in main before NewApp; nothing can
+	// have changed them since, so re-walking the .env search paths here only
+	// delayed first paint.
 
 	a.udp.OnStatus(a.applyDeviceStatus)
 	if err := a.udp.Start(func(d govee.Device) {
@@ -329,42 +327,65 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
+// MIDI events land in atomics on the CGO thread and are polled here. 8ms keeps
+// a knob turn feeling instant, but paying 125 wakeups/sec forever — hidden,
+// idle, or with no MIDI hardware at all — is pure battery drain. After a quiet
+// stretch the poll backs off; the first event after idle waits at most one
+// slow tick (below perception for a key press) and snaps the rate back up.
+const (
+	midiPollFast    = 8 * time.Millisecond
+	midiPollSlow    = 60 * time.Millisecond
+	midiPollFastFor = 2 * time.Second
+)
+
 func (a *App) midiApplyLoop() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("midi: apply loop recovered: %v", r)
 		}
 	}()
-	t := time.NewTicker(8 * time.Millisecond)
+	t := time.NewTimer(midiPollFast)
 	defer t.Stop()
+	lastEvent := time.Now()
 	for {
 		select {
 		case <-a.stop:
 			return
 		case <-t.C:
-			a.drainMIDI()
 		}
+		if a.drainMIDI() {
+			lastEvent = time.Now()
+		}
+		next := midiPollFast
+		if time.Since(lastEvent) > midiPollFastFor {
+			next = midiPollSlow
+		}
+		t.Reset(next)
 	}
 }
 
-func (a *App) drainMIDI() {
+// drainMIDI applies pending MIDI input and reports whether anything arrived.
+func (a *App) drainMIDI() bool {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("midi: drain recovered: %v", r)
 		}
 	}()
 	if a.midi == nil {
-		return
+		return false
 	}
+	activity := false
 	if ok, port, changed := a.midi.TakeStatus(); changed {
 		a.mu.Lock()
 		a.midiOK = ok
 		a.midiPort = port
 		a.mu.Unlock()
 		a.emitState()
+		activity = true
 	}
 	if _, val, ok := a.midi.TakeCC(); ok {
 		a.applyBrightness(midilstn.CCToPercent(val), false)
+		activity = true
 	}
 	if note, ok := a.midi.TakeNote(); ok {
 		a.mu.Lock()
@@ -375,7 +396,9 @@ func (a *App) drainMIDI() {
 		} else if note == minus {
 			a.CycleColor(-1)
 		}
+		activity = true
 	}
+	return activity
 }
 
 func (a *App) scheduleStateEmit() {
@@ -1573,7 +1596,6 @@ func (a *App) SaveMappings(slots []config.SlotBinding) error {
 			seen[id] = s.Slot
 		}
 		s.DeviceID = id
-		s.Slot = s.Slot
 		normalized.Slots[s.Slot-1] = s
 	}
 	a.mu.Lock()
@@ -1827,9 +1849,11 @@ func (a *App) ToggleWindow() {
 
 // inactivityLoop no longer hides anything: the HUD stays up until the user
 // dismisses it (Enter, Stream Deck toggle, or --toggle). It only clears a
-// stale window-drag flag if a drag never received its pointerup.
+// stale window-drag flag if a drag never received its pointerup. The stale
+// threshold is 2s, so a 500ms tick resolves it just as well as the old 120ms
+// one at a quarter of the wakeups.
 func (a *App) inactivityLoop() {
-	t := time.NewTicker(120 * time.Millisecond)
+	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
 	for range t.C {
 		a.mu.Lock()
