@@ -24,6 +24,9 @@ type MIDI struct {
 	// travel so a full throw always means 100%.
 	CCMin uint8
 	CCMax uint8
+	// NoteRecall toggles the most recent scene: everything off, or back on
+	// exactly the pads that were lit last. 0 means unassigned.
+	NoteRecall uint8
 }
 
 type SlotBinding struct {
@@ -131,6 +134,9 @@ type Settings struct {
 	MidiCCAlt     int `json:"midiCCAlt"`
 	MidiNotePlus  int `json:"midiNotePlus"`
 	MidiNoteMinus int `json:"midiNoteMinus"`
+	// MidiNoteRecall is the note that toggles the last-lit scene, the same
+	// action as the Stream Deck status key. 0 leaves it unassigned.
+	MidiNoteRecall int `json:"midiNoteRecall"`
 	// MidiCCMin/Max are the calibrated fader endpoints (0 and 127 when the
 	// fader has never been calibrated).
 	MidiCCMin       int    `json:"midiCCMin"`
@@ -161,6 +167,7 @@ type settingsFile struct {
 	MidiCCAlt       *int    `json:"midiCCAlt"`
 	MidiNotePlus    *int    `json:"midiNotePlus"`
 	MidiNoteMinus   *int    `json:"midiNoteMinus"`
+	MidiNoteRecall  *int    `json:"midiNoteRecall"`
 	MidiCCMin       *int    `json:"midiCCMin"`
 	MidiCCMax       *int    `json:"midiCCMax"`
 	IdleHideSeconds *int    `json:"idleHideSeconds"`
@@ -194,8 +201,11 @@ func (s Settings) MIDI() MIDI {
 		CCAlt:     clampU8(s.MidiCCAlt, 1),
 		NotePlus:  clampU8(s.MidiNotePlus, 61),
 		NoteMinus: clampU8(s.MidiNoteMinus, 60),
-		CCMin:     clampU8(s.MidiCCMin, 0),
-		CCMax:     clampU8(s.MidiCCMax, 127),
+		// Default 0 = unassigned: this is a new binding, and silently claiming
+		// a note could hijack a key the user already uses for something else.
+		NoteRecall: clampU8(s.MidiNoteRecall, 0),
+		CCMin:      clampU8(s.MidiCCMin, 0),
+		CCMax:      clampU8(s.MidiCCMax, 127),
 	}
 }
 
@@ -246,6 +256,9 @@ func LoadSettings() Settings {
 	if raw.MidiNoteMinus != nil {
 		s.MidiNoteMinus = *raw.MidiNoteMinus
 	}
+	if raw.MidiNoteRecall != nil {
+		s.MidiNoteRecall = *raw.MidiNoteRecall
+	}
 	if raw.MidiCCMin != nil {
 		s.MidiCCMin = *raw.MidiCCMin
 	}
@@ -281,6 +294,9 @@ func SaveSettings(s Settings) error {
 	s.MidiCCAlt = int(clampU8(s.MidiCCAlt, 1))
 	s.MidiNotePlus = int(clampU8(s.MidiNotePlus, 61))
 	s.MidiNoteMinus = int(clampU8(s.MidiNoteMinus, 60))
+	// 0 is the "unassigned" value here, so an out-of-range number falls back
+	// to unassigned rather than to some arbitrary note.
+	s.MidiNoteRecall = int(clampU8(s.MidiNoteRecall, 0))
 	s.MidiCCMin = int(clampU8(s.MidiCCMin, 0))
 	s.MidiCCMax = int(clampU8(s.MidiCCMax, 127))
 	// A collapsed or inverted range would make every fader move meaningless.

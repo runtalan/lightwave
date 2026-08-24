@@ -74,6 +74,7 @@ export namespace main {
 	    midiCCAlt: number;
 	    midiNotePlus: number;
 	    midiNoteMinus: number;
+	    midiNoteRecall: number;
 	    midiCCMin: number;
 	    midiCCMax: number;
 	    idleHideSeconds: number;
@@ -100,6 +101,7 @@ export namespace main {
 	        this.midiCCAlt = source["midiCCAlt"];
 	        this.midiNotePlus = source["midiNotePlus"];
 	        this.midiNoteMinus = source["midiNoteMinus"];
+	        this.midiNoteRecall = source["midiNoteRecall"];
 	        this.midiCCMin = source["midiCCMin"];
 	        this.midiCCMax = source["midiCCMax"];
 	        this.idleHideSeconds = source["idleHideSeconds"];

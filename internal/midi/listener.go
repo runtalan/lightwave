@@ -33,7 +33,7 @@ type Listener struct {
 	learnVary [128]atomic.Uint32
 
 	ccWanted    atomic.Uint32 // cc | (alt << 8)
-	noteWanted  atomic.Uint32 // plus | (minus << 8)
+	noteWanted  atomic.Uint32 // plus | (minus << 8) | (recall << 16)
 	latestCC    atomic.Uint32
 	latestRawCC atomic.Uint32
 	latestNote  atomic.Uint32
@@ -85,7 +85,7 @@ func (l *Listener) VaryingCCs() []uint8 {
 
 func (l *Listener) storeWanted(cfg config.MIDI) {
 	l.ccWanted.Store(uint32(cfg.CC) | uint32(cfg.CCAlt)<<8)
-	l.noteWanted.Store(uint32(cfg.NotePlus) | uint32(cfg.NoteMinus)<<8)
+	l.noteWanted.Store(uint32(cfg.NotePlus) | uint32(cfg.NoteMinus)<<8 | uint32(cfg.NoteRecall)<<16)
 }
 
 func (l *Listener) Start() error {
@@ -131,8 +131,9 @@ func (l *Listener) Start() error {
 	return nil
 }
 
-// packed note: bit16 present, bit17 viaCC, bits 8-15 key/cc number
+// packed note: bit16 present, bit17 viaCC, bit18 recall, bits 8-15 key/cc number
 const midiViaCC uint32 = 1 << 17
+const midiRecall uint32 = 1 << 18
 
 // onMIDI runs on the CoreMIDI / RtMidi CGO thread.
 // Store numbers only. Never lock, log, emit, or send on a channel.
@@ -140,7 +141,15 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 	defer func() { _ = recover() }()
 
 	want := l.noteWanted.Load()
-	plus, minus := uint8(want), uint8(want>>8)
+	plus, minus, recall := uint8(want), uint8(want>>8), uint8(want>>16)
+	// Recall is checked first: a user is free to map it to 60/61, and an
+	// explicit assignment should win over the hardcoded palette keys.
+	if recall != 0 {
+		if num, ok := NoteTrigger([]byte(msg), recall); ok {
+			l.latestNote.Store(midiPresent | uint32(num)<<8 | midiRecall)
+			return
+		}
+	}
 	if delta, num, viaCC, ok := PaletteTrigger([]byte(msg), plus, minus); ok && delta != 0 {
 		packed := midiPresent | uint32(num)<<8
 		if viaCC {
@@ -217,12 +226,15 @@ func (l *Listener) PeekRawCC() (cc, val uint8, ok bool) {
 	return uint8(v >> 8), uint8(v), true
 }
 
-func (l *Listener) TakeNote() (note uint8, viaCC bool, ok bool) {
+// TakeNote drains one note event. recall reports that it was the configured
+// recall key rather than a palette step, so the app does not have to re-derive
+// the mapping it was already matched against.
+func (l *Listener) TakeNote() (note uint8, viaCC, recall, ok bool) {
 	v := l.latestNote.Swap(0)
 	if v&midiPresent == 0 {
-		return 0, false, false
+		return 0, false, false, false
 	}
-	return uint8(v >> 8), v&midiViaCC != 0, true
+	return uint8(v >> 8), v&midiViaCC != 0, v&midiRecall != 0, true
 }
 
 func (l *Listener) TakeStatus() (connected bool, port string, changed bool) {
@@ -241,10 +253,11 @@ func (l *Listener) cfgLocked() config.MIDI {
 	w := l.ccWanted.Load()
 	n := l.noteWanted.Load()
 	return config.MIDI{
-		CC:        uint8(w),
-		CCAlt:     uint8(w >> 8),
-		NotePlus:  uint8(n),
-		NoteMinus: uint8(n >> 8),
+		CC:         uint8(w),
+		CCAlt:      uint8(w >> 8),
+		NotePlus:   uint8(n),
+		NoteMinus:  uint8(n >> 8),
+		NoteRecall: uint8(n >> 16),
 	}
 }
 
@@ -417,4 +430,28 @@ func DescribePorts() string {
 		parts = append(parts, fmt.Sprintf("%d:%s", i, p.String()))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// NoteTrigger reports a press of one specific note or CC on any channel. Like
+// PaletteTrigger it ignores releases: Note Off, Note On at velocity 0, and CC
+// value 0 must not fire, or a single press would act twice.
+func NoteTrigger(msg []byte, want uint8) (num uint8, ok bool) {
+	if want == 0 || len(msg) < 3 {
+		return 0, false
+	}
+	st := msg[0]
+	if st < 0x80 || st >= 0xF0 {
+		return 0, false
+	}
+	n, v := msg[1]&0x7f, msg[2]&0x7f
+	if n != want || v == 0 {
+		return 0, false
+	}
+	switch st >> 4 {
+	case 0x9: // Note On
+		return n, true
+	case 0xB: // Control Change — pads that send CC instead of notes
+		return n, true
+	}
+	return 0, false
 }

@@ -55,6 +55,7 @@ export function Config({ state, onState }: Props) {
     midiDraft.midiCCAlt !== state.settings.midiCCAlt ||
     midiDraft.midiNotePlus !== state.settings.midiNotePlus ||
     midiDraft.midiNoteMinus !== state.settings.midiNoteMinus ||
+    midiDraft.midiNoteRecall !== state.settings.midiNoteRecall ||
     midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
   const dirty = draftDirty || Boolean(state.mapDirty)
 
@@ -523,6 +524,20 @@ function MidiPane({
           onChange={(e) => setDraft({ ...draft, midiNoteMinus: Number(e.target.value) })}
         />
       </label>
+      <label className="field">
+        <span>Recall note</span>
+        <input
+          type="number"
+          min={0}
+          max={127}
+          value={draft.midiNoteRecall}
+          onChange={(e) => setDraft({ ...draft, midiNoteRecall: Number(e.target.value) })}
+        />
+      </label>
+      <p className="status">
+        Recall note: turns everything off, or brings back exactly the lights that were on last —
+        the same press as the Stream Deck status key. 0 leaves it unassigned.
+      </p>
       <FaderCalibration state={state} setErr={setErr} />
       <footer className="actions">
         <button

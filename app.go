@@ -125,6 +125,7 @@ type SettingsView struct {
 	MidiCCAlt       int      `json:"midiCCAlt"`
 	MidiNotePlus    int      `json:"midiNotePlus"`
 	MidiNoteMinus   int      `json:"midiNoteMinus"`
+	MidiNoteRecall  int      `json:"midiNoteRecall"`
 	MidiCCMin       int      `json:"midiCCMin"`
 	MidiCCMax       int      `json:"midiCCMax"`
 	IdleHideSeconds int      `json:"idleHideSeconds"`
@@ -462,15 +463,20 @@ func (a *App) drainMIDI() bool {
 		a.applyBrightness(midilstn.CCToPercent(val), false)
 		activity = true
 	}
-	if note, viaCC, ok := a.midi.TakeNote(); ok {
+	if note, viaCC, recall, ok := a.midi.TakeNote(); ok {
 		a.mu.Lock()
 		plus, minus := a.midiCfg.NotePlus, a.midiCfg.NoteMinus
 		a.mu.Unlock()
-		if dir, hit := midilstn.PaletteDelta(note, plus, minus); hit {
-			kind := "note"
-			if viaCC {
-				kind = "cc"
-			}
+		kind := "note"
+		if viaCC {
+			kind = "cc"
+		}
+		if recall {
+			// The listener already matched this against the configured recall
+			// key, so it wins outright — including when it is 60 or 61.
+			log.Printf("midi: %s %d → RecallToggle", kind, note)
+			a.RecallToggle()
+		} else if dir, hit := midilstn.PaletteDelta(note, plus, minus); hit {
 			log.Printf("midi: %s %d → CycleColor(%d)", kind, note, dir)
 			a.CycleColor(dir)
 		}
@@ -1143,6 +1149,7 @@ func (a *App) settingsViewLocked() SettingsView {
 		MidiCCAlt:       a.settings.MidiCCAlt,
 		MidiNotePlus:    a.settings.MidiNotePlus,
 		MidiNoteMinus:   a.settings.MidiNoteMinus,
+		MidiNoteRecall:  a.settings.MidiNoteRecall,
 		MidiCCMin:       a.settings.MidiCCMin,
 		MidiCCMax:       a.settings.MidiCCMax,
 		IdleHideSeconds: a.settings.IdleHideSeconds,
@@ -2204,6 +2211,7 @@ func (a *App) SaveSettings(in SettingsView) error {
 	s.MidiCCAlt = in.MidiCCAlt
 	s.MidiNotePlus = in.MidiNotePlus
 	s.MidiNoteMinus = in.MidiNoteMinus
+	s.MidiNoteRecall = in.MidiNoteRecall
 	s.MidiCCMin = in.MidiCCMin
 	s.MidiCCMax = in.MidiCCMax
 	s.IdleHideSeconds = in.IdleHideSeconds

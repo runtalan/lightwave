@@ -21,6 +21,7 @@ export type SettingsView = {
   midiCCAlt: number
   midiNotePlus: number
   midiNoteMinus: number
+  midiNoteRecall: number
   midiCCMin: number
   midiCCMax: number
   idleHideSeconds: number
@@ -76,6 +77,7 @@ export function emptySettings(): SettingsView {
     midiCCAlt: 1,
     midiNotePlus: 61,
     midiNoteMinus: 60,
+    midiNoteRecall: 0,
     midiCCMin: 0,
     midiCCMax: 127,
     idleHideSeconds: 10,
