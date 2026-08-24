@@ -84,10 +84,6 @@ export namespace main {
 	    hasEnvKey: boolean;
 	    hasConfigKey: boolean;
 	    hasApiKey: boolean;
-	    tapoEmail: string;
-	    hasTapoEnv: boolean;
-	    hasTapoConfig: boolean;
-	    hasTapoCreds: boolean;
 	    envPath: string;
 	    configPath: string;
 	    mappingPath: string;
@@ -118,10 +114,6 @@ export namespace main {
 	        this.hasEnvKey = source["hasEnvKey"];
 	        this.hasConfigKey = source["hasConfigKey"];
 	        this.hasApiKey = source["hasApiKey"];
-	        this.tapoEmail = source["tapoEmail"];
-	        this.hasTapoEnv = source["hasTapoEnv"];
-	        this.hasTapoConfig = source["hasTapoConfig"];
-	        this.hasTapoCreds = source["hasTapoCreds"];
 	        this.envPath = source["envPath"];
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
@@ -131,30 +123,6 @@ export namespace main {
 	        this.webRunning = source["webRunning"];
 	        this.webHasToken = source["webHasToken"];
 	        this.webUrls = source["webUrls"];
-	    }
-	}
-	export class PlugView {
-	    pad: number;
-	    name: string;
-	    model: string;
-	    ip: string;
-	    bound: boolean;
-	    on: boolean;
-	    online: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new PlugView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.pad = source["pad"];
-	        this.name = source["name"];
-	        this.model = source["model"];
-	        this.ip = source["ip"];
-	        this.bound = source["bound"];
-	        this.on = source["on"];
-	        this.online = source["online"];
 	    }
 	}
 	export class SlotView {
@@ -192,7 +160,6 @@ export namespace main {
 	    deviceCount: number;
 	    needsSetup: boolean;
 	    setupOpen: boolean;
-	    plugs: PlugView[];
 	    hasApiKey: boolean;
 	    discoverError: string;
 	    discovering: boolean;
@@ -225,7 +192,6 @@ export namespace main {
 	        this.deviceCount = source["deviceCount"];
 	        this.needsSetup = source["needsSetup"];
 	        this.setupOpen = source["setupOpen"];
-	        this.plugs = this.convertValues(source["plugs"], PlugView);
 	        this.hasApiKey = source["hasApiKey"];
 	        this.discoverError = source["discoverError"];
 	        this.discovering = source["discovering"];
@@ -261,31 +227,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class PlugCandidate {
-	    ip: string;
-	    mac: string;
-	    model: string;
-	    name: string;
-	    supported: boolean;
-	    encrypt: string;
-	    pad: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new PlugCandidate(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ip = source["ip"];
-	        this.mac = source["mac"];
-	        this.model = source["model"];
-	        this.name = source["name"];
-	        this.supported = source["supported"];
-	        this.encrypt = source["encrypt"];
-	        this.pad = source["pad"];
-	    }
-	}
-	
 	
 
 }

@@ -31,10 +31,6 @@ export type SettingsView = {
   hasEnvKey: boolean
   hasConfigKey: boolean
   hasApiKey: boolean
-  tapoEmail: string
-  hasTapoEnv: boolean
-  hasTapoConfig: boolean
-  hasTapoCreds: boolean
   envPath: string
   configPath: string
   mappingPath: string
@@ -72,30 +68,9 @@ export type HUDState = {
   bluetoothDenied: boolean
   bluetoothOff: boolean
   settings: SettingsView
-  plugs: PlugView[]
 }
 
-export type PlugView = {
-  pad: number
-  name: string
-  model: string
-  ip: string
-  bound: boolean
-  on: boolean
-  online: boolean
-}
-
-export type PlugCandidate = {
-  ip: string
-  mac: string
-  model: string
-  name: string
-  supported: boolean
-  encrypt: string
-  pad: number
-}
-
-export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'plugs' | 'account'
+export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'account'
 
 export const NUMPAD_ORDER = [7, 8, 9, 4, 5, 6, 1, 2, 3] as const
 
@@ -115,10 +90,6 @@ export function emptySettings(): SettingsView {
     hasEnvKey: false,
     hasConfigKey: false,
     hasApiKey: false,
-    tapoEmail: '',
-    hasTapoEnv: false,
-    hasTapoConfig: false,
-    hasTapoCreds: false,
     envPath: '',
     configPath: '',
     mappingPath: '',
@@ -156,7 +127,6 @@ export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDSt
     ...base,
     ...raw,
     slots: Array.isArray(raw.slots) && raw.slots.length > 0 ? raw.slots : base.slots,
-    plugs: Array.isArray(raw.plugs) ? raw.plugs : [],
     catalog: Array.isArray(raw.catalog) ? raw.catalog : [],
     activePool: Array.isArray(raw.activePool) ? raw.activePool : [],
     brightness: clampNum(raw.brightness, base.brightness, 0, 100),
@@ -171,7 +141,6 @@ export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDSt
 
 export function emptyState(): HUDState {
   return {
-    plugs: [],
     slots: Array.from({ length: 9 }, (_, i) => ({
       number: i + 1,
       deviceId: '',

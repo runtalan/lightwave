@@ -6,8 +6,6 @@ import {config} from '../models';
 import {ipc} from '../models';
 import {fs} from '../models';
 
-export function AddPlug(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.HUDState>;
-
 export function AllOff():Promise<main.HUDState>;
 
 export function AllOn():Promise<main.HUDState>;
@@ -37,8 +35,6 @@ export function GetActivePool():Promise<Array<number>>;
 export function GetDevices():Promise<Array<govee.Device>>;
 
 export function GetPaletteIndex():Promise<number>;
-
-export function GetPlugs():Promise<Array<main.PlugView>>;
 
 export function GetSlots():Promise<Array<main.SlotView>>;
 
@@ -72,13 +68,7 @@ export function Quit():Promise<void>;
 
 export function RecallToggle():Promise<main.HUDState>;
 
-export function ReloadPlugAccount():Promise<main.HUDState>;
-
 export function RemoteCommand(arg1:string):Promise<string>;
-
-export function RemovePlug(arg1:number):Promise<main.HUDState>;
-
-export function RenamePlug(arg1:number,arg2:string):Promise<main.HUDState>;
 
 export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
 
@@ -90,8 +80,6 @@ export function SaveSettings(arg1:main.SettingsView):Promise<void>;
 
 export function ScanLAN():Promise<main.HUDState>;
 
-export function ScanPlugs():Promise<Array<main.PlugCandidate>>;
-
 export function SetBrightness(arg1:number):Promise<void>;
 
 export function SetConfigAPIKey(arg1:string):Promise<void>;
@@ -99,10 +87,6 @@ export function SetConfigAPIKey(arg1:string):Promise<void>;
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
 export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
-
-export function SetPlugOn(arg1:number,arg2:boolean):Promise<void>;
-
-export function SetTapoCredentials(arg1:string,arg2:string):Promise<void>;
 
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 
@@ -120,10 +104,6 @@ export function ToggleDance():Promise<main.HUDState>;
 
 export function ToggleGradient():Promise<main.HUDState>;
 
-export function TogglePlug(arg1:number):Promise<void>;
-
 export function ToggleSlot(arg1:number):Promise<void>;
 
 export function ToggleWindow():Promise<void>;
-
-export function AddPlugByIP(arg1:string):Promise<main.HUDState>;

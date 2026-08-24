@@ -41,21 +41,6 @@
         if (p.bound) anyBound = true;
         sel.appendChild(o);
       }
-      // Plugs are not part of the numpad's fixed 3x3 shape, so they go in
-      // their own group below it rather than into ORDER.
-      const plugs = pads.filter((p) => p.plug);
-      if (plugs.length) {
-        const group = document.createElement('optgroup');
-        group.label = 'Plugs';
-        for (const p of plugs) {
-          const o = document.createElement('option');
-          o.value = String(p.pad);
-          o.textContent = p.name + '  ·  pad ' + p.pad;
-          group.appendChild(o);
-          if (p.bound) anyBound = true;
-        }
-        sel.appendChild(group);
-      }
       if (chosen != null) sel.value = String(chosen);
       hint.textContent = anyBound
         ? 'Lights bound in Lightwave, in numpad order. The key shows the name and lights up when it is on.'

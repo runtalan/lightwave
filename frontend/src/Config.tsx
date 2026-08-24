@@ -14,24 +14,11 @@ import {
   SaveSettings,
   ScanLAN,
   SetConfigAPIKey,
-  SetTapoCredentials,
-  ScanPlugs,
-  AddPlug,
-  AddPlugByIP,
-  RemovePlug,
-  RenamePlug,
-  ReloadPlugAccount,
   SetLaunchAtLogin,
   SetWebEnabled,
   SetWebConfig,
 } from '../wailsjs/go/main/App'
-import {
-  NUMPAD_ORDER,
-  type ConfigTab,
-  type HUDState,
-  type PlugCandidate,
-  type SettingsView,
-} from './types'
+import { NUMPAD_ORDER, type ConfigTab, type HUDState, type SettingsView } from './types'
 import { slotByNumber } from './lib'
 import { BrightnessSlider, TitleBar } from './chrome'
 
@@ -50,7 +37,6 @@ const TABS: { id: ConfigTab; label: string }[] = [
   { id: 'midi', label: 'MIDI' },
   { id: 'hud', label: 'HUD' },
   { id: 'remote', label: 'Remote' },
-  { id: 'plugs', label: 'Plugs' },
   { id: 'account', label: 'Account' },
 ]
 
@@ -88,11 +74,6 @@ export function Config({ state, onState }: Props) {
   // The Account tab's key field lives here so the shared action bar can save
   // it: the bar is outside the pane that owns the input.
   const [apiKey, setApiKey] = useState('')
-  // Tapo credentials live here for the same reason the Govee key does: the
-  // shared action bar saves them, and it sits outside the pane that owns the
-  // inputs.
-  const [tapoEmail, setTapoEmail] = useState('')
-  const [tapoPass, setTapoPass] = useState('')
 
   // Unsaved work is either a settings draft the user edited but did not save,
   // or pad edits that live only in memory until CommitMappings runs.
@@ -108,8 +89,7 @@ export function Config({ state, onState }: Props) {
     midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
   // A typed-but-unsaved API key counts as unsaved work too, so Cancel asks
   // instead of dropping it silently.
-  const dirty =
-    draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== '' || tapoPass.trim() !== ''
+  const dirty = draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== ''
 
   async function discard() {
     setErr('')
@@ -141,13 +121,6 @@ export function Config({ state, onState }: Props) {
       if (tab === 'account' && apiKey.trim()) {
         await SetConfigAPIKey(apiKey.trim())
         setApiKey('')
-      }
-      if (tab === 'account' && tapoEmail.trim() && tapoPass.trim()) {
-        await SetTapoCredentials(tapoEmail.trim(), tapoPass.trim())
-        // The plug manager caches the account for its KLAP sessions, so tell
-        // it to re-read rather than waiting for the next launch.
-        await ReloadPlugAccount()
-        setTapoPass('')
       }
       await persist(true)
     } catch (e) {
@@ -207,7 +180,7 @@ export function Config({ state, onState }: Props) {
     // state; re-bind when any of them move so Cmd-S never flushes a stale
     // draft or a stale key, and Escape always sees the current dirtiness. Capture phase +
     // stopImmediatePropagation keep App's HUD-side Cmd-S from also firing.
-  }, [midiDraft, tab, confirmExit, dirty, apiKey, tapoEmail, tapoPass])
+  }, [midiDraft, tab, confirmExit, dirty, apiKey])
 
   return (
     <div className="panel config">
@@ -248,9 +221,6 @@ export function Config({ state, onState }: Props) {
             <HudPane state={state} setErr={setErr} setNote={setNote} />
           )}
           {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
-          {tab === 'plugs' && (
-            <PlugsPane state={state} onState={onState} setErr={setErr} setNote={setNote} />
-          )}
           {tab === 'account' && (
             <AccountPane
               state={state}
@@ -259,10 +229,6 @@ export function Config({ state, onState }: Props) {
               setNote={setNote}
               apiKey={apiKey}
               setApiKey={setApiKey}
-              tapoEmail={tapoEmail}
-              setTapoEmail={setTapoEmail}
-              tapoPass={tapoPass}
-              setTapoPass={setTapoPass}
             />
           )}
         </div>
@@ -1056,10 +1022,6 @@ function AccountPane({
   setNote,
   apiKey,
   setApiKey,
-  tapoEmail,
-  setTapoEmail,
-  tapoPass,
-  setTapoPass,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
@@ -1067,18 +1029,9 @@ function AccountPane({
   setNote: (s: string) => void
   apiKey: string
   setApiKey: (v: string) => void
-  tapoEmail: string
-  setTapoEmail: (v: string) => void
-  tapoPass: string
-  setTapoPass: (v: string) => void
 }) {
   const s = state.settings
   const badge = s.hasEnvKey ? 'key in .env' : s.hasConfigKey ? 'key in config.json' : 'no key'
-  const tapoBadge = s.hasTapoEnv
-    ? 'account in .env'
-    : s.hasTapoConfig
-      ? 'account in config.json'
-      : 'no account'
 
   return (
     <div className="pane form-pane">
@@ -1087,7 +1040,6 @@ function AccountPane({
       <p className="status">Prefs: {s.configPath}</p>
       <p className="status">Slots: {s.mappingPath}</p>
       <p className="lede">Optional local store if you do not want a project .env. Env still wins when both exist.</p>
-      <h3 className="group-title">Govee</h3>
       <label className="field">
         <span>Store key in config.json</span>
         <input
@@ -1098,35 +1050,6 @@ function AccountPane({
           onChange={(e) => setApiKey(e.target.value)}
         />
       </label>
-      <h3 className="group-title">Tapo plugs</h3>
-      <p className="group-hint">
-        Plugs are driven over your LAN, not the cloud. They authenticate with your TP-Link
-        account, hashed on this machine — nothing is sent to TP-Link. Unlike the Govee key this
-        is a full account password at rest, so .env is the safer home for it; env wins when both
-        are set.
-      </p>
-      <div className={`key-badge ${s.hasTapoCreds ? 'ok' : 'bad'}`}>{tapoBadge}</div>
-      <label className="field">
-        <span>TP-Link email</span>
-        <input
-          type="email"
-          autoComplete="off"
-          placeholder="you@example.com"
-          value={tapoEmail || (s.hasTapoCreds ? s.tapoEmail : '')}
-          onChange={(e) => setTapoEmail(e.target.value)}
-        />
-      </label>
-      <label className="field">
-        <span>TP-Link password</span>
-        <input
-          type="password"
-          autoComplete="off"
-          placeholder={s.hasTapoCreds ? '••••••••' : 'Tapo app password'}
-          value={tapoPass}
-          onChange={(e) => setTapoPass(e.target.value)}
-        />
-      </label>
-
       <footer className="actions">
         <button type="button" className="ghost" onClick={() => Discover().then(onState)}>
           Rescan cloud
@@ -1147,216 +1070,7 @@ function AccountPane({
               .catch((e) => setErr(String(e)))
           }}
         >
-          Clear Govee key
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          disabled={!s.hasTapoConfig}
-          onClick={() => {
-            setErr('')
-            SetTapoCredentials('', '')
-              .then(() => {
-                setTapoEmail('')
-                setTapoPass('')
-                setNote(
-                  s.hasTapoEnv
-                    ? 'Cleared the stored plug account. TAPO_* in .env still applies.'
-                    : 'Cleared the stored plug account.',
-                )
-              })
-              .catch((e) => setErr(String(e)))
-          }}
-        >
-          Clear plug account
-        </button>
-      </footer>
-    </div>
-  )
-}
-
-function PlugsPane({
-  state,
-  onState,
-  setErr,
-  setNote,
-}: {
-  state: HUDState
-  onState: (s: HUDState) => void
-  setErr: (s: string) => void
-  setNote: (s: string) => void
-}) {
-  const s2 = state.settings
-  const [found, setFound] = useState<PlugCandidate[]>([])
-  const [busy, setBusy] = useState(false)
-  const [scanned, setScanned] = useState(false)
-  const [manualIP, setManualIP] = useState('')
-  const plugs = state.plugs || []
-
-  function addByIP() {
-    const ip = manualIP.trim()
-    if (!ip) return
-    setBusy(true)
-    setErr('')
-    AddPlugByIP(ip)
-      .then((st) => {
-        onState(st)
-        setManualIP('')
-        setNote('Added ' + ip + '.')
-      })
-      .catch((e) => setErr(String(e)))
-      .finally(() => setBusy(false))
-  }
-
-  function scan() {
-    setBusy(true)
-    setErr('')
-    ScanPlugs()
-      .then((list) => {
-        setFound(list || [])
-        setScanned(true)
-        if (!list || !list.length) setNote('No plugs answered. They must be on this network.')
-      })
-      .catch((e) => setErr(String(e)))
-      .finally(() => setBusy(false))
-  }
-
-  return (
-    <div className="pane form-pane">
-      {!s2.hasTapoCreds && (
-        <p className="status bad">
-          No TP-Link account yet — add one on the Account tab. Plugs can be found without it, but
-          not switched.
-        </p>
-      )}
-      <p className="lede">
-        Plugs sit on pads 10 and up, past the numpad&rsquo;s nine. They are reachable from the
-        Stream Deck but never join a scene: a plug has no brightness and no colour.
-      </p>
-
-      <section className="group">
-        <h3 className="group-title">Bound</h3>
-        {plugs.length === 0 ? (
-          <p className="group-hint">Nothing bound yet. Scan below to find plugs on your network.</p>
-        ) : (
-          <ul className="device-list">
-            {plugs.map((p) => (
-              <li key={p.pad} className={`device ${p.online ? '' : 'offline'}`}>
-                <div>
-                  <strong>{p.name}</strong>
-                  <span className="status">
-                    pad {p.pad} · {p.ip}
-                    {p.model ? ' · ' + p.model : ''} · {p.online ? (p.on ? 'on' : 'off') : 'unreachable'}
-                  </span>
-                </div>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={busy}
-                    onClick={() => {
-                      const next = window.prompt('Name for this plug', p.name)
-                      if (next === null) return
-                      setErr('')
-                      RenamePlug(p.pad, next).then(onState).catch((e) => setErr(String(e)))
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={busy}
-                    onClick={() => {
-                      setErr('')
-                      RemovePlug(p.pad).then(onState).catch((e) => setErr(String(e)))
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="group">
-        <h3 className="group-title">Add by address</h3>
-        <p className="group-hint">
-          Discovery broadcasts, and a broadcast does not cross VLANs. A plug on another network
-          can still be added by address, as long as this Mac can reach it on TCP port 80.
-        </p>
-        <div className="field-row">
-          <label className="field">
-            <span>Plug IP</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="192.168.20.31"
-              value={manualIP}
-              onChange={(e) => setManualIP(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') addByIP()
-              }}
-            />
-          </label>
-          <button type="button" className="primary" disabled={busy || !manualIP.trim()} onClick={addByIP}>
-            {busy ? 'Trying\u2026' : 'Add'}
-          </button>
-        </div>
-      </section>
-
-      <section className="group">
-        <h3 className="group-title">Found on the network</h3>
-        {!scanned && <p className="group-hint">Scan to look for Tapo plugs.</p>}
-        {scanned && found.length === 0 && (
-          <p className="group-hint">
-            Nothing answered. Plugs must be powered on and on this network — a guest VLAN or a
-            second SSID will not see the broadcast.
-          </p>
-        )}
-        {found.length > 0 && (
-          <ul className="device-list">
-            {found.map((f) => (
-              <li key={f.mac} className={`device ${f.supported ? '' : 'offline'}`}>
-                <div>
-                  <strong>{f.name || f.model || f.ip}</strong>
-                  <span className="status">
-                    {f.ip} · {f.model}
-                    {f.pad ? ' · already on pad ' + f.pad : ''}
-                    {!f.supported ? ' · speaks ' + (f.encrypt || 'an unknown scheme') + ', not KLAP' : ''}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={busy || Boolean(f.pad) || !f.supported}
-                  onClick={() => {
-                    setErr('')
-                    AddPlug(f.mac, f.ip, f.name, f.model)
-                      .then((st) => {
-                        onState(st)
-                        setNote('Added ' + (f.name || f.ip) + '.')
-                        setFound((cur) =>
-                          cur.map((c) => (c.mac === f.mac ? { ...c, pad: -1 } : c)),
-                        )
-                      })
-                      .catch((e) => setErr(String(e)))
-                  }}
-                >
-                  {f.pad ? 'Added' : 'Add'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <footer className="actions">
-        <button type="button" className="ghost" disabled={busy} onClick={scan}>
-          {busy ? 'Scanning\u2026' : 'Scan for plugs'}
+          Clear stored
         </button>
       </footer>
     </div>

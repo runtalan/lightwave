@@ -5,8 +5,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-
-	"lightwave/internal/config"
 )
 
 // RemoteCommand executes a command sent over the IPC socket by an external
@@ -17,9 +15,9 @@ import (
 // The wire format is deliberately plain text, one command per line:
 //
 //	STATE              -> JSON snapshot
-//	TOGGLE_SLOT <pad>  -> ignite/extinguish one pad; 1-9 are lights, 10+ plugs
-//	SLOT_ON <pad>      -> ignite (idempotent)
-//	SLOT_OFF <pad>     -> extinguish (idempotent)
+//	TOGGLE_SLOT <1-9>  -> ignite/extinguish one pad
+//	SLOT_ON <1-9>      -> ignite (idempotent)
+//	SLOT_OFF <1-9>     -> extinguish (idempotent)
 //	BRIGHTNESS <0-100> -> absolute level for the pool
 //	BRIGHTNESS +/-<n>  -> relative nudge
 //	ALL_OFF            -> everything off, pool cleared
@@ -58,21 +56,8 @@ func (a *App) RemoteCommand(cmd string) string {
 
 	case "TOGGLE_SLOT", "SLOT_ON", "SLOT_OFF":
 		n, err := strconv.Atoi(arg)
-		if err != nil || n < 1 || (n > 9 && !a.plugs.isPlugPad(n)) {
-			return "ERR pad must be 1-9, or a bound plug pad"
-		}
-		// Plugs take the idempotent path in the manager, which knows their
-		// state; a.pool only ever holds lights.
-		if n >= config.FirstPlugPad {
-			if verb == "TOGGLE_SLOT" {
-				err = a.TogglePlug(n)
-			} else {
-				err = a.SetPlugOn(n, verb == "SLOT_ON")
-			}
-			if err != nil {
-				return "ERR " + err.Error()
-			}
-			return a.remoteState()
+		if err != nil || n < 1 || n > 9 {
+			return "ERR pad must be 1-9"
 		}
 		if verb != "TOGGLE_SLOT" {
 			// Idempotent variants: only act when the pad is not already in the
@@ -229,22 +214,6 @@ func (a *App) remoteState() string {
 		})
 	}
 	a.mu.Unlock()
-
-	// Plugs follow the lights, sharing the pad numbering so a Stream Deck key
-	// addresses one exactly as it addresses a lamp.
-	for _, p := range a.plugs.views() {
-		link := ""
-		if p.Online {
-			link = "lan"
-		}
-		st.Pads = append(st.Pads, RemotePad{
-			Number: p.Pad,
-			Name:   p.Name,
-			Bound:  p.Bound,
-			On:     p.On,
-			Link:   link,
-		})
-	}
 
 	b, err := json.Marshal(st)
 	if err != nil {
