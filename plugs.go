@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -509,4 +510,59 @@ func (a *App) ReloadPlugAccount() HUDState {
 	a.loadPlugsFromConfig()
 	a.emitState()
 	return a.snapshot()
+}
+
+// AddPlugByIP binds a plug the broadcast sweep cannot reach — the usual case
+// being a plug on another VLAN, where discovery's UDP broadcast never crosses
+// the segment but ordinary routed TCP to port 80 does.
+//
+// It handshakes and reads the plug's own name and model, so a bound plug says
+// what it is rather than showing a bare address. Failures are separated by
+// stage: which layer broke decides what the user has to fix, and "it didn't
+// work" would leave them guessing between a firewall, a password and firmware.
+func (a *App) AddPlugByIP(ip string) (HUDState, error) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return a.snapshot(), errors.New("enter the plug's IP address")
+	}
+	if net.ParseIP(ip) == nil {
+		return a.snapshot(), fmt.Errorf("%q is not an IP address", ip)
+	}
+	email, password := config.TapoCredentials()
+	if email == "" || password == "" {
+		return a.snapshot(), errNoTapoAccount
+	}
+	for _, b := range a.plugs.bindings() {
+		if b.IP == ip {
+			return a.snapshot(), fmt.Errorf("already on pad %d", b.Pad)
+		}
+	}
+
+	dev := tapo.New(ip, tapo.Credentials{Username: email, Password: password})
+	defer dev.Close()
+	status, err := dev.Status()
+	if err != nil {
+		return a.snapshot(), describePlugFailure(ip, err)
+	}
+
+	// No MAC without discovery, so the address is the identity. That is what
+	// the KLAP session addresses anyway; a DHCP move needs a re-add either way.
+	return a.AddPlug("IP:"+ip, ip, status.Name, status.Model)
+}
+
+// describePlugFailure turns a transport error into the thing to go and fix.
+func describePlugFailure(ip string, err error) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "rejected the credentials"):
+		return fmt.Errorf("%s answered, but rejected the account — check the email and password on the Account tab", ip)
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"),
+		strings.Contains(msg, "no route"), strings.Contains(msg, "unreachable"):
+		return fmt.Errorf("%s did not answer — if it is on another VLAN, allow this Mac to reach it on TCP port 80", ip)
+	case strings.Contains(msg, "connection refused"):
+		return fmt.Errorf("%s refused the connection — reachable, but nothing is serving the Tapo API on port 80", ip)
+	case strings.Contains(msg, "short reply"), strings.Contains(msg, "status 4"), strings.Contains(msg, "status 5"):
+		return fmt.Errorf("%s answered but not with KLAP — it may be older AES firmware, which Lightwave cannot drive yet", ip)
+	}
+	return fmt.Errorf("%s: %w", ip, err)
 }

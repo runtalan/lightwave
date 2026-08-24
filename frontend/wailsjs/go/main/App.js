@@ -241,3 +241,7 @@ export function ToggleSlot(arg1) {
 export function ToggleWindow() {
   return window['go']['main']['App']['ToggleWindow']();
 }
+
+export function AddPlugByIP(arg1) {
+  return window['go']['main']['App']['AddPlugByIP'](arg1);
+}

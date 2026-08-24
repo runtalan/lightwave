@@ -125,3 +125,5 @@ export function TogglePlug(arg1:number):Promise<void>;
 export function ToggleSlot(arg1:number):Promise<void>;
 
 export function ToggleWindow():Promise<void>;
+
+export function AddPlugByIP(arg1:string):Promise<main.HUDState>;

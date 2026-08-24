@@ -17,6 +17,7 @@ import {
   SetTapoCredentials,
   ScanPlugs,
   AddPlug,
+  AddPlugByIP,
   RemovePlug,
   RenamePlug,
   ReloadPlugAccount,
@@ -1189,7 +1190,23 @@ function PlugsPane({
   const [found, setFound] = useState<PlugCandidate[]>([])
   const [busy, setBusy] = useState(false)
   const [scanned, setScanned] = useState(false)
+  const [manualIP, setManualIP] = useState('')
   const plugs = state.plugs || []
+
+  function addByIP() {
+    const ip = manualIP.trim()
+    if (!ip) return
+    setBusy(true)
+    setErr('')
+    AddPlugByIP(ip)
+      .then((st) => {
+        onState(st)
+        setManualIP('')
+        setNote('Added ' + ip + '.')
+      })
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false))
+  }
 
   function scan() {
     setBusy(true)
@@ -1262,6 +1279,33 @@ function PlugsPane({
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="group">
+        <h3 className="group-title">Add by address</h3>
+        <p className="group-hint">
+          Discovery broadcasts, and a broadcast does not cross VLANs. A plug on another network
+          can still be added by address, as long as this Mac can reach it on TCP port 80.
+        </p>
+        <div className="field-row">
+          <label className="field">
+            <span>Plug IP</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="192.168.20.31"
+              value={manualIP}
+              onChange={(e) => setManualIP(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addByIP()
+              }}
+            />
+          </label>
+          <button type="button" className="primary" disabled={busy || !manualIP.trim()} onClick={addByIP}>
+            {busy ? 'Trying\u2026' : 'Add'}
+          </button>
+        </div>
       </section>
 
       <section className="group">

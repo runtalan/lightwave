@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"lightwave/internal/config"
@@ -239,6 +241,43 @@ func TestSavePlugsPreservesLights(t *testing.T) {
 	for i, s := range got.Slots {
 		if s.DeviceID == "" {
 			t.Fatalf("a plug edit cleared light slot %d", i+1)
+		}
+	}
+}
+
+// A by-IP add must reject bad input before it opens a socket, and must say
+// which layer failed rather than "it didn't work".
+func TestAddPlugByIPValidates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := &App{plugs: newPlugManager()}
+	a.slots = make([]config.SlotBinding, 9)
+	a.pool = map[int]bool{}
+
+	if _, err := a.AddPlugByIP("   "); err == nil {
+		t.Error("empty address should be rejected")
+	}
+	if _, err := a.AddPlugByIP("not-an-ip"); err == nil {
+		t.Error("a non-address should be rejected before dialling")
+	}
+	// Valid address, no account: the account is the thing to fix.
+	if _, err := a.AddPlugByIP("192.0.2.50"); err != errNoTapoAccount {
+		t.Errorf("want errNoTapoAccount, got %v", err)
+	}
+}
+
+// The staged errors are the whole point of the by-IP path: each one has to
+// name a different thing to go and fix.
+func TestDescribePlugFailureIsSpecific(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"tapo: 192.0.2.9 rejected the credentials (check TAPO_EMAIL)", "Account tab"},
+		{"dial tcp 192.0.2.9:80: i/o timeout", "TCP port 80"},
+		{"dial tcp 192.0.2.9:80: connect: connection refused", "refused"},
+		{"tapo: 192.0.2.9: status 403", "AES firmware"},
+	}
+	for _, c := range cases {
+		got := describePlugFailure("192.0.2.9", errors.New(c.in)).Error()
+		if !strings.Contains(got, c.want) {
+			t.Errorf("for %q\n got  %q\n want it to mention %q", c.in, got, c.want)
 		}
 	}
 }
