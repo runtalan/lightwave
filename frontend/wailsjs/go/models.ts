@@ -261,6 +261,30 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class PlugCandidate {
+	    ip: string;
+	    mac: string;
+	    model: string;
+	    name: string;
+	    supported: boolean;
+	    encrypt: string;
+	    pad: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlugCandidate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.mac = source["mac"];
+	        this.model = source["model"];
+	        this.name = source["name"];
+	        this.supported = source["supported"];
+	        this.encrypt = source["encrypt"];
+	        this.pad = source["pad"];
+	    }
+	}
 	
 	
 

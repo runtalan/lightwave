@@ -184,3 +184,61 @@ func TestSnapshotCarriesPlugs(t *testing.T) {
 		t.Error("a plug with a device id should read as bound")
 	}
 }
+
+// Pads are handed out from FirstPlugPad upward, filling gaps left by removals
+// rather than climbing forever.
+func TestNextPlugPadFillsGaps(t *testing.T) {
+	a := &App{plugs: newPlugManager()}
+	if got := a.nextPlugPad(); got != config.FirstPlugPad {
+		t.Errorf("first plug should take pad %d, got %d", config.FirstPlugPad, got)
+	}
+
+	a.plugs.setBindings([]config.PlugBinding{
+		{Pad: 10, DeviceID: "AA", IP: "192.0.2.50"},
+		{Pad: 12, DeviceID: "CC", IP: "192.0.2.52"},
+	})
+	if got := a.nextPlugPad(); got != 11 {
+		t.Errorf("expected the gap at 11, got %d", got)
+	}
+
+	a.plugs.setBindings([]config.PlugBinding{
+		{Pad: 10, DeviceID: "AA", IP: "192.0.2.50"},
+		{Pad: 11, DeviceID: "BB", IP: "192.0.2.51"},
+	})
+	if got := a.nextPlugPad(); got != 12 {
+		t.Errorf("expected 12 after a contiguous run, got %d", got)
+	}
+}
+
+// Saving plugs must never rewrite the pad map: the two live in one file, and
+// a plug edit reads the light half back rather than assuming it.
+func TestSavePlugsPreservesLights(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	lights := make([]config.SlotBinding, 9)
+	for i := range lights {
+		lights[i] = config.SlotBinding{Slot: i + 1, DeviceID: "LAMP" + string(rune('A'+i)), IP: "192.0.2.1"}
+	}
+	if err := config.SaveSlotFile(config.SlotFile{Configured: true, Slots: lights}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	a := &App{plugs: newPlugManager()}
+	a.slots = lights
+	a.pool = map[int]bool{}
+	if _, err := a.savePlugs([]config.PlugBinding{
+		{Pad: 10, DeviceID: "AA", Name: "Fan", IP: "192.0.2.50"},
+	}); err != nil {
+		t.Fatalf("savePlugs: %v", err)
+	}
+
+	got := config.LoadSlotFile()
+	if len(got.Plugs) != 1 || got.Plugs[0].Pad != 10 {
+		t.Fatalf("plug not saved: %+v", got.Plugs)
+	}
+	for i, s := range got.Slots {
+		if s.DeviceID == "" {
+			t.Fatalf("a plug edit cleared light slot %d", i+1)
+		}
+	}
+}

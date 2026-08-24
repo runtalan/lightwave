@@ -6,6 +6,8 @@ import {config} from '../models';
 import {ipc} from '../models';
 import {fs} from '../models';
 
+export function AddPlug(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.HUDState>;
+
 export function AllOff():Promise<main.HUDState>;
 
 export function AllOn():Promise<main.HUDState>;
@@ -70,7 +72,13 @@ export function Quit():Promise<void>;
 
 export function RecallToggle():Promise<main.HUDState>;
 
+export function ReloadPlugAccount():Promise<main.HUDState>;
+
 export function RemoteCommand(arg1:string):Promise<string>;
+
+export function RemovePlug(arg1:number):Promise<main.HUDState>;
+
+export function RenamePlug(arg1:number,arg2:string):Promise<main.HUDState>;
 
 export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
 
@@ -81,6 +89,8 @@ export function SaveMappings(arg1:Array<config.SlotBinding>):Promise<void>;
 export function SaveSettings(arg1:main.SettingsView):Promise<void>;
 
 export function ScanLAN():Promise<main.HUDState>;
+
+export function ScanPlugs():Promise<Array<main.PlugCandidate>>;
 
 export function SetBrightness(arg1:number):Promise<void>;
 

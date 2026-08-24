@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -371,4 +373,140 @@ func (a *App) plugViewsLocked() []PlugView {
 		return nil
 	}
 	return a.plugs.views()
+}
+
+// PlugCandidate is a plug discovery found, plus whether it is already bound.
+type PlugCandidate struct {
+	IP    string `json:"ip"`
+	MAC   string `json:"mac"`
+	Model string `json:"model"`
+	Name  string `json:"name"`
+	// Supported is false for a plug whose firmware speaks the older AES
+	// scheme instead of KLAP. It is listed rather than hidden so the reason a
+	// plug cannot be added is visible.
+	Supported bool   `json:"supported"`
+	Encrypt   string `json:"encrypt"`
+	Pad       int    `json:"pad"` // 0 when unbound
+}
+
+// ScanPlugs sweeps the LAN for Tapo plugs. It does not need credentials:
+// discovery is unauthenticated, so a plug can be found and its protocol
+// checked before an account is entered.
+func (a *App) ScanPlugs() ([]PlugCandidate, error) {
+	found, err := tapo.Discover(3 * time.Second)
+	if err != nil {
+		return nil, err
+	}
+	bound := map[string]int{}
+	for _, b := range a.plugs.bindings() {
+		bound[strings.ToUpper(b.DeviceID)] = b.Pad
+	}
+	out := make([]PlugCandidate, 0, len(found))
+	for _, f := range found {
+		out = append(out, PlugCandidate{
+			IP:        f.IP,
+			MAC:       f.MAC,
+			Model:     f.Model,
+			Name:      f.Name,
+			Supported: f.SupportsKLAP(),
+			Encrypt:   f.EncryptType,
+			Pad:       bound[strings.ToUpper(f.MAC)],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IP < out[j].IP })
+	return out, nil
+}
+
+// nextPlugPad returns the lowest free pad at or above FirstPlugPad.
+func (a *App) nextPlugPad() int {
+	taken := map[int]bool{}
+	for _, b := range a.plugs.bindings() {
+		taken[b.Pad] = true
+	}
+	for pad := config.FirstPlugPad; ; pad++ {
+		if !taken[pad] {
+			return pad
+		}
+	}
+}
+
+// AddPlug binds a discovered plug to the next free pad. Plug edits persist
+// straight away rather than joining the pad map's dirty/commit cycle: they are
+// independent of the numpad, and a plug list is not something you build up in
+// memory and commit as a set.
+func (a *App) AddPlug(mac, ip, name, model string) (HUDState, error) {
+	mac = strings.ToUpper(strings.TrimSpace(mac))
+	ip = strings.TrimSpace(ip)
+	if mac == "" || ip == "" {
+		return a.snapshot(), errors.New("a plug needs both an address and an id")
+	}
+	binds := a.plugs.bindings()
+	for _, b := range binds {
+		if strings.EqualFold(b.DeviceID, mac) {
+			return a.snapshot(), fmt.Errorf("already on pad %d", b.Pad)
+		}
+	}
+	binds = append(binds, config.PlugBinding{
+		Pad:      a.nextPlugPad(),
+		DeviceID: mac,
+		Name:     strings.TrimSpace(name),
+		Model:    strings.TrimSpace(model),
+		IP:       ip,
+	})
+	return a.savePlugs(binds)
+}
+
+// RemovePlug unbinds a pad.
+func (a *App) RemovePlug(pad int) (HUDState, error) {
+	binds := a.plugs.bindings()
+	out := make([]config.PlugBinding, 0, len(binds))
+	for _, b := range binds {
+		if b.Pad != pad {
+			out = append(out, b)
+		}
+	}
+	if len(out) == len(binds) {
+		return a.snapshot(), errPlugUnbound
+	}
+	return a.savePlugs(out)
+}
+
+// RenamePlug sets a custom label. An empty name clears it, so the discovered
+// name shows again.
+func (a *App) RenamePlug(pad int, name string) (HUDState, error) {
+	binds := a.plugs.bindings()
+	found := false
+	for i := range binds {
+		if binds[i].Pad == pad {
+			binds[i].Custom = strings.TrimSpace(name)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return a.snapshot(), errPlugUnbound
+	}
+	return a.savePlugs(binds)
+}
+
+// savePlugs writes the list through the slot file and refreshes the manager.
+// The light half of the file is read back rather than assumed, so a plug edit
+// can never rewrite the pad map.
+func (a *App) savePlugs(binds []config.PlugBinding) (HUDState, error) {
+	f := config.LoadSlotFile()
+	f.Plugs = config.NormalizePlugs(binds)
+	if err := config.SaveSlotFile(f); err != nil {
+		return a.snapshot(), err
+	}
+	a.plugs.setBindings(f.Plugs)
+	a.emitState()
+	return a.snapshot(), nil
+}
+
+// ReloadPlugAccount re-reads the stored credentials. Called after the Plugs
+// tab saves, so a freshly entered account takes effect without a restart.
+func (a *App) ReloadPlugAccount() HUDState {
+	a.loadPlugsFromConfig()
+	a.emitState()
+	return a.snapshot()
 }
