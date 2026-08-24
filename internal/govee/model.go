@@ -34,6 +34,9 @@ func ModelOf(addr string) string {
 // IsClassicBulb reports single-zone RGB/RGBWW lamps (H6001 and kin). These
 // speak manual-color mode 0x02 and ignore — or worse, mis-handle — RGBIC
 // segment packets (0x15). Sending 0x15 after 0x02 can leave them stuck.
+//
+// Lyra / corner floor lamps (H6072 and kin) are NOT classic: they are
+// multi-zone RGBIC fixtures and must take the same gradient path as strips.
 func IsClassicBulb(model string) bool {
 	m := strings.ToUpper(strings.TrimSpace(model))
 	if len(m) < 4 {
@@ -44,15 +47,15 @@ func IsClassicBulb(model string) bool {
 		strings.HasPrefix(m, "H604"),
 		strings.HasPrefix(m, "H605"),
 		strings.HasPrefix(m, "H608"),
-		strings.HasPrefix(m, "H609"),
-		strings.HasPrefix(m, "H607"):
+		strings.HasPrefix(m, "H609"):
 		return true
 	}
 	return false
 }
 
-// IsRGBIC reports multi-zone strips that understand BLE 0x15 / LAN ptReal
-// segment writes. Floor lamps and bulbs are not RGBIC.
+// IsRGBIC reports multi-zone devices that understand BLE 0x15 / LAN ptReal
+// segment writes: LED strips (H61, H70, H80, H85) and Lyra-style floor lamps
+// (H607). Classic single-zone bulbs are never RGBIC.
 func IsRGBIC(model string) bool {
 	m := strings.ToUpper(strings.TrimSpace(model))
 	if IsClassicBulb(m) {
@@ -60,6 +63,7 @@ func IsRGBIC(model string) bool {
 	}
 	switch {
 	case strings.HasPrefix(m, "H61"),
+		strings.HasPrefix(m, "H607"),
 		strings.HasPrefix(m, "H70"),
 		strings.HasPrefix(m, "H80"),
 		strings.HasPrefix(m, "H85"):
@@ -68,8 +72,9 @@ func IsRGBIC(model string) bool {
 	return false
 }
 
-// SupportsSegments is true when a strip gradient should be painted across
-// zones. Single-zone bulbs always return false.
+// SupportsSegments is true when a gradient should be painted across zones.
+// Single-zone bulbs always return false; Lyra floor lamps and RGBIC strips
+// return true.
 func SupportsSegments(model string) bool {
 	return IsRGBIC(model)
 }

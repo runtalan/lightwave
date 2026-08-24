@@ -92,27 +92,30 @@ type SlotView struct {
 }
 
 type HUDState struct {
-	Slots         []SlotView     `json:"slots"`
-	ActivePool    []int          `json:"activePool"`
-	Brightness    int            `json:"brightness"`
-	PaletteIndex  int            `json:"paletteIndex"`
-	PaletteName   string         `json:"paletteName"`
-	MIDIConnected bool           `json:"midiConnected"`
-	MIDIPort      string         `json:"midiPort"`
-	DeviceCount   int            `json:"deviceCount"`
-	NeedsSetup    bool           `json:"needsSetup"`
-	SetupOpen     bool           `json:"setupOpen"`
-	HasAPIKey     bool           `json:"hasApiKey"`
-	DiscoverError string         `json:"discoverError"`
-	Discovering   bool           `json:"discovering"`
-	FirstRun      bool           `json:"firstRun"`
-	Catalog       []govee.Device `json:"catalog"`
-	Hidden        bool           `json:"hidden"`
-	MappingPath   string         `json:"mappingPath"`
-	ConfigOpen    bool           `json:"configOpen"`
-	Dancing       bool           `json:"dancing"`
-	Gradient      bool           `json:"gradient"`
-	Settings      SettingsView   `json:"settings"`
+	Slots           []SlotView     `json:"slots"`
+	ActivePool      []int          `json:"activePool"`
+	Brightness      int            `json:"brightness"`
+	PaletteIndex    int            `json:"paletteIndex"`
+	PaletteName     string         `json:"paletteName"`
+	MIDIConnected   bool           `json:"midiConnected"`
+	MIDIPort        string         `json:"midiPort"`
+	DeviceCount     int            `json:"deviceCount"`
+	NeedsSetup      bool           `json:"needsSetup"`
+	SetupOpen       bool           `json:"setupOpen"`
+	HasAPIKey       bool           `json:"hasApiKey"`
+	DiscoverError   string         `json:"discoverError"`
+	Discovering     bool           `json:"discovering"`
+	FirstRun        bool           `json:"firstRun"`
+	Catalog         []govee.Device `json:"catalog"`
+	Hidden          bool           `json:"hidden"`
+	MappingPath     string         `json:"mappingPath"`
+	ConfigOpen      bool           `json:"configOpen"`
+	Dancing         bool           `json:"dancing"`
+	Gradient        bool           `json:"gradient"`
+	BleScanning     bool           `json:"bleScanning"`
+	BluetoothDenied bool           `json:"bluetoothDenied"`
+	BluetoothOff    bool           `json:"bluetoothOff"`
+	Settings        SettingsView   `json:"settings"`
 }
 
 type SettingsView struct {
@@ -237,6 +240,11 @@ func NewApp(forceSetup bool) *App {
 	}
 	a.pendingBright.Store(80)
 	a.lastSentBright = -1
+	for _, s := range a.slots {
+		if s.IP != "" && s.Model != "" {
+			govee.Remember(s.IP, s.Model)
+		}
+	}
 	return a
 }
 
@@ -299,6 +307,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.ble.StartTransport()
+	a.ble.OnAdapter(func() { a.emitState() })
 	if err := a.ble.Start(func(d govee.Device) {
 		a.mergeBLE(d)
 		a.emitState()
@@ -440,14 +449,17 @@ func (a *App) drainMIDI() bool {
 		a.applyBrightness(midilstn.CCToPercent(val), false)
 		activity = true
 	}
-	if note, ok := a.midi.TakeNote(); ok {
+	if note, viaCC, ok := a.midi.TakeNote(); ok {
 		a.mu.Lock()
 		plus, minus := a.midiCfg.NotePlus, a.midiCfg.NoteMinus
 		a.mu.Unlock()
-		if note == plus {
-			a.CycleColor(1)
-		} else if note == minus {
-			a.CycleColor(-1)
+		if dir, hit := midilstn.PaletteDelta(note, plus, minus); hit {
+			kind := "note"
+			if viaCC {
+				kind = "cc"
+			}
+			log.Printf("midi: %s %d → CycleColor(%d)", kind, note, dir)
+			a.CycleColor(dir)
 		}
 		activity = true
 	}
@@ -538,11 +550,20 @@ func (a *App) mergeLAN(d govee.Device) {
 // adopts that entry (and its friendly name) instead of duplicating it.
 func (a *App) mergeBLE(d govee.Device) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.mergeBLELocked(d)
+	changed := a.mergeBLELocked(d)
+	var snap config.SlotFile
+	if changed {
+		snap = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
+	a.mu.Unlock()
+	if changed {
+		if err := config.SaveSlotFile(snap); err != nil {
+			log.Printf("govee ble: persist remapped pad: %v", err)
+		}
+	}
 }
 
-func (a *App) mergeBLELocked(d govee.Device) {
+func (a *App) mergeBLELocked(d govee.Device) bool {
 	suffix := govee.BLESuffixFromName(d.AdvName)
 	target := -1
 	if suffix != "" && d.Model != "" {
@@ -571,7 +592,14 @@ func (a *App) mergeBLELocked(d govee.Device) {
 		if c.Model == "" {
 			c.Model = d.Model
 		}
+		if d.AdvName != "" {
+			c.AdvName = d.AdvName
+		}
 		c.Online = true
+		placeholder := c.Name == "" || c.Name == "Govee BLE" || c.Name == c.Model || c.Name == c.Model+" (BLE)"
+		if d.Name != "" && d.Name != "Govee BLE" && placeholder {
+			c.Name = d.Name
+		}
 		a.catalog[target] = c
 		id = govee.NormalizeID(c.ID)
 		best = c.Name
@@ -583,13 +611,31 @@ func (a *App) mergeBLELocked(d govee.Device) {
 		id = govee.NormalizeID(d.ID)
 		best = d.Name
 	}
+	slotDirty := false
 	for i, s := range a.slots {
-		if govee.NormalizeID(s.DeviceID) != id {
+		sameID := govee.NormalizeID(s.DeviceID) == id
+		tail := govee.BLEBindingMatch(d.Model, d.AdvName, s.Model, s.DeviceID, s.Name, s.Custom)
+		if !sameID && !tail {
 			continue
+		}
+		if !sameID && tail {
+			taken := false
+			for j, o := range a.slots {
+				if i != j && govee.NormalizeID(o.DeviceID) == id {
+					taken = true
+					break
+				}
+			}
+			if !taken && (s.DeviceID == "" || strings.HasPrefix(strings.ToUpper(s.DeviceID), "BLE")) {
+				log.Printf("govee ble: pad %d remapped id %s → %s", i+1, s.DeviceID, id)
+				a.slots[i].DeviceID = id
+				slotDirty = true
+			}
 		}
 		if a.bleMayReplaceLocked(s.IP) {
 			if a.slots[i].IP != d.IP {
-				log.Printf("govee ble: pad %d (%s) now reachable over bluetooth", i+1, s.Name)
+				log.Printf("govee ble: pad %d (%s) bluetooth %s", i+1, s.Name, d.IP)
+				slotDirty = true
 			}
 			a.slots[i].IP = d.IP
 		}
@@ -608,6 +654,7 @@ func (a *App) mergeBLELocked(d govee.Device) {
 	if d.IP != "" {
 		govee.Remember(d.IP, d.Model)
 	}
+	return slotDirty
 }
 
 // foldBLE re-merges every known BLE peripheral into the catalog and slots.
@@ -619,10 +666,22 @@ func (a *App) foldBLE() {
 		return
 	}
 	a.mu.Lock()
+	changed := false
 	for _, d := range devs {
-		a.mergeBLELocked(d)
+		if a.mergeBLELocked(d) {
+			changed = true
+		}
+	}
+	var snap config.SlotFile
+	if changed {
+		snap = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
 	}
 	a.mu.Unlock()
+	if changed {
+		if err := config.SaveSlotFile(snap); err != nil {
+			log.Printf("govee ble: persist remapped pad: %v", err)
+		}
+	}
 	a.scheduleStateEmit()
 }
 
@@ -786,9 +845,10 @@ func (a *App) applyDeviceStatus(st govee.DevStatus) {
 	// Mirror the device's own brightness only while the user is not driving
 	// the slider, so polling never fights an in-progress adjustment.
 	if st.On && st.Brightness > 0 && time.Since(a.lastBrightTouch) > brightSyncGuard {
-		if a.brightness != st.Brightness {
-			a.brightness = st.Brightness
-			a.pendingBright.Store(int32(st.Brightness))
+		reported := normalizeReportedBrightness(st.Brightness)
+		if a.brightness != reported {
+			a.brightness = reported
+			a.pendingBright.Store(int32(reported))
 			changed = true
 		}
 	}
@@ -1017,27 +1077,30 @@ func (a *App) snapshotLocked() HUDState {
 		ok, port = a.midiOK, a.midiPort
 	}
 	return HUDState{
-		Slots:         views,
-		ActivePool:    pool,
-		Brightness:    clampBrightness(a.brightness),
-		PaletteIndex:  a.engine.Index,
-		PaletteName:   a.engine.Name(),
-		Dancing:       a.dancing,
-		Gradient:      a.gradient,
-		MIDIConnected: ok,
-		MIDIPort:      port,
-		DeviceCount:   len(a.catalog),
-		NeedsSetup:    a.setupOpen,
-		SetupOpen:     a.setupOpen,
-		ConfigOpen:    a.setupOpen,
-		HasAPIKey:     a.apiKeyLocked() != "",
-		DiscoverError: a.discoverErr,
-		Discovering:   a.discovering,
-		FirstRun:      !a.configured,
-		Catalog:       append([]govee.Device{}, a.catalog...),
-		Hidden:        a.hidden,
-		MappingPath:   config.MappingPath(),
-		Settings:      a.settingsViewLocked(),
+		Slots:           views,
+		ActivePool:      pool,
+		Brightness:      clampBrightness(a.brightness),
+		PaletteIndex:    a.engine.Index,
+		PaletteName:     a.engine.Name(),
+		Dancing:         a.dancing,
+		Gradient:        a.gradient,
+		MIDIConnected:   ok,
+		MIDIPort:        port,
+		DeviceCount:     len(a.catalog),
+		NeedsSetup:      a.setupOpen,
+		SetupOpen:       a.setupOpen,
+		ConfigOpen:      a.setupOpen,
+		HasAPIKey:       a.apiKeyLocked() != "",
+		DiscoverError:   a.discoverErr,
+		Discovering:     a.discovering,
+		FirstRun:        !a.configured,
+		Catalog:         append([]govee.Device{}, a.catalog...),
+		Hidden:          a.hidden,
+		MappingPath:     config.MappingPath(),
+		BleScanning:     a.ble != nil && a.ble.Scanning(),
+		BluetoothDenied: a.ble != nil && a.ble.Unauthorized(),
+		BluetoothOff:    a.ble != nil && a.ble.PoweredOff(),
+		Settings:        a.settingsViewLocked(),
 	}
 }
 
@@ -1207,13 +1270,27 @@ func (a *App) ToggleSlot(n int) error {
 		a.pool[n] = true
 	}
 	active := a.pool[n]
-	ip := a.slots[n-1].IP
-	bright := clampBrightness(a.brightness)
+	ip, model, label := a.slotLinkLocked(n)
+	if ip != "" && ip != a.slots[n-1].IP {
+		log.Printf("pad %d %s using live address %s (slot had %s)", n, label, ip, a.slots[n-1].IP)
+		a.slots[n-1].IP = ip
+		if model != "" {
+			a.slots[n-1].Model = model
+		}
+	}
+	bright := ignitedBrightness(a.brightness)
 	if a.slotTouched == nil {
 		a.slotTouched = map[int]time.Time{}
 	}
 	a.slotTouched[n] = time.Now()
 	a.mu.Unlock()
+	log.Printf("pad %d %s ignite=%v ip=%q model=%q", n, label, active, ip, model)
+	if ip != "" && model != "" {
+		govee.Remember(ip, model)
+	}
+	if govee.IsBLE(ip) {
+		a.ble.Scan()
+	}
 	if active && ip != "" {
 		// Bring the lamp up at the level the slider is already showing, rather
 		// than whatever brightness it happened to retain. Brightness is sent
@@ -1234,6 +1311,8 @@ func (a *App) ToggleSlot(n int) error {
 		// Un-igniting a pad must actually extinguish the lamp; dropping it from
 		// the pool only stops future slider updates reaching it.
 		_ = sendTurn(ip, false)
+	} else if ip == "" {
+		log.Printf("pad %d %s has no address — cannot send power", n, label)
 	}
 	a.emitState()
 	a.emit("slot:toggle", n)
@@ -1290,15 +1369,18 @@ func (a *App) AllOn() HUDState {
 	}
 	for n := 1; n <= limit; n++ {
 		s := a.slots[n-1]
-		ip := strings.TrimSpace(s.IP)
+		ip, model, _ := a.slotLinkLocked(n)
 		if s.DeviceID == "" || ip == "" {
 			continue
+		}
+		if model != "" {
+			govee.Remember(ip, model)
 		}
 		a.pool[n] = true
 		a.slotTouched[n] = now
 		targets = append(targets, target{n: n, ip: ip})
 	}
-	bright := clampBrightness(a.brightness)
+	bright := ignitedBrightness(a.brightness)
 	// The pool changed, so the pump's "same value, skip it" shortcut no longer
 	// reflects reality.
 	a.lastSentBright = -1
@@ -1358,6 +1440,27 @@ func clampBrightness(percent int) int {
 	return percent
 }
 
+// ignitedBrightness is the value written to a lamp that is already on.
+// Govee treats brightness 0 as power-off (LAN value 0 and BLE 0x33 0x04 0x00),
+// so a fader at the bottom must still send 1%. Off is power packets only.
+func ignitedBrightness(percent int) int {
+	percent = clampBrightness(percent)
+	if percent < 1 {
+		return 1
+	}
+	return percent
+}
+
+// normalizeReportedBrightness maps a Govee status brightness onto 0–100.
+// LAN firmware usually reports 1–100; some replies use the 0–255 BLE scale,
+// and treating 235 as a percent would clamp the slider to 92 after a poll.
+func normalizeReportedBrightness(v int) int {
+	if v > 100 {
+		return clampBrightness((v*100 + 127) / 255)
+	}
+	return clampBrightness(v)
+}
+
 func (a *App) SetBrightness(percent int) {
 	a.applyBrightness(percent, true)
 }
@@ -1413,21 +1516,26 @@ func (a *App) brightnessPump() {
 					log.Printf("brightness apply recovered: %v", r)
 				}
 			}()
-			percent := clampBrightness(int(a.pendingBright.Load()))
+			ui := clampBrightness(int(a.pendingBright.Load()))
+			wire := ignitedBrightness(ui)
 			a.mu.Lock()
-			a.brightness = percent
+			a.brightness = ui
 			// Slider / MIDI CC counts as activity here (after coalesce), never
 			// from the CoreMIDI callback, and never as a show/hide.
 			a.lastActivity = time.Now()
 			ips := a.poolIPsLocked()
 			wasOff := a.lastSentBright == 0
-			unchanged := a.lastSentBright == percent
-			a.lastSentBright = percent
+			unchanged := a.lastSentBright == wire
+			// Store the ignited value, never 0: lastSentBright==0 means AllOff,
+			// not "user parked the fader at the bottom".
+			a.lastSentBright = wire
 			a.mu.Unlock()
 			if len(ips) == 0 || unchanged {
 				return
 			}
-			sendPoolBrightness(ips, percent, wasOff && percent > 0)
+			// Dim only. Never SendTurn(false) and never paint RGB 0,0,0 —
+			// those are extinguish / palette paths, not fader motion.
+			sendPoolBrightness(ips, wire, wasOff)
 		}()
 		// Hard floor between LAN writes, so a fast slide cannot flood the
 		// devices. A value arriving during this window is not lost: it stays
@@ -1452,9 +1560,8 @@ func (a *App) applyPaletteToPool() {
 //
 // Single mode: every lamp gets the same centre swatch.
 // Gradient mode: complementary/adjacent swatches are spread across devices
-// (that's the room-level scene). RGBIC strips also get a zone ramp; bulbs
-// such as H6001 cannot show a strip gradient, so they take their distributed
-// solid colour.
+// (that's the room-level scene). RGBIC strips and Lyra floor lamps (H6072)
+// also get a zone ramp; classic bulbs such as H6001 take a solid colour.
 //
 // turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
 // may have been switched off at the wall).
@@ -1591,10 +1698,6 @@ func (a *App) poolDestsLocked() []lampDest {
 	if a.pool == nil {
 		return out
 	}
-	byID := map[string]govee.Device{}
-	for _, d := range a.catalog {
-		byID[govee.NormalizeID(d.ID)] = d
-	}
 	limit := len(a.slots)
 	if limit > 9 {
 		limit = 9
@@ -1603,17 +1706,7 @@ func (a *App) poolDestsLocked() []lampDest {
 		if !a.pool[n] {
 			continue
 		}
-		s := a.slots[n-1]
-		ip := strings.TrimSpace(s.IP)
-		model := s.Model
-		if d, ok := byID[govee.NormalizeID(s.DeviceID)]; ok {
-			if d.IP != "" {
-				ip = d.IP
-			}
-			if model == "" {
-				model = d.Model
-			}
-		}
+		ip, model, _ := a.slotLinkLocked(n)
 		if ip == "" {
 			continue
 		}
@@ -1623,6 +1716,40 @@ func (a *App) poolDestsLocked() []lampDest {
 	return out
 }
 
+// slotLinkLocked returns the live control address for a pad. Catalog and BLE
+// discovery can rewrite a stale CoreBluetooth UUID (H6001 C883 vs a dead
+// identifier) without waiting for the user to re-save the map.
+func (a *App) slotLinkLocked(n int) (ip, model, label string) {
+	s := a.slots[n-1]
+	ip = strings.TrimSpace(s.IP)
+	model = s.Model
+	label = s.Custom
+	if label == "" {
+		label = s.Name
+	}
+	for _, d := range a.catalog {
+		if govee.NormalizeID(d.ID) == govee.NormalizeID(s.DeviceID) {
+			if d.IP != "" {
+				ip = d.IP
+			}
+			if model == "" && d.Model != "" {
+				model = d.Model
+			}
+		}
+		adv := d.AdvName
+		if adv == "" {
+			adv = d.Name
+		}
+		if d.IP != "" && govee.IsBLE(d.IP) && govee.BLEBindingMatch(d.Model, adv, s.Model, s.DeviceID, s.Name, s.Custom) {
+			ip = d.IP
+			if d.Model != "" {
+				model = d.Model
+			}
+		}
+	}
+	return ip, model, label
+}
+
 func (a *App) OpenSetup() {
 	a.OpenConfig()
 }
@@ -1630,11 +1757,50 @@ func (a *App) OpenSetup() {
 func (a *App) OpenConfig() {
 	a.mu.Lock()
 	a.setupOpen = true
+	a.discovering = true
 	a.mu.Unlock()
+	if a.ble != nil {
+		a.ble.SetKeepScanning(true)
+	}
 	a.noteShow()
 	a.sizeForMode(true)
 	a.emitState()
 	a.emit("hud:shown")
+	go a.scanForConfig()
+}
+
+// scanForConfig keeps BLE discovery alive while the Lights tab is open.
+// Govee's developer cloud often omits BLE-only bulbs (H6001); they only
+// appear once CoreBluetooth hears them.
+func (a *App) scanForConfig() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("config scan recovered: %v", r)
+		}
+	}()
+	_ = a.udp.Scan()
+	if a.ble != nil {
+		a.ble.Scan()
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(2 * time.Second)
+		a.mu.Lock()
+		open := a.setupOpen
+		a.mu.Unlock()
+		if !open {
+			break
+		}
+		if a.ble != nil {
+			a.ble.Scan()
+		}
+		a.foldBLE()
+		a.emitState()
+	}
+	a.mu.Lock()
+	a.discovering = false
+	a.mu.Unlock()
+	a.emitState()
 }
 
 // MoveSlot relocates the binding on pad `from` to pad `to`. If the target pad
@@ -1788,6 +1954,9 @@ func (a *App) CloseConfig() error {
 	}
 	a.setupOpen = false
 	a.mu.Unlock()
+	if a.ble != nil {
+		a.ble.SetKeepScanning(false)
+	}
 	a.sizeForMode(false)
 	a.noteShow()
 	a.emitState()
@@ -1854,6 +2023,26 @@ func (a *App) CommitMappings() error {
 	slots := append([]config.SlotBinding(nil), a.slots...)
 	a.mu.Unlock()
 	return a.SaveMappings(slots)
+}
+
+// PersistNow writes the pad map and current config (gradient, MIDI, scene)
+// without emptying the active pool. Bound to ⌘S. On the HUD there is no form
+// to flush; this still snapshots the last scene so a relaunch comes back the same.
+func (a *App) PersistNow() error {
+	a.mu.Lock()
+	snap := config.SlotFile{
+		Configured: true,
+		Slots:      append([]config.SlotBinding(nil), a.slots...),
+	}
+	a.configured = true
+	s := a.settings
+	s.Gradient = a.gradient
+	a.settings = s
+	a.mu.Unlock()
+	if err := config.SaveSlotFile(snap); err != nil {
+		return err
+	}
+	return config.SaveSettings(s)
 }
 
 func (a *App) SaveSettings(in SettingsView) error {

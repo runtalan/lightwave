@@ -124,7 +124,7 @@ Env (see .env.example):
   GOVEE_API_KEY     Govee Developer Cloud key (discovery only)
   MIDI_CC           Brightness CC (default 7)
   MIDI_CC_ALT       Alternate brightness CC (default 1)
-  MIDI_NOTE_PLUS    Color engine + note (default 60)
-  MIDI_NOTE_MINUS   Color engine - note (default 61)
+  MIDI_NOTE_PLUS    Color engine + note (default 61; 61 always +)
+  MIDI_NOTE_MINUS   Color engine - note (default 60; 60 always −)
 `)
 }

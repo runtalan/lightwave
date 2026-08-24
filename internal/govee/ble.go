@@ -66,6 +66,16 @@ func blePacketKeepAlive() []byte {
 	return blePacket([]byte{0xAA, 0x01})
 }
 
+func bleIsKeepAlive(pkt []byte) bool {
+	return len(pkt) >= 2 && pkt[0] == 0xAA && pkt[1] == 0x01
+}
+
+// BLELinkWeak reports a far / flaky advertiser. RSSI 0 means "unknown" (a
+// connected harvest with no advertisement) and is not treated as weak.
+func BLELinkWeak(rssi int) bool {
+	return rssi != 0 && rssi <= -85
+}
+
 func blePacketPower(on bool) []byte {
 	v := byte(0)
 	if on {
@@ -170,19 +180,31 @@ func bleSegmentMasks(n int) []uint16 {
 // Discovery helpers.
 
 var (
-	bleGoveePrefix = regexp.MustCompile(`(?i)^(ihoment_|govee_|gvh_|ihom_|gbk_)`)
+	bleGoveePrefix = regexp.MustCompile(`(?i)^(ihoment_|govee[_ ]|gvh_|ihom_|gbk_|minger_)`)
 	bleModelRe     = regexp.MustCompile(`H[0-9]{2}[0-9A-Z]{2}`)
 	bleSuffixRe    = regexp.MustCompile(`([0-9A-F]{4})$`)
+	bleCloseName   = regexp.MustCompile(`(?i)h60|govee|ihom|minger|gbk_|gvh_`)
 )
 
 // bleNameLooksGovee reports whether an advertised local name belongs to a
-// Govee light: a known vendor prefix, or a model code like H6168 anywhere in
-// the name.
+// Govee light: a known vendor prefix, or a model code like H6001 / H6168
+// anywhere in the name (including the concatenated "H6001C883" form).
 func bleNameLooksGovee(name string) bool {
 	if name == "" {
 		return false
 	}
 	return bleGoveePrefix.MatchString(name) || bleModelRe.MatchString(strings.ToUpper(name))
+}
+
+// bleAcceptFound is the Go-side gate for CoreBluetooth hits. Empty names and
+// the "Govee BLE" placeholder are allowed because ObjC already matched Govee
+// manufacturer data / service 1910 — H6001 often advertises that way before
+// the local name arrives.
+func bleAcceptFound(name string) bool {
+	if name == "" || strings.EqualFold(strings.TrimSpace(name), "Govee BLE") {
+		return true
+	}
+	return bleNameLooksGovee(name)
 }
 
 // bleModelFromName pulls the model code (e.g. "H6168") out of an advertised
@@ -211,6 +233,22 @@ func BLESuffixFromName(name string) string {
 // matched to a cloud device.
 func BLEDeviceID(uuid string) string {
 	return "BLE" + NormalizeID(strings.ReplaceAll(uuid, "-", ""))
+}
+
+// BLEBindingMatch reports whether a discovered peripheral is the lamp bound
+// to a pad. CoreBluetooth UUIDs are per-Mac and can go stale; the advertised
+// MAC tail (C883 in "H6001-C883" / "ihoment_H6001_C883") is the stable handle,
+// including the identity the Govee app shows as H6001C883.
+func BLEBindingMatch(devModel, advName, slotModel, slotDeviceID, slotName, slotCustom string) bool {
+	if strings.TrimSpace(devModel) == "" || !strings.EqualFold(strings.TrimSpace(devModel), strings.TrimSpace(slotModel)) {
+		return false
+	}
+	suffix := BLESuffixFromName(advName)
+	if suffix == "" {
+		return false
+	}
+	blob := strings.ToUpper(slotDeviceID + " " + slotName + " " + slotCustom)
+	return strings.Contains(blob, suffix)
 }
 
 // BLEFallbackName labels a peripheral with no cloud identity to take a

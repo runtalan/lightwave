@@ -2,7 +2,10 @@ package govee
 
 import (
 	"bytes"
+	"strings"
 	"testing"
+
+	"lightwave/internal/color"
 )
 
 func xorCheck(t *testing.T, pkt []byte) {
@@ -72,6 +75,14 @@ func TestBLEPacketBrightness255(t *testing.T) {
 	if dim[2] < 1 {
 		t.Fatal("brightness255 floor vanished")
 	}
+	off := blePacketBrightness255(0)
+	if off[2] < 1 {
+		t.Fatalf("brightness255(0) payload = %d; 0 turns H6001 off", off[2])
+	}
+	mid := blePacketBrightness255(50)
+	if mid[2] < 1 || mid[2] == 0 {
+		t.Fatalf("brightness255(50) = %d, looks like off", mid[2])
+	}
 }
 
 func TestBLEPacketColorRGBWW(t *testing.T) {
@@ -89,8 +100,15 @@ func TestModelClass(t *testing.T) {
 	if !IsRGBIC("H617A") || IsClassicBulb("H617A") || !SupportsSegments("H617A") {
 		t.Fatal("H617A must be RGBIC")
 	}
-	if SupportsSegments("H6001") || SupportsSegments("H6072") {
-		t.Fatal("bulbs and floor lamps must not advertise strip segments")
+	if SupportsSegments("H6001") {
+		t.Fatal("classic bulbs must not advertise strip segments")
+	}
+	// H6072 Lyra is a multi-zone floor lamp, same family as RGBIC strips.
+	if !IsRGBIC("H6072") || IsClassicBulb("H6072") || !SupportsSegments("H6072") {
+		t.Fatal("H6072 Lyra must be RGBIC and take the segment gradient path")
+	}
+	if !IsRGBIC("H61E5") || !IsRGBIC("H6168") {
+		t.Fatal("LAN RGBIC strips must take the segment path")
 	}
 }
 
@@ -171,6 +189,76 @@ func TestBLENameParsing(t *testing.T) {
 	if s := BLESuffixFromName("GVH_H61E5"); s != "" {
 		t.Fatalf("suffix from tailless name = %q", s)
 	}
+	if m := bleModelFromName("H6001C883"); m != "H6001" {
+		t.Fatalf("concatenated model = %q", m)
+	}
+	if s := BLESuffixFromName("H6001C883"); s != "C883" {
+		t.Fatalf("concatenated suffix = %q", s)
+	}
+	for _, name := range []string{
+		"ihoment_H6001_C883", "H6001-C883", "H6001C883", "minger_H6001_C883", "Govee_H6001_11FF",
+	} {
+		if !bleNameLooksGovee(name) {
+			t.Fatalf("%q not recognized as Govee", name)
+		}
+		if bleModelFromName(name) != "H6001" {
+			t.Fatalf("%q model = %q, want H6001", name, bleModelFromName(name))
+		}
+	}
+	if !bleAcceptFound("") || !bleAcceptFound("Govee BLE") {
+		t.Fatal("nameless / placeholder Govee ads must be accepted")
+	}
+}
+
+func TestBLEBindingMatchClaudiaBulb(t *testing.T) {
+	if !BLEBindingMatch("H6001", "ihoment_H6001_C883", "H6001", "BLEDEAD", "H6001-C883", "ClaudiaBulb") {
+		t.Fatal("pad 7 must match H6001 advertised as C883 even if the CoreBluetooth UUID is stale")
+	}
+	if BLEBindingMatch("H617A", "ihoment_H617A_7B46", "H6001", "BLEDEAD", "H6001-C883", "ClaudiaBulb") {
+		t.Fatal("strip must not steal the bulb pad")
+	}
+	if BLEBindingMatch("H6001", "ihoment_H6001_FFFF", "H6001", "BLEDEAD", "H6001-C883", "ClaudiaBulb") {
+		t.Fatal("a different H6001 tail must not match ClaudiaBulb")
+	}
+}
+
+func TestSendTurnBLEPowerPacket(t *testing.T) {
+	var got [][]byte
+	setBLESender(func(addr string, pkt []byte) error {
+		got = append(got, append([]byte(nil), pkt...))
+		return nil
+	})
+	t.Cleanup(func() { setBLESender(nil) })
+	Remember("ble:claudia", "H6001")
+	if err := SendTurn("ble:claudia", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SendTurn("ble:claudia", false); err != nil {
+		t.Fatal(err)
+	}
+	var sawOn, sawOff bool
+	for _, p := range got {
+		if len(p) < 3 {
+			continue
+		}
+		if p[1] == 0x05 && p[2] == 0x15 {
+			t.Fatalf("H6001 power path must not send RGBIC 0x15: % x", p)
+		}
+		if p[0] == 0x33 && p[1] == 0x01 && p[2] == 0x01 {
+			sawOn = true
+			xorCheck(t, p)
+			if p[19] != 0x33 {
+				t.Fatalf("power on checksum = %#x", p[19])
+			}
+		}
+		if p[0] == 0x33 && p[1] == 0x01 && p[2] == 0x00 {
+			sawOff = true
+			xorCheck(t, p)
+		}
+	}
+	if !sawOn || !sawOff {
+		t.Fatalf("missing power packets on=%v off=%v n=%d", sawOn, sawOff, len(got))
+	}
 }
 
 func TestBLESegmentMasks(t *testing.T) {
@@ -233,5 +321,188 @@ func TestBLEPacketColorSegmentMask(t *testing.T) {
 	// that packet shape is the one known to work on real hardware.
 	if !bytes.Equal(blePacketColorSegment(9, 8, 7), blePacketColorSegmentMask(9, 8, 7, allSegments)) {
 		t.Fatal("whole-strip packet diverged from the masked form")
+	}
+}
+
+func TestSendGradientRGBICUsesSegments(t *testing.T) {
+	var got [][]byte
+	setBLESender(func(addr string, pkt []byte) error {
+		got = append(got, append([]byte(nil), pkt...))
+		return nil
+	})
+	t.Cleanup(func() { setBLESender(nil) })
+
+	cols := []color.RGBK{
+		{R: 255}, {R: 200, G: 40}, {G: 180}, {B: 220},
+		{R: 80, B: 200}, {R: 255, G: 80}, {G: 40, B: 180}, {R: 40, G: 200, B: 40},
+	}
+	for _, sku := range []string{"H617A", "H6072"} {
+		got = nil
+		addr := "ble:" + strings.ToLower(sku)
+		Remember(addr, sku)
+		if err := SendGradient(addr, cols); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) < 2 {
+			t.Fatalf("%s: want several segment packets, got %d", sku, len(got))
+		}
+		masks := map[uint16]bool{}
+		for _, p := range got {
+			if len(p) < 14 {
+				continue
+			}
+			if p[1] == 0x05 && p[2] == 0x02 {
+				t.Fatalf("%s: gradient must not send solid 0x02: % x", sku, p)
+			}
+			if p[1] == 0x05 && p[2] == 0x15 {
+				masks[uint16(p[12])|uint16(p[13])<<8] = true
+			}
+		}
+		if len(masks) < 2 {
+			t.Fatalf("%s: gradient used %d zone masks, want a ramp", sku, len(masks))
+		}
+	}
+
+	got = nil
+	Remember("ble:h6001", "H6001")
+	if err := SendGradient("ble:h6001", cols); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range got {
+		if len(p) >= 3 && p[1] == 0x05 && p[2] == 0x15 {
+			t.Fatalf("H6001 must not receive segment packets: % x", p)
+		}
+	}
+}
+
+func TestSendColorUnknownSKUNoSegment(t *testing.T) {
+	var got [][]byte
+	setBLESender(func(addr string, pkt []byte) error {
+		got = append(got, append([]byte(nil), pkt...))
+		return nil
+	})
+	t.Cleanup(func() { setBLESender(nil) })
+	if err := SendColor("ble:unknown", 8, 16, 24, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range got {
+		if len(p) >= 3 && p[1] == 0x05 && p[2] == 0x15 {
+			t.Fatalf("unknown SKU must not receive 0x15: % x", p)
+		}
+	}
+}
+
+func TestSendGradientLANNoSolidOverwrite(t *testing.T) {
+	var payloads []string
+	testControlSink = func(ip, payload string) {
+		payloads = append(payloads, payload)
+	}
+	t.Cleanup(func() { testControlSink = nil })
+	Remember("192.0.2.23", "H6072")
+	cols := make([]color.RGBK, 8)
+	for i := range cols {
+		cols[i] = color.RGBK{R: i * 10, G: 40, B: 200 - i*10}
+	}
+	if err := SendGradient("192.0.2.23", cols); err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) == 0 {
+		t.Fatal("H6072 LAN gradient sent nothing")
+	}
+	sawPt, sawColor := false, false
+	for _, p := range payloads {
+		if strings.Contains(p, "ptReal") {
+			sawPt = true
+		}
+		if strings.Contains(p, `"cmd":"color"`) || strings.Contains(p, "colorwc") {
+			sawColor = true
+		}
+	}
+	if !sawPt {
+		t.Fatal("H6072 LAN gradient must send ptReal segment frames")
+	}
+	if sawColor {
+		t.Fatal("H6072 LAN gradient must not follow ptReal with a solid color")
+	}
+}
+
+func TestSendBrightnessNeverZeroOrTurnOff(t *testing.T) {
+	var payloads []string
+	testControlSink = func(_, payload string) {
+		payloads = append(payloads, payload)
+	}
+	t.Cleanup(func() { testControlSink = nil })
+
+	if err := SendBrightness("192.0.2.10", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := SendBrightness("192.0.2.10", 100); err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 2 {
+		t.Fatalf("payloads = %d, want 2", len(payloads))
+	}
+	if strings.Contains(payloads[0], `"value":0`) || strings.Contains(payloads[0], `"cmd":"turn"`) {
+		t.Fatalf("fader 0 must not turn the lamp off: %s", payloads[0])
+	}
+	if !strings.Contains(payloads[0], `"value":1`) {
+		t.Fatalf("fader 0 should send 1%%, got %s", payloads[0])
+	}
+	if !strings.Contains(payloads[1], `"value":100`) {
+		t.Fatalf("fader 100 should send 100, got %s", payloads[1])
+	}
+}
+
+func TestSendBrightnessH6001NeverZeroByte(t *testing.T) {
+	var got [][]byte
+	setBLESender(func(_ string, pkt []byte) error {
+		got = append(got, append([]byte(nil), pkt...))
+		return nil
+	})
+	t.Cleanup(func() { setBLESender(nil) })
+	Remember("ble:claudia", "H6001")
+
+	if err := SendBrightness("ble:claudia", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := SendBrightness("ble:claudia", 100); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 2 {
+		t.Fatalf("packets = %d", len(got))
+	}
+	if got[0][0] != 0x33 || got[0][1] != 0x04 {
+		t.Fatalf("opcode = % x, want 33 04", got[0][:2])
+	}
+	if got[0][2] < 1 {
+		t.Fatalf("H6001 brightness 0 payload = %d; that turns the bulb off", got[0][2])
+	}
+	if got[1][2] != 255 {
+		t.Fatalf("H6001 100%% = %d, want 255", got[1][2])
+	}
+}
+
+func TestApplyPoolBrightnessZeroIsDimNotOff(t *testing.T) {
+	var payloads []string
+	testControlSink = func(_, payload string) {
+		payloads = append(payloads, payload)
+	}
+	t.Cleanup(func() { testControlSink = nil })
+	lastBright.Delete("192.0.2.11")
+
+	ApplyPoolBrightness([]string{"192.0.2.11"}, 0, false)
+	if len(payloads) == 0 {
+		t.Fatal("no brightness write")
+	}
+	for _, p := range payloads {
+		if strings.Contains(p, `"cmd":"turn"`) {
+			t.Fatalf("fader must not send turn: %s", p)
+		}
+		if strings.Contains(p, `"cmd":"color"`) || strings.Contains(p, "colorwc") {
+			t.Fatalf("fader must not send color: %s", p)
+		}
+		if strings.Contains(p, `"value":0`) {
+			t.Fatalf("fader sent brightness 0: %s", p)
+		}
 	}
 }

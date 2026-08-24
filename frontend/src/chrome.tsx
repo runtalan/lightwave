@@ -69,22 +69,24 @@ export function BrightnessSlider({
   return (
     <div className="meter no-drag" data-no-drag style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
       <span className="meter-label">{label}</span>
-      <input
-        className="brightness-slider"
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={shown}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={shown}
-        aria-label="Brightness"
-        onPointerDown={(e) => e.stopPropagation()}
-        onPointerUp={() => setLive(null)}
-        onPointerCancel={() => setLive(null)}
-        onChange={(e) => push(Number(e.target.value))}
-      />
+      <div className="meter-track">
+        <input
+          className="brightness-slider"
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={shown}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={shown}
+          aria-label="Brightness"
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={() => setLive(null)}
+          onPointerCancel={() => setLive(null)}
+          onChange={(e) => push(Number(e.target.value))}
+        />
+      </div>
       <span className="meter-val">{shown}%</span>
     </div>
   )

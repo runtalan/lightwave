@@ -156,6 +156,9 @@ export namespace main {
 	    configOpen: boolean;
 	    dancing: boolean;
 	    gradient: boolean;
+	    bleScanning: boolean;
+	    bluetoothDenied: boolean;
+	    bluetoothOff: boolean;
 	    settings: SettingsView;
 	
 	    static createFrom(source: any = {}) {
@@ -184,6 +187,9 @@ export namespace main {
 	        this.configOpen = source["configOpen"];
 	        this.dancing = source["dancing"];
 	        this.gradient = source["gradient"];
+	        this.bleScanning = source["bleScanning"];
+	        this.bluetoothDenied = source["bluetoothDenied"];
+	        this.bluetoothOff = source["bluetoothOff"];
 	        this.settings = this.convertValues(source["settings"], SettingsView);
 	    }
 	

@@ -174,8 +174,8 @@ func (s Settings) MIDI() MIDI {
 	return MIDI{
 		CC:        clampU8(s.MidiCC, 7),
 		CCAlt:     clampU8(s.MidiCCAlt, 1),
-		NotePlus:  clampU8(s.MidiNotePlus, 60),
-		NoteMinus: clampU8(s.MidiNoteMinus, 61),
+		NotePlus:  clampU8(s.MidiNotePlus, 61),
+		NoteMinus: clampU8(s.MidiNoteMinus, 60),
 	}
 }
 
@@ -183,8 +183,8 @@ func DefaultSettings() Settings {
 	return Settings{
 		MidiCC:          int(uint8Env("MIDI_CC", 7)),
 		MidiCCAlt:       int(uint8Env("MIDI_CC_ALT", 1)),
-		MidiNotePlus:    int(uint8Env("MIDI_NOTE_PLUS", 60)),
-		MidiNoteMinus:   int(uint8Env("MIDI_NOTE_MINUS", 61)),
+		MidiNotePlus:    int(uint8Env("MIDI_NOTE_PLUS", 61)),
+		MidiNoteMinus:   int(uint8Env("MIDI_NOTE_MINUS", 60)),
 		IdleHideSeconds: 3,
 		WebAddr:         DefaultWebAddr,
 	}
@@ -248,8 +248,8 @@ func LoadSettings() Settings {
 func SaveSettings(s Settings) error {
 	s.MidiCC = int(clampU8(s.MidiCC, 7))
 	s.MidiCCAlt = int(clampU8(s.MidiCCAlt, 1))
-	s.MidiNotePlus = int(clampU8(s.MidiNotePlus, 60))
-	s.MidiNoteMinus = int(clampU8(s.MidiNoteMinus, 61))
+	s.MidiNotePlus = int(clampU8(s.MidiNotePlus, 61))
+	s.MidiNoteMinus = int(clampU8(s.MidiNoteMinus, 60))
 	if s.IdleHideSeconds < 0 {
 		s.IdleHideSeconds = 0
 	}

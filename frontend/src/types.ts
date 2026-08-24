@@ -56,6 +56,9 @@ export type HUDState = {
   hidden: boolean
   mappingPath: string
   firstRun: boolean
+  bleScanning: boolean
+  bluetoothDenied: boolean
+  bluetoothOff: boolean
   settings: SettingsView
 }
 
@@ -67,8 +70,8 @@ export function emptySettings(): SettingsView {
   return {
     midiCC: 7,
     midiCCAlt: 1,
-    midiNotePlus: 60,
-    midiNoteMinus: 61,
+    midiNotePlus: 61,
+    midiNoteMinus: 60,
     idleHideSeconds: 10,
     hasEnvKey: false,
     hasConfigKey: false,
@@ -150,6 +153,9 @@ export function emptyState(): HUDState {
     hidden: false,
     mappingPath: '',
     firstRun: true,
+    bleScanning: false,
+    bluetoothDenied: false,
+    bluetoothOff: false,
     settings: emptySettings(),
   }
 }

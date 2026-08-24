@@ -7,6 +7,7 @@ import {
   CommitMappings,
   Discover,
   FillRemaining,
+  PersistNow,
   SaveSettings,
   ScanLAN,
   SetConfigAPIKey,
@@ -39,16 +40,40 @@ export function Config({ state, onState }: Props) {
   const [tab, setTab] = useState<ConfigTab>('lights')
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
+  const [midiDraft, setMidiDraft] = useState<SettingsView>(state.settings)
+  useEffect(() => setMidiDraft(state.settings), [state.settings])
 
-  async function done() {
+  async function persist(close: boolean) {
     setErr('')
     try {
-      await CloseConfig()
+      await SaveSettings(midiDraft)
+      if (close && tab === 'lights') {
+        await CommitMappings()
+      } else {
+        await PersistNow()
+      }
+      if (close) {
+        await CloseConfig()
+        return
+      }
+      setNote('Saved.')
     } catch (e) {
       setErr(String(e))
-      setTab('lights')
+      if (close) setTab('lights')
     }
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        void persist(false)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  })
 
   return (
     <div className="panel config">
@@ -58,9 +83,11 @@ export function Config({ state, onState }: Props) {
           <p className="eyebrow">{state.firstRun ? 'first ignition' : 'control deck'}</p>
           <h1>Config</h1>
         </div>
-        <button type="button" className="ghost" onClick={() => void done()}>
-          Done
-        </button>
+        {tab !== 'lights' && (
+          <button type="button" className="ghost" onClick={() => void persist(true)}>
+            Back
+          </button>
+        )}
       </header>
 
       <div className="config-shell">
@@ -82,8 +109,18 @@ export function Config({ state, onState }: Props) {
         </nav>
 
         <div className="config-body">
-          {tab === 'lights' && <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} />}
-          {tab === 'midi' && <MidiPane state={state} setErr={setErr} setNote={setNote} />}
+          {tab === 'lights' && (
+            <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />
+          )}
+          {tab === 'midi' && (
+            <MidiPane
+              state={state}
+              draft={midiDraft}
+              setDraft={setMidiDraft}
+              setErr={setErr}
+              setNote={setNote}
+            />
+          )}
           {tab === 'hud' && <HudPane state={state} />}
           {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
           {tab === 'account' && <AccountPane state={state} onState={onState} setErr={setErr} setNote={setNote} />}
@@ -102,11 +139,13 @@ function LightsPane({
   onState,
   setErr,
   setNote,
+  onFinish,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
+  onFinish: () => Promise<void>
 }) {
   const [focus, setFocus] = useState(7)
   const [busy, setBusy] = useState(false)
@@ -170,15 +209,23 @@ function LightsPane({
     }
   }
 
-  const statusCopy = !state.hasApiKey
-    ? 'No Govee key yet — Account tab or .env, then rescan.'
-    : state.discoverError && state.discoverError !== 'missing_key'
-      ? `Cloud handshake failed: ${state.discoverError}`
-      : state.discovering
-        ? 'Sweeping the account and LAN…'
-        : (state.catalog ?? []).length === 0
-          ? 'No lights found. Enable LAN control, then rescan.'
-          : `${state.catalog.length} lights. Select a pad, then a light.`
+  const statusCopy = state.bluetoothDenied
+    ? 'Bluetooth needed to find H6001 — enable Lightwave in System Settings → Privacy & Security → Bluetooth, then rescan.'
+    : state.bluetoothOff
+      ? 'Bluetooth is off. Turn it on to find H6001.'
+      : !state.hasApiKey
+        ? 'No Govee key yet — Account tab or .env, then rescan. BLE bulbs like H6001 still appear from a Bluetooth scan.'
+        : state.discoverError && state.discoverError !== 'missing_key'
+          ? `Cloud handshake failed: ${state.discoverError}`
+          : state.bleScanning
+            ? `${(state.catalog ?? []).length} lights. Scanning Bluetooth for H6001…`
+            : state.discovering
+              ? 'Sweeping the account, LAN, and Bluetooth…'
+              : (state.catalog ?? []).length === 0
+                ? 'No lights found. Enable LAN control or Bluetooth, then rescan.'
+                : `${state.catalog.length} lights. Select a pad, then a light.`
+
+  const statusBad = state.bluetoothDenied || state.bluetoothOff || Boolean(state.discoverError) || !state.hasApiKey
 
   return (
     <div className="pane lights-pane">
@@ -267,8 +314,19 @@ function LightsPane({
           )
         })}
       </div>
-      <p className={`status ${state.discoverError || !state.hasApiKey ? 'bad' : ''}`}>{statusCopy}</p>
+      <p className={`status ${statusBad ? 'bad' : ''}`}>{statusCopy}</p>
       <div className="device-list">
+        {state.bluetoothDenied && (
+          <p className="device-empty bad">
+            Bluetooth needed to find H6001. Enable Lightwave in System Settings → Privacy & Security → Bluetooth, then tap Rescan.
+          </p>
+        )}
+        {state.bleScanning && !state.bluetoothDenied && !state.bluetoothOff && (
+          <div className="device scanning" aria-live="polite">
+            <span className="d-name">Scanning BLE…</span>
+            <span className="d-meta">Waiting for H6001 (ClaudiaBulb)</span>
+          </div>
+        )}
         {(state.catalog ?? []).map((d) => {
           const taken = boundIds.get(d.id)
           const takenHere = taken === focus
@@ -314,7 +372,7 @@ function LightsPane({
             setBusy(true)
             setErr('')
             CommitMappings()
-              .then(() => setNote('Pad map locked.'))
+              .then(() => onFinish())
               .catch((e) => setErr(String(e)))
               .finally(() => setBusy(false))
           }}
@@ -328,23 +386,25 @@ function LightsPane({
 
 function MidiPane({
   state,
+  draft,
+  setDraft,
   setErr,
   setNote,
 }: {
   state: HUDState
+  draft: SettingsView
+  setDraft: (s: SettingsView) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
 }) {
-  const [draft, setDraft] = useState<SettingsView>(state.settings)
-  useEffect(() => setDraft(state.settings), [state.settings])
-
   return (
     <div className="pane form-pane">
       <p className="lede">
         {state.midiConnected ? `Listening · ${state.midiPort}` : 'No MIDI port — keyboard still drives the HUD.'}
+        {' '}Notes 60 (−) and 61 (+) always cycle palettes. Brightness is CC only.
       </p>
       <BrightnessSlider value={state.brightness} label="pool dim" />
-      <p className="status">CC 0–127 maps to 0–100% on every light in the active pool.</p>
+      <p className="status">CC 0–127 maps to 1–100% on ignited lights (127 = full). Bottom of the fader is dimmest, not off.</p>
       <label className="field">
         <span>Brightness CC</span>
         <input

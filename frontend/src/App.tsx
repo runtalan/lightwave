@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
-import { GetState, MarkUIReady } from '../wailsjs/go/main/App'
+import { GetState, MarkUIReady, PersistNow } from '../wailsjs/go/main/App'
 import { bindWindowActivity } from './chrome'
 import { emptyState, normalizeState, type HUDState } from './types'
 import { HUD } from './HUD'
@@ -55,6 +55,18 @@ export default function App() {
   }, [])
 
   const config = Boolean(state.configOpen || state.setupOpen || state.needsSetup)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        // Stop WebKit/Wails from offering "Save Page" as HTML.
+        e.preventDefault()
+        if (!config) void PersistNow()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [config])
 
   return (
     <div className={`hud-shell ${fading && !config ? 'is-fading' : ''}`}>

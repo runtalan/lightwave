@@ -102,16 +102,13 @@ func (l *Listener) Start() error {
 	}
 
 	in := ins[0]
-	name := in.String()
-	for _, p := range ins {
-		s := p.String()
-		ls := strings.ToLower(s)
-		if strings.Contains(ls, "glorious") || strings.Contains(ls, "gmmk") || strings.Contains(ls, "numpad") {
-			in = p
-			name = s
-			break
+	best := portScore(in.String())
+	for _, p := range ins[1:] {
+		if s := portScore(p.String()); s > best {
+			in, best = p, s
 		}
 	}
+	name := in.String()
 
 	// Open only this port. Do not ListenTo every enumerated device.
 	stop, err := gomidi.ListenTo(in, l.onMIDI)
@@ -127,20 +124,37 @@ func (l *Listener) Start() error {
 	l.alive = true
 	cfg := l.cfgLocked()
 	l.mu.Unlock()
-	log.Printf("midi: listening on %s (CC %d/%d, notes +%d -%d)", name, cfg.CC, cfg.CCAlt, cfg.NotePlus, cfg.NoteMinus)
+	log.Printf("midi: listening on %s (CC %d/%d, palette notes 60−/61+ and +%d -%d, all channels)", name, cfg.CC, cfg.CCAlt, cfg.NotePlus, cfg.NoteMinus)
 	l.setStatus(true, name)
 	return nil
 }
+
+// packed note: bit16 present, bit17 viaCC, bits 8-15 key/cc number
+const midiViaCC uint32 = 1 << 17
 
 // onMIDI runs on the CoreMIDI / RtMidi CGO thread.
 // Store numbers only. Never lock, log, emit, or send on a channel.
 func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 	defer func() { _ = recover() }()
 
+	want := l.noteWanted.Load()
+	plus, minus := uint8(want), uint8(want>>8)
+	if delta, num, viaCC, ok := PaletteTrigger([]byte(msg), plus, minus); ok && delta != 0 {
+		packed := midiPresent | uint32(num)<<8
+		if viaCC {
+			packed |= midiViaCC
+		}
+		l.latestNote.Store(packed)
+		return
+	}
+
 	var ch, cc, val uint8
 	if msg.GetControlChange(&ch, &cc, &val) {
-		want := l.ccWanted.Load()
-		if cc == uint8(want) || cc == uint8(want>>8) {
+		if cc == NotePaletteDown || cc == NotePaletteUp {
+			return
+		}
+		wantCC := l.ccWanted.Load()
+		if cc == uint8(wantCC) || cc == uint8(wantCC>>8) {
 			l.latestCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
 			l.noteVarying(cc, val)
 			return
@@ -152,13 +166,6 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 			l.latestCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
 		}
 		return
-	}
-	var key, vel uint8
-	if msg.GetNoteOn(&ch, &key, &vel) && vel > 0 {
-		want := l.noteWanted.Load()
-		if key == uint8(want) || key == uint8(want>>8) {
-			l.latestNote.Store(midiPresent | uint32(key))
-		}
 	}
 }
 
@@ -181,6 +188,9 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 		return 0, 0, false
 	}
 	cc, val = uint8(v>>8), uint8(v)
+	if cc == NotePaletteDown || cc == NotePaletteUp {
+		return 0, 0, false
+	}
 	// A control that has only ever reported one value is not a working slider:
 	// the GMMK numpad's fader, bound as a button in VIA/QMK, streams a constant
 	// 0 many times a second. Acting on it would peg brightness at that value
@@ -192,12 +202,12 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 	return cc, val, true
 }
 
-func (l *Listener) TakeNote() (note uint8, ok bool) {
+func (l *Listener) TakeNote() (note uint8, viaCC bool, ok bool) {
 	v := l.latestNote.Swap(0)
 	if v&midiPresent == 0 {
-		return 0, false
+		return 0, false, false
 	}
-	return uint8(v), true
+	return uint8(v >> 8), v&midiViaCC != 0, true
 }
 
 func (l *Listener) TakeStatus() (connected bool, port string, changed bool) {
@@ -259,7 +269,95 @@ func CCToPercent(value uint8) int {
 	if value >= 127 {
 		return 100
 	}
-	return int((float64(value) / 127.0) * 100.0)
+	if value == 0 {
+		// Fader bottom is dimmest, never lamp-off. Govee brightness 0 is a
+		// power-off on both LAN and BLE (H6001 0x33 0x04 0x00).
+		return 1
+	}
+	// Integer map 1–126 → 1–99. (v*100)/127 truncates; 117 would become 92
+	// if someone used /128. Rounding keeps a full-throw fader at 100.
+	n := (int(value)*100 + 63) / 127
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+// Notes 60 (−) and 61 (+) always cycle the palette, matching the HUD keys.
+// GMMK/Glorious pads often emit these as CC rather than Note On; both fire.
+const (
+	NotePaletteDown uint8 = 60
+	NotePaletteUp   uint8 = 61
+)
+
+// PaletteDelta maps a note/CC number to a palette step. 60/61 are hardcoded;
+// the configured plus/minus notes still fire for any other key.
+func PaletteDelta(note, plus, minus uint8) (int, bool) {
+	switch note {
+	case NotePaletteDown:
+		return -1, true
+	case NotePaletteUp:
+		return 1, true
+	}
+	if note == plus {
+		return 1, true
+	}
+	if note == minus {
+		return -1, true
+	}
+	return 0, false
+}
+
+// PaletteTrigger reads a channel message on any MIDI channel.
+// Note On 60/61 (velocity > 0) and CC 60/61 (value > 0) step the palette.
+// Note Off, Note On velocity 0, and CC value 0 are releases and must not step.
+func PaletteTrigger(msg []byte, plus, minus uint8) (delta int, num uint8, viaCC bool, ok bool) {
+	if len(msg) < 3 {
+		return 0, 0, false, false
+	}
+	st := msg[0]
+	if st < 0x80 || st >= 0xF0 {
+		return 0, 0, false, false
+	}
+	typ := st >> 4
+	n, v := msg[1]&0x7f, msg[2]&0x7f
+	switch typ {
+	case 0x9: // Note On, any channel
+		if v == 0 {
+			return 0, 0, false, false
+		}
+		d, hit := PaletteDelta(n, plus, minus)
+		return d, n, false, hit
+	case 0x8: // Note Off
+		return 0, 0, false, false
+	case 0xB: // Control Change
+		if v == 0 {
+			return 0, 0, false, false
+		}
+		if n != NotePaletteDown && n != NotePaletteUp {
+			return 0, 0, false, false
+		}
+		d, hit := PaletteDelta(n, plus, minus)
+		return d, n, true, hit
+	}
+	return 0, 0, false, false
+}
+
+// portScore prefers a GMMK/Glorious numpad, then any port whose name looks
+// like MIDI (including a typo "middy"). Higher wins. Not a product search.
+func portScore(name string) int {
+	ls := strings.ToLower(name)
+	n := 0
+	if strings.Contains(ls, "gmmk") || strings.Contains(ls, "glorious") {
+		n += 4
+	}
+	if strings.Contains(ls, "numpad") {
+		n += 3
+	}
+	if strings.Contains(ls, "midi") || strings.Contains(ls, "middy") {
+		n += 2
+	}
+	return n
 }
 
 func DescribePorts() string {

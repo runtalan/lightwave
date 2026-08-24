@@ -90,7 +90,7 @@ func TestWebCallRefusesNonControlMethods(t *testing.T) {
 	a := &App{}
 	for _, m := range []string{
 		"Quit", "HideHUD", "ShowHUD", "OpenConfig", "CloseConfig", "ToggleWindow",
-		"SaveMappings", "CommitMappings", "AssignSlot", "MoveSlot", "RenameSlot",
+		"SaveMappings", "CommitMappings", "PersistNow", "AssignSlot", "MoveSlot", "RenameSlot",
 		"FillRemaining", "SaveSettings", "SetConfigAPIKey", "Discover", "ScanLAN",
 		"GetDevices", "StartWindowDrag", "SetWebEnabled", "SetWebConfig",
 	} {

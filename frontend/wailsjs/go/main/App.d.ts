@@ -4,12 +4,11 @@ import {main} from '../models';
 import {govee} from '../models';
 import {config} from '../models';
 import {ipc} from '../models';
-
-export function ToggleAll():Promise<main.HUDState>;
-
-export function AllOn():Promise<main.HUDState>;
+import {fs} from '../models';
 
 export function AllOff():Promise<main.HUDState>;
+
+export function AllOn():Promise<main.HUDState>;
 
 export function AssignSlot(arg1:number,arg2:string):Promise<main.HUDState>;
 
@@ -55,6 +54,8 @@ export function OpenSetup():Promise<void>;
 
 export function PingActivity():Promise<void>;
 
+export function PersistNow():Promise<void>;
+
 export function PingMotion():Promise<void>;
 
 export function Quit():Promise<void>;
@@ -75,17 +76,21 @@ export function SetConfigAPIKey(arg1:string):Promise<void>;
 
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
+export function SetWebAssets(arg1:fs.FS):Promise<void>;
+
+export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;
+
+export function SetWebEnabled(arg1:boolean):Promise<main.SettingsView>;
+
 export function ShowHUD():Promise<void>;
 
 export function StartWindowDrag():Promise<void>;
 
+export function ToggleAll():Promise<main.HUDState>;
+
 export function ToggleDance():Promise<main.HUDState>;
 
 export function ToggleGradient():Promise<main.HUDState>;
-
-export function SetWebEnabled(arg1:boolean):Promise<main.SettingsView>;
-
-export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;
 
 export function ToggleSlot(arg1:number):Promise<void>;
 

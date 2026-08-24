@@ -308,7 +308,18 @@ func QueryStatus(ip string) error {
 
 func SendTurn(ip string, on bool) error {
 	if IsBLE(ip) {
-		return bleSend(ip, blePacketPower(on))
+		pkt := blePacketPower(on)
+		log.Printf("govee ble: turn %v %s pkt=% x", on, ip, pkt)
+		_ = bleSend(ip, blePacketKeepAlive())
+		if err := bleSend(ip, pkt); err != nil {
+			return err
+		}
+		// Classic bulbs (H6001) routinely ignore the first power frame after
+		// connect; a second copy is what Govee's own app sends.
+		if IsClassicBulb(ModelOf(ip)) {
+			return bleSend(ip, pkt)
+		}
+		return nil
 	}
 	v := 0
 	if on {
@@ -341,8 +352,16 @@ func SendBrightness(ip string, percent int) error {
 	return sendControl(ip, fmt.Sprintf(`{"msg":{"cmd":"brightness","data":{"value":%d}}}`, percent))
 }
 
-// ApplyPoolBrightness dims every device that has a LAN IP. Empty IPs are skipped.
+// ApplyPoolBrightness dims ignited lamps. percent 0 is sent as 1% — Govee
+// brightness 0 is power-off. This path never sends turn-off or RGB 0,0,0;
+// extinguish is SendTurn(false) from the pad/all-off handlers only.
 func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
+	if percent < 1 {
+		percent = 1
+	}
+	if percent > 100 {
+		percent = 100
+	}
 	for _, ip := range ips {
 		if strings.TrimSpace(ip) == "" {
 			continue
@@ -360,6 +379,9 @@ func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
 			if v, ok := lastBright.Load(ip); ok {
 				from = v.(int)
 			}
+			if from < 1 {
+				from = 1
+			}
 			steps := 1
 			delta := percent - from
 			if delta < 0 {
@@ -370,6 +392,9 @@ func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
 			}
 			for i := 1; i <= steps; i++ {
 				v := from + (percent-from)*i/steps
+				if v < 1 {
+					v = 1
+				}
 				_ = SendBrightness(ip, v)
 				if i < steps {
 					time.Sleep(20 * time.Millisecond)
@@ -422,10 +447,10 @@ func sendBLEColor(ip string, r, g, b, kelvin int) error {
 		}
 		return err
 	}
-	// Unknown SKU: send both forms. RGBIC ignores 0x02; a bulb that does not
-	// speak 0x15 drops it. Known bulbs never take this branch.
+	// Unknown SKU: stay classic-safe. 0x15 after 0x02 can leave H6001 stuck,
+	// and RGBIC strips in the pad map always have a remembered SKU.
 	err := bleSend(ip, blePacketColorLegacy(r, g, b))
-	if e := bleSend(ip, blePacketColorSegment(r, g, b)); err == nil {
+	if e := bleSend(ip, blePacketColorRGBWW(r, g, b, 0, 0)); err == nil {
 		err = e
 	}
 	_ = kelvin // BLE has no colour-temperature opcode on this path; RGB carries the scene.
@@ -465,7 +490,9 @@ func SendGradient(ip string, cols []color.RGBK) error {
 		return SendColor(ip, mid.R, mid.G, mid.B, 0)
 	}
 	if IsBLE(ip) {
-		err := bleSend(ip, blePacketColorLegacy(mid.R, mid.G, mid.B))
+		// Segment writes only. A preceding 0x02 whole-lamp colour puts some
+		// RGBIC firmware into solid mode so the 0x15 bands never show.
+		var err error
 		for i, mask := range bleSegmentMasks(len(cols)) {
 			c := cols[i]
 			if e := bleSend(ip, blePacketColorSegmentMask(c.R, c.G, c.B, mask)); err == nil {
@@ -474,16 +501,15 @@ func SendGradient(ip string, cols []color.RGBK) error {
 		}
 		return err
 	}
-	// LAN RGBIC: ptReal carries the same BLE segment frames as base64.
-	// colour/colorwc is still sent so firmware that ignores ptReal still
-	// shows the scene's middle colour rather than going dark.
+	// LAN RGBIC (strips and Lyra floor lamps): ptReal carries the BLE
+	// segment frames as base64. Do not follow with color/colorwc — that
+	// overwrites the ramp with one solid colour.
 	var pkts [][]byte
 	for i, mask := range bleSegmentMasks(len(cols)) {
 		c := cols[i]
 		pkts = append(pkts, blePacketColorSegmentMask(c.R, c.G, c.B, mask))
 	}
-	_ = sendPtReal(ip, pkts)
-	return SendColor(ip, mid.R, mid.G, mid.B, 0)
+	return sendPtReal(ip, pkts)
 }
 
 func sendPtReal(ip string, pkts [][]byte) error {
@@ -528,6 +554,9 @@ func controlConn() (*net.UDPConn, error) {
 	return c, nil
 }
 
+// testControlSink, when set, captures LAN payloads instead of writing UDP.
+var testControlSink func(ip, payload string)
+
 func sendControl(ip, payload string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -536,6 +565,10 @@ func sendControl(ip, payload string) (err error) {
 	}()
 	ip = strings.TrimSpace(ip)
 	if ip == "" || IsBLE(ip) {
+		return nil
+	}
+	if testControlSink != nil {
+		testControlSink(ip, payload)
 		return nil
 	}
 	raddr, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(ip, fmt.Sprintf("%d", ControlPort)))
