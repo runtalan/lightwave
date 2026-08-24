@@ -154,8 +154,6 @@ func (p *plugin) onEvent(ev sd.Event) {
 	}
 }
 
-// onTitleChanged records whether the title on a pad key is the plugin's own
-// seeded light name or something the user typed. Stream Deck sends this both
 // padOption is one entry in the Property Inspector's light dropdown.
 type padOption struct {
 	Pad   int    `json:"pad"`
@@ -267,9 +265,11 @@ func (p *plugin) press(ev sd.Event) {
 			cmd = "PALETTE +1"
 		}
 	case actStatus:
-		// Pressing the status key cycles the palette — the key already shows
-		// which palette is active, so advancing from it is the natural gesture.
-		cmd = "PALETTE +1"
+		// The status key is the "is anything on?" key, so pressing it answers
+		// that: turn the room off, or bring back exactly the lights that were
+		// on last time. Palette cycling lives on its own keys, which show
+		// where they land — doing it from here was a hidden side effect.
+		cmd = "RECALL_TOGGLE"
 	case actBrightness:
 		// Deliberately inert: brightness belongs to the app's slider, and this
 		// key is only a readout. Dial rotation still adjusts it — see rotate() —

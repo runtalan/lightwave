@@ -27,18 +27,22 @@ import (
 )
 
 const (
-	bleScanWindow      = 10 * time.Second
-	bleConnectTimeout  = 15 * time.Second
-	bleConnectKick     = 8 * time.Second // cancel a stuck CBPeripheralStateConnecting
-	bleKeepAlive       = 2 * time.Second
-	bleQueueDepth      = 128
-	bleErrLogEvery     = 30 * time.Second
-	bleWriteGap        = 30 * time.Millisecond
-	bleReadySettle     = 150 * time.Millisecond
-	bleWriteTimeout    = 1500 * time.Millisecond
-	bleSendAttempts    = 4
-	bleRetryBackoff    = 120 * time.Millisecond
-	bleEnqueueWait     = 750 * time.Millisecond
+	// Must stay >= bleConnectTimeout: ensure() opens a scan and then waits
+	// out the connect timeout, and for a BLE-only bulb whose UUID is not in
+	// CoreBluetooth's cache, discovery is the only way it can ever be found.
+	// At 10s the radio went dark for the last 5s of every connect attempt.
+	bleScanWindow     = 16 * time.Second
+	bleConnectTimeout = 15 * time.Second
+	bleConnectKick    = 8 * time.Second // cancel a stuck CBPeripheralStateConnecting
+	bleKeepAlive      = 2 * time.Second
+	bleQueueDepth     = 128
+	bleErrLogEvery    = 30 * time.Second
+	bleWriteGap       = 30 * time.Millisecond
+	bleReadySettle    = 150 * time.Millisecond
+	bleWriteTimeout   = 1500 * time.Millisecond
+	bleSendAttempts   = 4
+	bleRetryBackoff   = 120 * time.Millisecond
+	bleEnqueueWait    = 750 * time.Millisecond
 )
 
 // CBManagerState values from CoreBluetooth (passed through goBLEState).
@@ -59,8 +63,9 @@ type BLE struct {
 	powered      bool
 	scanning     bool
 	closed       bool
-	kicked       bool // initial scan fired after power-on
-	keepScan     bool // Config is open: leave the radio scanning
+	kicked       bool      // initial scan fired after power-on
+	keepScan     bool      // Config is open: leave the radio scanning
+	scanUntil    time.Time // latest deadline any caller asked the radio to stay up to
 	adapterState int
 	onDev        func(Device)
 	onAdapter    func()
@@ -172,6 +177,11 @@ func (b *BLE) Scan() {
 	}
 	already := b.scanning
 	b.scanning = true
+	// Every caller gets a full window. Previously a later caller rode out
+	// whatever was left of an earlier one, so a pad press arriving 9.9s into
+	// a discovery scan got ~0.1s of radio before it went dark -- a large part
+	// of why a BLE-only bulb (H6001) connected only sometimes.
+	b.scanUntil = time.Now().Add(bleScanWindow)
 	b.mu.Unlock()
 	C.lw_ble_harvest()
 	if already {
@@ -179,9 +189,24 @@ func (b *BLE) Scan() {
 	}
 	log.Printf("govee ble: scan start")
 	C.lw_ble_scan(1)
-	time.AfterFunc(bleScanWindow, func() {
+	b.armScanStop(bleScanWindow)
+}
+
+// armScanStop closes the discovery window once no caller still wants it.
+// Re-arms itself when Scan() pushed scanUntil out while the timer was pending.
+func (b *BLE) armScanStop(d time.Duration) {
+	time.AfterFunc(d, func() {
 		b.mu.Lock()
-		keep := b.keepScan && !b.closed
+		if b.closed {
+			b.mu.Unlock()
+			return
+		}
+		if left := time.Until(b.scanUntil); left > 0 {
+			b.mu.Unlock()
+			b.armScanStop(left)
+			return
+		}
+		keep := b.keepScan
 		b.mu.Unlock()
 		if keep {
 			C.lw_ble_harvest()

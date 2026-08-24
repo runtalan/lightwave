@@ -18,6 +18,12 @@ type MIDI struct {
 	CCAlt     uint8
 	NotePlus  uint8
 	NoteMinus uint8
+	// CCMin/CCMax are the fader's real endpoints. Many controllers do not
+	// span the full 0-127: a fader topping out at 117 mapped to 92% and the
+	// light could never be driven to full. Calibration records the observed
+	// travel so a full throw always means 100%.
+	CCMin uint8
+	CCMax uint8
 }
 
 type SlotBinding struct {
@@ -121,10 +127,14 @@ func persistLoadedKey() {
 }
 
 type Settings struct {
-	MidiCC          int    `json:"midiCC"`
-	MidiCCAlt       int    `json:"midiCCAlt"`
-	MidiNotePlus    int    `json:"midiNotePlus"`
-	MidiNoteMinus   int    `json:"midiNoteMinus"`
+	MidiCC        int `json:"midiCC"`
+	MidiCCAlt     int `json:"midiCCAlt"`
+	MidiNotePlus  int `json:"midiNotePlus"`
+	MidiNoteMinus int `json:"midiNoteMinus"`
+	// MidiCCMin/Max are the calibrated fader endpoints (0 and 127 when the
+	// fader has never been calibrated).
+	MidiCCMin       int    `json:"midiCCMin"`
+	MidiCCMax       int    `json:"midiCCMax"`
 	IdleHideSeconds int    `json:"idleHideSeconds"`
 	GoveeAPIKey     string `json:"goveeApiKey,omitempty"`
 	// WebEnabled starts the phone control server at launch. Off by default:
@@ -139,6 +149,11 @@ type Settings struct {
 	// Gradient is the HUD scene style: false paints every pooled lamp the
 	// same colour; true spreads complementary/adjacent swatches across the pool.
 	Gradient bool `json:"gradient"`
+	// LaunchAtLogin installs a LaunchAgent so macOS starts Lightwave when the
+	// user logs in. The agent passes --hidden, so a login start goes straight
+	// to the background: lights, MIDI, and the Stream Deck socket come up
+	// without a window taking focus on every boot.
+	LaunchAtLogin bool `json:"launchAtLogin"`
 }
 
 type settingsFile struct {
@@ -146,12 +161,15 @@ type settingsFile struct {
 	MidiCCAlt       *int    `json:"midiCCAlt"`
 	MidiNotePlus    *int    `json:"midiNotePlus"`
 	MidiNoteMinus   *int    `json:"midiNoteMinus"`
+	MidiCCMin       *int    `json:"midiCCMin"`
+	MidiCCMax       *int    `json:"midiCCMax"`
 	IdleHideSeconds *int    `json:"idleHideSeconds"`
 	GoveeAPIKey     *string `json:"goveeApiKey"`
 	WebEnabled      *bool   `json:"webEnabled"`
 	WebAddr         *string `json:"webAddr"`
 	WebToken        *string `json:"webToken"`
 	Gradient        *bool   `json:"gradient"`
+	LaunchAtLogin   *bool   `json:"launchAtLogin"`
 }
 
 func EnvAPIKey() string {
@@ -176,6 +194,8 @@ func (s Settings) MIDI() MIDI {
 		CCAlt:     clampU8(s.MidiCCAlt, 1),
 		NotePlus:  clampU8(s.MidiNotePlus, 61),
 		NoteMinus: clampU8(s.MidiNoteMinus, 60),
+		CCMin:     clampU8(s.MidiCCMin, 0),
+		CCMax:     clampU8(s.MidiCCMax, 127),
 	}
 }
 
@@ -185,6 +205,8 @@ func DefaultSettings() Settings {
 		MidiCCAlt:       int(uint8Env("MIDI_CC_ALT", 1)),
 		MidiNotePlus:    int(uint8Env("MIDI_NOTE_PLUS", 61)),
 		MidiNoteMinus:   int(uint8Env("MIDI_NOTE_MINUS", 60)),
+		MidiCCMin:       0,
+		MidiCCMax:       127,
 		IdleHideSeconds: 3,
 		WebAddr:         DefaultWebAddr,
 	}
@@ -224,11 +246,20 @@ func LoadSettings() Settings {
 	if raw.MidiNoteMinus != nil {
 		s.MidiNoteMinus = *raw.MidiNoteMinus
 	}
+	if raw.MidiCCMin != nil {
+		s.MidiCCMin = *raw.MidiCCMin
+	}
+	if raw.MidiCCMax != nil {
+		s.MidiCCMax = *raw.MidiCCMax
+	}
 	if raw.IdleHideSeconds != nil {
 		s.IdleHideSeconds = *raw.IdleHideSeconds
 	}
 	if raw.GoveeAPIKey != nil {
 		s.GoveeAPIKey = *raw.GoveeAPIKey
+	}
+	if raw.LaunchAtLogin != nil {
+		s.LaunchAtLogin = *raw.LaunchAtLogin
 	}
 	if raw.WebEnabled != nil {
 		s.WebEnabled = *raw.WebEnabled
@@ -250,6 +281,12 @@ func SaveSettings(s Settings) error {
 	s.MidiCCAlt = int(clampU8(s.MidiCCAlt, 1))
 	s.MidiNotePlus = int(clampU8(s.MidiNotePlus, 61))
 	s.MidiNoteMinus = int(clampU8(s.MidiNoteMinus, 60))
+	s.MidiCCMin = int(clampU8(s.MidiCCMin, 0))
+	s.MidiCCMax = int(clampU8(s.MidiCCMax, 127))
+	// A collapsed or inverted range would make every fader move meaningless.
+	if s.MidiCCMax <= s.MidiCCMin {
+		s.MidiCCMin, s.MidiCCMax = 0, 127
+	}
 	if s.IdleHideSeconds < 0 {
 		s.IdleHideSeconds = 0
 	}

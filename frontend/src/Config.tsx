@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  LiveCC,
+  SaveCCCalibration,
+  DiscardConfig,
   MoveSlot,
   RenameSlot,
   AssignSlot,
@@ -11,6 +14,7 @@ import {
   SaveSettings,
   ScanLAN,
   SetConfigAPIKey,
+  SetLaunchAtLogin,
   SetWebEnabled,
   SetWebConfig,
 } from '../wailsjs/go/main/App'
@@ -42,6 +46,37 @@ export function Config({ state, onState }: Props) {
   const [note, setNote] = useState('')
   const [midiDraft, setMidiDraft] = useState<SettingsView>(state.settings)
   useEffect(() => setMidiDraft(state.settings), [state.settings])
+  const [confirmExit, setConfirmExit] = useState(false)
+
+  // Unsaved work is either a settings draft the user edited but did not save,
+  // or pad edits that live only in memory until CommitMappings runs.
+  const draftDirty =
+    midiDraft.midiCC !== state.settings.midiCC ||
+    midiDraft.midiCCAlt !== state.settings.midiCCAlt ||
+    midiDraft.midiNotePlus !== state.settings.midiNotePlus ||
+    midiDraft.midiNoteMinus !== state.settings.midiNoteMinus ||
+    midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
+  const dirty = draftDirty || Boolean(state.mapDirty)
+
+  async function discard() {
+    setErr('')
+    try {
+      await DiscardConfig()
+    } catch (e) {
+      setErr(String(e))
+      setConfirmExit(false)
+    }
+  }
+
+  // Escape leaves without saving. With unsaved work it asks first, so a
+  // stray keypress cannot throw away a half-built pad map.
+  function requestExit() {
+    if (dirty) {
+      setConfirmExit(true)
+      return
+    }
+    void discard()
+  }
 
   async function persist(close: boolean) {
     setErr('')
@@ -68,12 +103,31 @@ export function Config({ state, onState }: Props) {
       if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault()
         e.stopImmediatePropagation()
-        void persist(false)
+        // Save and go back to the HUD: Cmd-S is "commit and done", not
+        // "commit and stay". persist(true) also commits the pad map.
+        void persist(true)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        // While the prompt is up, Escape dismisses it rather than exiting:
+        // the answer to "discard?" should never be given by the same key
+        // that asked the question.
+        if (confirmExit) {
+          setConfirmExit(false)
+          return
+        }
+        requestExit()
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  })
+    // persist()/requestExit() close over midiDraft, tab and the dirty state;
+    // re-bind when any of them move so Cmd-S never flushes a stale draft and
+    // Escape always sees the current dirtiness. Capture phase +
+    // stopImmediatePropagation keep App's HUD-side Cmd-S from also firing.
+  }, [midiDraft, tab, confirmExit, dirty])
 
   return (
     <div className="panel config">
@@ -83,11 +137,6 @@ export function Config({ state, onState }: Props) {
           <p className="eyebrow">{state.firstRun ? 'first ignition' : 'control deck'}</p>
           <h1>Config</h1>
         </div>
-        {tab !== 'lights' && (
-          <button type="button" className="ghost" onClick={() => void persist(true)}>
-            Back
-          </button>
-        )}
       </header>
 
       <div className="config-shell">
@@ -118,17 +167,46 @@ export function Config({ state, onState }: Props) {
               draft={midiDraft}
               setDraft={setMidiDraft}
               setErr={setErr}
-              setNote={setNote}
+              onFinish={() => persist(true)}
             />
           )}
-          {tab === 'hud' && <HudPane state={state} />}
-          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
-          {tab === 'account' && <AccountPane state={state} onState={onState} setErr={setErr} setNote={setNote} />}
+          {tab === 'hud' && (
+            <HudPane state={state} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />
+          )}
+          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />}
+          {tab === 'account' && <AccountPane state={state} onState={onState} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />}
         </div>
       </div>
 
       {(err || note) && (
         <p className={`status ${err ? 'bad' : ''}`}>{err || note}</p>
+      )}
+
+      {confirmExit && (
+        <div className="confirm-veil" role="dialog" aria-modal="true" aria-labelledby="confirm-exit-q">
+          <div className="confirm-box">
+            <p id="confirm-exit-q">Would you like to exit without saving your changes?</p>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                autoFocus
+                onClick={() => {
+                  setConfirmExit(false)
+                  void persist(true)
+                }}
+              >
+                Save and exit
+              </button>
+              <button type="button" className="ghost" onClick={() => void discard()}>
+                Discard
+              </button>
+              <button type="button" className="ghost" onClick={() => setConfirmExit(false)}>
+                Keep editing
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -377,7 +455,7 @@ function LightsPane({
               .finally(() => setBusy(false))
           }}
         >
-          Save map
+          Save
         </button>
       </footer>
     </div>
@@ -389,13 +467,13 @@ function MidiPane({
   draft,
   setDraft,
   setErr,
-  setNote,
+  onFinish,
 }: {
   state: HUDState
   draft: SettingsView
   setDraft: (s: SettingsView) => void
   setErr: (s: string) => void
-  setNote: (s: string) => void
+  onFinish: () => Promise<void>
 }) {
   return (
     <div className="pane form-pane">
@@ -445,6 +523,7 @@ function MidiPane({
           onChange={(e) => setDraft({ ...draft, midiNoteMinus: Number(e.target.value) })}
         />
       </label>
+      <FaderCalibration state={state} setErr={setErr} />
       <footer className="actions">
         <button
           type="button"
@@ -452,18 +531,43 @@ function MidiPane({
           onClick={() => {
             setErr('')
             SaveSettings(draft)
-              .then(() => setNote('MIDI knobs saved.'))
+              .then(() => onFinish())
               .catch((e) => setErr(String(e)))
           }}
         >
-          Save MIDI
+          Save
         </button>
       </footer>
     </div>
   )
 }
 
-function HudPane({ state }: { state: HUDState }) {
+function HudPane({
+  state,
+  setErr,
+  setNote,
+  onFinish,
+}: {
+  state: HUDState
+  setErr: (s: string) => void
+  setNote: (s: string) => void
+  onFinish: () => Promise<void>
+}) {
+  const s = state.settings
+  const [busy, setBusy] = useState(false)
+
+  function toggleLogin(on: boolean) {
+    setBusy(true)
+    setErr('')
+    setNote('')
+    SetLaunchAtLogin(on)
+      .then(() =>
+        setNote(on ? 'Lightwave will start hidden at login.' : 'Lightwave will not start at login.'),
+      )
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false))
+  }
+
   return (
     <div className="pane form-pane">
       <p className="lede">
@@ -471,6 +575,141 @@ function HudPane({ state }: { state: HUDState }) {
         Hide does not quit; launch again or <code>--toggle</code> to show.
       </p>
       <BrightnessSlider value={state.brightness} label="brightness" />
+
+      <div className={`key-badge ${s.launchAtLogin ? 'ok' : 'bad'}`}>
+        {s.launchAtLogin ? 'starts at login' : 'manual start'}
+      </div>
+      <p className="lede">
+        Start Lightwave when you log in. It comes up hidden — the lights, the fader, and the
+        Stream Deck keys are live straight away, with no window taking focus.
+      </p>
+      <footer className="actions">
+        <button
+          type="button"
+          className={s.launchAtLogin ? 'ghost' : 'primary'}
+          disabled={busy}
+          onClick={() => toggleLogin(!s.launchAtLogin)}
+        >
+          {s.launchAtLogin ? 'Disable' : 'Start at login'}
+        </button>
+        <button type="button" className="primary" onClick={() => void onFinish()}>
+          Save
+        </button>
+      </footer>
+    </div>
+  )
+}
+
+// FaderCalibration measures the fader's real travel. Many controllers do not
+// span the full 0-127 range -- one topping out at 117 mapped to 92%, so the
+// light could never be driven to full. Recording the observed endpoints makes
+// a full throw mean 100% on whatever hardware is plugged in.
+function FaderCalibration({
+  state,
+  setErr,
+}: {
+  state: HUDState
+  setErr: (s: string) => void
+}) {
+  const saved = state.settings
+  const [learning, setLearning] = useState(false)
+  const [lo, setLo] = useState<number | null>(null)
+  const [hi, setHi] = useState<number | null>(null)
+  const [live, setLive] = useState<number | null>(null)
+  const [note, setNote] = useState('')
+
+  // Poll the raw CC while learning. 60ms is fast enough to catch the ends of a
+  // sweep without flooding the bridge.
+  useEffect(() => {
+    if (!learning) return
+    let alive = true
+    const id = setInterval(() => {
+      LiveCC()
+        .then((v) => {
+          if (!alive || typeof v !== 'number' || v < 0) return
+          setLive(v)
+          setLo((p) => (p === null || v < p ? v : p))
+          setHi((p) => (p === null || v > p ? v : p))
+        })
+        .catch(() => undefined)
+    }, 60)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [learning])
+
+  const ready = lo !== null && hi !== null && hi - lo >= 8
+
+  return (
+    <div className="calibration">
+      <p className="lede">
+        Fader range: <strong>{saved.midiCCMin}</strong>–<strong>{saved.midiCCMax}</strong>
+        {saved.midiCCMax < 127 || saved.midiCCMin > 0 ? ' (calibrated)' : ' (full range)'}
+      </p>
+      {!state.midiConnected && <p className="lede dim">Connect a MIDI controller to calibrate.</p>}
+      {learning ? (
+        <>
+          <p className="lede">
+            Sweep the fader all the way down, then all the way up.
+            {' '}Live: <strong>{live ?? '—'}</strong> · low: <strong>{lo ?? '—'}</strong> · high: <strong>{hi ?? '—'}</strong>
+          </p>
+          <div className="actions">
+            <button
+              type="button"
+              className="primary"
+              disabled={!ready}
+              onClick={() => {
+                setErr('')
+                SaveCCCalibration(lo as number, hi as number)
+                  .then(() => {
+                    setLearning(false)
+                    setNote(`Saved ${lo}–${hi}.`)
+                  })
+                  .catch((e) => setErr(String(e)))
+              }}
+            >
+              {ready ? `Save ${lo}\u2013${hi}` : 'Sweep the fader\u2026'}
+            </button>
+            <button type="button" className="ghost" onClick={() => setLearning(false)}>
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="actions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={!state.midiConnected}
+            onClick={() => {
+              setErr('')
+              setNote('')
+              setLo(null)
+              setHi(null)
+              setLive(null)
+              setLearning(true)
+            }}
+          >
+            Calibrate fader
+          </button>
+          {(saved.midiCCMin > 0 || saved.midiCCMax < 127) && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setErr('')
+                SaveCCCalibration(0, 127)
+                  .then(() => setNote('Reset to full range.'))
+                  .catch((e) => setErr(String(e)))
+              }}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+      {note && <p className="lede dim">{note}</p>}
     </div>
   )
 }
@@ -482,10 +721,12 @@ function RemotePane({
   state,
   setErr,
   setNote,
+  onFinish,
 }: {
   state: HUDState
   setErr: (s: string) => void
   setNote: (s: string) => void
+  onFinish: () => Promise<void>
 }) {
   const s = state.settings
   const [addr, setAddr] = useState(s.webAddr)
@@ -583,7 +824,7 @@ function RemotePane({
             setBusy(true)
             setErr('')
             SetWebConfig(addr, token.trim())
-              .then(() => { setToken(''); setNote('Saved. Server restarted if it was running.') })
+              .then(() => { setToken(''); return onFinish() })
               .catch((e) => setErr(String(e)))
               .finally(() => setBusy(false))
           }}>
@@ -599,11 +840,13 @@ function AccountPane({
   onState,
   setErr,
   setNote,
+  onFinish,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
+  onFinish: () => Promise<void>
 }) {
   const [key, setKey] = useState('')
   const s = state.settings
@@ -657,12 +900,12 @@ function AccountPane({
             SetConfigAPIKey(key.trim())
               .then(() => {
                 setKey('')
-                setNote('Key stored locally.')
+                return onFinish()
               })
               .catch((e) => setErr(String(e)))
           }}
         >
-          Save key
+          Save
         </button>
       </footer>
     </div>

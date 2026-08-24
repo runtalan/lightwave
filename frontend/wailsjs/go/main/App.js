@@ -34,6 +34,10 @@ export function Dancing() {
   return window['go']['main']['App']['Dancing']();
 }
 
+export function DiscardConfig() {
+  return window['go']['main']['App']['DiscardConfig']();
+}
+
 export function Discover() {
   return window['go']['main']['App']['Discover']();
 }
@@ -78,6 +82,10 @@ export function IsSetupOpen() {
   return window['go']['main']['App']['IsSetupOpen']();
 }
 
+export function LiveCC() {
+  return window['go']['main']['App']['LiveCC']();
+}
+
 export function MarkUIReady() {
   return window['go']['main']['App']['MarkUIReady']();
 }
@@ -94,12 +102,12 @@ export function OpenSetup() {
   return window['go']['main']['App']['OpenSetup']();
 }
 
-export function PingActivity() {
-  return window['go']['main']['App']['PingActivity']();
-}
-
 export function PersistNow() {
   return window['go']['main']['App']['PersistNow']();
+}
+
+export function PingActivity() {
+  return window['go']['main']['App']['PingActivity']();
 }
 
 export function PingMotion() {
@@ -116,6 +124,10 @@ export function RemoteCommand(arg1) {
 
 export function RenameSlot(arg1, arg2) {
   return window['go']['main']['App']['RenameSlot'](arg1, arg2);
+}
+
+export function SaveCCCalibration(arg1, arg2) {
+  return window['go']['main']['App']['SaveCCCalibration'](arg1, arg2);
 }
 
 export function SaveMappings(arg1) {
@@ -148,6 +160,10 @@ export function SetWebAssets(arg1) {
 
 export function SetWebConfig(arg1, arg2) {
   return window['go']['main']['App']['SetWebConfig'](arg1, arg2);
+}
+
+export function SetLaunchAtLogin(arg1) {
+  return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
 }
 
 export function SetWebEnabled(arg1) {

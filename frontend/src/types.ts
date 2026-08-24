@@ -21,6 +21,8 @@ export type SettingsView = {
   midiCCAlt: number
   midiNotePlus: number
   midiNoteMinus: number
+  midiCCMin: number
+  midiCCMax: number
   idleHideSeconds: number
   hasEnvKey: boolean
   hasConfigKey: boolean
@@ -28,6 +30,7 @@ export type SettingsView = {
   envPath: string
   configPath: string
   mappingPath: string
+  launchAtLogin: boolean
   webEnabled: boolean
   webAddr: string
   webRunning: boolean
@@ -47,6 +50,7 @@ export type HUDState = {
   needsSetup: boolean
   setupOpen: boolean
   configOpen: boolean
+  mapDirty: boolean
   dancing: boolean
   gradient: boolean
   hasApiKey: boolean
@@ -72,6 +76,8 @@ export function emptySettings(): SettingsView {
     midiCCAlt: 1,
     midiNotePlus: 61,
     midiNoteMinus: 60,
+    midiCCMin: 0,
+    midiCCMax: 127,
     idleHideSeconds: 10,
     hasEnvKey: false,
     hasConfigKey: false,
@@ -79,6 +85,7 @@ export function emptySettings(): SettingsView {
     envPath: '',
     configPath: '',
     mappingPath: '',
+    launchAtLogin: false,
     webEnabled: false,
     webAddr: ':8787',
     webRunning: false,
@@ -118,6 +125,7 @@ export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDSt
     needsSetup: Boolean(raw.needsSetup),
     setupOpen: Boolean(raw.setupOpen),
     configOpen: Boolean(raw.configOpen),
+    mapDirty: Boolean(raw.mapDirty),
     hidden: Boolean(raw.hidden),
     settings,
   }
@@ -144,6 +152,7 @@ export function emptyState(): HUDState {
     needsSetup: false,
     setupOpen: false,
     configOpen: false,
+    mapDirty: false,
     dancing: false,
     gradient: false,
     hasApiKey: false,

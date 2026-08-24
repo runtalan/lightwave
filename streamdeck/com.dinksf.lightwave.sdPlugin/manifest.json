@@ -24,7 +24,7 @@
       "UUID": "com.dinksf.lightwave.status",
       "Name": "Status",
       "Icon": "imgs/actions/status",
-      "Tooltip": "Live display of the palette, its colours, the colour fade, and how many lights are on. Press to cycle palettes.",
+      "Tooltip": "Live display of what is on, brightness, palette, pattern, and the color fade. Press to turn everything off, or bring back the lights that were on last.",
       "Controllers": [
         "Keypad"
       ],

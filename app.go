@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -110,6 +111,7 @@ type HUDState struct {
 	Hidden          bool           `json:"hidden"`
 	MappingPath     string         `json:"mappingPath"`
 	ConfigOpen      bool           `json:"configOpen"`
+	MapDirty        bool           `json:"mapDirty"`
 	Dancing         bool           `json:"dancing"`
 	Gradient        bool           `json:"gradient"`
 	BleScanning     bool           `json:"bleScanning"`
@@ -123,6 +125,8 @@ type SettingsView struct {
 	MidiCCAlt       int      `json:"midiCCAlt"`
 	MidiNotePlus    int      `json:"midiNotePlus"`
 	MidiNoteMinus   int      `json:"midiNoteMinus"`
+	MidiCCMin       int      `json:"midiCCMin"`
+	MidiCCMax       int      `json:"midiCCMax"`
 	IdleHideSeconds int      `json:"idleHideSeconds"`
 	HasEnvKey       bool     `json:"hasEnvKey"`
 	HasConfigKey    bool     `json:"hasConfigKey"`
@@ -131,6 +135,7 @@ type SettingsView struct {
 	ConfigPath      string   `json:"configPath"`
 	MappingPath     string   `json:"mappingPath"`
 	WebEnabled      bool     `json:"webEnabled"`
+	LaunchAtLogin   bool     `json:"launchAtLogin"`
 	WebAddr         string   `json:"webAddr"`
 	WebRunning      bool     `json:"webRunning"`
 	WebHasToken     bool     `json:"webHasToken"`
@@ -147,12 +152,20 @@ type App struct {
 	// returns and later ShowHUD/emit calls then kill the process on load.
 	ctxVal atomic.Value // context.Context
 
-	mu           sync.Mutex
-	slots        []config.SlotBinding
-	configured   bool
-	setupOpen    bool
-	forceSetup   bool
-	pool         map[int]bool
+	mu         sync.Mutex
+	slots      []config.SlotBinding
+	configured bool
+	setupOpen  bool
+	// mapDirty is set by pad edits that live only in memory (AssignSlot,
+	// MoveSlot) and cleared by CommitMappings. Escape uses it to decide
+	// whether leaving config would discard work.
+	mapDirty   bool
+	forceSetup bool
+	pool       map[int]bool
+	// lastPool is the set of pads that were lit the last time the pool went
+	// empty, so a controller can bring back exactly that scene rather than
+	// every bound light. Survives until something is lit again.
+	lastPool     map[int]bool
 	brightness   int
 	engine       color.Engine
 	catalog      []govee.Device
@@ -1090,6 +1103,7 @@ func (a *App) snapshotLocked() HUDState {
 		NeedsSetup:      a.setupOpen,
 		SetupOpen:       a.setupOpen,
 		ConfigOpen:      a.setupOpen,
+		MapDirty:        a.mapDirty,
 		HasAPIKey:       a.apiKeyLocked() != "",
 		DiscoverError:   a.discoverErr,
 		Discovering:     a.discovering,
@@ -1129,6 +1143,8 @@ func (a *App) settingsViewLocked() SettingsView {
 		MidiCCAlt:       a.settings.MidiCCAlt,
 		MidiNotePlus:    a.settings.MidiNotePlus,
 		MidiNoteMinus:   a.settings.MidiNoteMinus,
+		MidiCCMin:       a.settings.MidiCCMin,
+		MidiCCMax:       a.settings.MidiCCMax,
 		IdleHideSeconds: a.settings.IdleHideSeconds,
 		HasEnvKey:       env != "",
 		HasConfigKey:    a.settings.GoveeAPIKey != "",
@@ -1136,11 +1152,15 @@ func (a *App) settingsViewLocked() SettingsView {
 		EnvPath:         config.EnvFileHint(),
 		ConfigPath:      config.SettingsPath(),
 		MappingPath:     config.MappingPath(),
-		WebEnabled:      a.settings.WebEnabled,
-		WebAddr:         a.settings.WebAddr,
-		WebHasToken:     a.settings.WebToken != "",
-		WebRunning:      running,
-		WebURLs:         urls,
+		// Read the agent from disk rather than trusting the saved flag: the
+		// user can remove it in System Settings, and the toggle should show
+		// what is actually installed.
+		LaunchAtLogin: config.LoginItemEnabled(),
+		WebEnabled:    a.settings.WebEnabled,
+		WebAddr:       a.settings.WebAddr,
+		WebHasToken:   a.settings.WebToken != "",
+		WebRunning:    running,
+		WebURLs:       urls,
 	}
 }
 
@@ -1265,6 +1285,9 @@ func (a *App) ToggleSlot(n int) error {
 		a.pool = map[int]bool{}
 	}
 	if a.pool[n] {
+		// Snapshot first: if this is the last lit pad, the scene about to go
+		// dark is what a recall should bring back.
+		a.rememberPoolLocked()
 		delete(a.pool, n)
 	} else {
 		a.pool[n] = true
@@ -1416,6 +1439,7 @@ func (a *App) AllOff() HUDState {
 	for n := range a.pool {
 		a.slotTouched[n] = now
 	}
+	a.rememberPoolLocked()
 	a.pool = map[int]bool{}
 	// Keep the pump's idea of what was last sent in step with reality, so the
 	// next slider move re-issues turn:on instead of assuming the lights are lit.
@@ -1427,6 +1451,63 @@ func (a *App) AllOff() HUDState {
 	}
 	a.emitState()
 	a.emit("pool:alloff")
+	return a.snapshot()
+}
+
+// rememberPoolLocked snapshots the lit pads before they are extinguished, so
+// RECALL_TOGGLE can restore the same scene. Called while a.mu is held, and
+// only when something is actually lit: turning off an already-dark room must
+// not overwrite the memory with an empty set.
+func (a *App) rememberPoolLocked() {
+	if len(a.pool) == 0 {
+		return
+	}
+	last := make(map[int]bool, len(a.pool))
+	for n := range a.pool {
+		last[n] = true
+	}
+	a.lastPool = last
+}
+
+// RecallToggle turns off whatever is lit, or — when the room is dark — brings
+// back exactly the pads that were on last time, rather than every bound light.
+// This is the Stream Deck status key's press action.
+func (a *App) RecallToggle() HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("recall toggle recovered: %v", r)
+		}
+	}()
+	a.mu.Lock()
+	lit := len(a.pool) > 0
+	want := make([]int, 0, len(a.lastPool))
+	for n := range a.lastPool {
+		want = append(want, n)
+	}
+	a.mu.Unlock()
+
+	if lit {
+		return a.AllOff()
+	}
+	if len(want) == 0 {
+		// Nothing remembered — a first run, or the app restarted. Falling back
+		// to every light is friendlier than a key that does nothing.
+		return a.AllOn()
+	}
+	sort.Ints(want)
+	for _, n := range want {
+		// ToggleSlot is the only ignite path; guard it so a pad that somehow
+		// came on in between is not flipped straight back off.
+		a.mu.Lock()
+		on := a.pool[n]
+		a.mu.Unlock()
+		if on {
+			continue
+		}
+		if err := a.ToggleSlot(n); err != nil {
+			log.Printf("recall pad %d: %v", n, err)
+		}
+	}
 	return a.snapshot()
 }
 
@@ -1834,6 +1915,7 @@ func (a *App) MoveSlot(from, to int) (HUDState, error) {
 	if toLit && a.slots[from-1].DeviceID != "" {
 		a.pool[from] = true
 	}
+	a.mapDirty = true
 	st := a.snapshotLocked()
 	a.mu.Unlock()
 	a.emitState()
@@ -1936,6 +2018,7 @@ func (a *App) AssignSlot(slot int, deviceID string) (HUDState, error) {
 	}
 	a.slots[slot-1] = bind
 	delete(a.pool, slot)
+	a.mapDirty = true
 	st := a.snapshotLocked()
 	a.mu.Unlock()
 	a.emitState()
@@ -1943,6 +2026,28 @@ func (a *App) AssignSlot(slot int, deviceID string) (HUDState, error) {
 }
 
 func (a *App) CancelSetup() error {
+	return a.CloseConfig()
+}
+
+// DiscardConfig leaves config without saving: in-memory pad edits (AssignSlot,
+// MoveSlot) are thrown away by reloading the map from disk, so Escape cannot
+// silently keep a binding the user chose not to save. Settings are not touched
+// here -- the frontend simply drops its draft.
+func (a *App) DiscardConfig() error {
+	saved := config.LoadSlotFile()
+	a.mu.Lock()
+	if saved.Configured {
+		a.slots = append([]config.SlotBinding(nil), saved.Slots...)
+		a.configured = true
+	}
+	a.mapDirty = false
+	// A pad whose binding just vanished must not stay lit in the pool.
+	for n := range a.pool {
+		if n < 1 || n > len(a.slots) || a.slots[n-1].DeviceID == "" {
+			delete(a.pool, n)
+		}
+	}
+	a.mu.Unlock()
 	return a.CloseConfig()
 }
 
@@ -2022,7 +2127,13 @@ func (a *App) CommitMappings() error {
 	a.mu.Lock()
 	slots := append([]config.SlotBinding(nil), a.slots...)
 	a.mu.Unlock()
-	return a.SaveMappings(slots)
+	if err := a.SaveMappings(slots); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.mapDirty = false
+	a.mu.Unlock()
+	return nil
 }
 
 // PersistNow writes the pad map and current config (gradient, MIDI, scene)
@@ -2045,6 +2156,47 @@ func (a *App) PersistNow() error {
 	return config.SaveSettings(s)
 }
 
+// LiveCC reports the raw value the fader is currently sending, for the
+// calibration UI. Returns -1 when no CC has arrived yet.
+func (a *App) LiveCC() int {
+	a.mu.Lock()
+	l := a.midi
+	a.mu.Unlock()
+	if l == nil {
+		return -1
+	}
+	_, val, ok := l.PeekRawCC()
+	if !ok {
+		return -1
+	}
+	return int(val)
+}
+
+// SaveCCCalibration stores the fader's measured endpoints and applies them
+// immediately, so a full throw means 100% on this controller.
+func (a *App) SaveCCCalibration(min, max int) error {
+	if min < 0 || max > 127 || max <= min {
+		return fmt.Errorf("bad calibration range %d-%d", min, max)
+	}
+	a.mu.Lock()
+	s := a.settings
+	s.MidiCCMin = min
+	s.MidiCCMax = max
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.settings = s
+	a.midiCfg = s.MIDI()
+	if a.midi != nil {
+		a.midi.Update(a.midiCfg)
+	}
+	a.mu.Unlock()
+	a.emitState()
+	return nil
+}
+
 func (a *App) SaveSettings(in SettingsView) error {
 	a.mu.Lock()
 	s := a.settings
@@ -2052,6 +2204,8 @@ func (a *App) SaveSettings(in SettingsView) error {
 	s.MidiCCAlt = in.MidiCCAlt
 	s.MidiNotePlus = in.MidiNotePlus
 	s.MidiNoteMinus = in.MidiNoteMinus
+	s.MidiCCMin = in.MidiCCMin
+	s.MidiCCMax = in.MidiCCMax
 	s.IdleHideSeconds = in.IdleHideSeconds
 	a.mu.Unlock()
 	if err := config.SaveSettings(s); err != nil {

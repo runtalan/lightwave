@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
 import { GetState, MarkUIReady, PersistNow } from '../wailsjs/go/main/App'
-import { bindWindowActivity } from './chrome'
+import { bindWindowActivity, dragSurfaceProps } from './chrome'
 import { emptyState, normalizeState, type HUDState } from './types'
 import { HUD } from './HUD'
 import { Config } from './Config'
@@ -9,6 +9,7 @@ import { Config } from './Config'
 export default function App() {
   const [state, setState] = useState<HUDState>(() => emptyState())
   const [fading, setFading] = useState(false)
+  const [saveToast, setSaveToast] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -61,18 +62,35 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
         // Stop WebKit/Wails from offering "Save Page" as HTML.
         e.preventDefault()
-        if (!config) void PersistNow()
+        // Config owns its own Cmd-S: it has a settings draft to flush first.
+        if (config) return
+        PersistNow().then(
+          () => setSaveToast('Saved.'),
+          (err) => setSaveToast(`Save failed: ${String(err)}`),
+        )
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [config])
 
+  // A save with no visible result is indistinguishable from a dead shortcut.
+  useEffect(() => {
+    if (!saveToast) return
+    const t = setTimeout(() => setSaveToast(''), 1400)
+    return () => clearTimeout(t)
+  }, [saveToast])
+
   return (
-    <div className={`hud-shell ${fading && !config ? 'is-fading' : ''}`}>
+    <div className={`hud-shell ${fading && !config ? 'is-fading' : ''}`} {...dragSurfaceProps()}>
       <div className="scanlines" aria-hidden />
       <div className="vignette" aria-hidden />
       {config ? <Config state={state} onState={setState} /> : <HUD state={state} onState={setState} />}
+      {!config && saveToast && (
+        <p className={`save-toast ${saveToast.startsWith('Save failed') ? 'bad' : ''}`} role="status">
+          {saveToast}
+        </p>
+      )}
     </div>
   )
 }

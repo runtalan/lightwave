@@ -46,6 +46,9 @@ function keyToSlot(e: KeyboardEvent): number | null {
 export function HUD({ state }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Every HUD shortcut below is an unmodified keypress. Without this guard
+      // Cmd-S toggled a light on its way to App's save handler, and Cmd-. quit.
+      if (e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === 'Enter' || e.code === 'NumpadEnter') {
         e.preventDefault()
         void HideHUD()
@@ -159,7 +162,7 @@ export function HUD({ state }: Props) {
         <li data-desktop-only>
           <button type="button" className="keycap" onClick={() => void HideHUD()}>
             <kbd>Enter</kbd>
-            <span>hide</span>
+            <span>minimize</span>
           </button>
         </li>
         <li data-desktop-only>

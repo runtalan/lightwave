@@ -32,18 +32,20 @@ type Listener struct {
 	learnSeen [128]atomic.Uint32
 	learnVary [128]atomic.Uint32
 
-	ccWanted   atomic.Uint32 // cc | (alt << 8)
-	noteWanted atomic.Uint32 // plus | (minus << 8)
-	latestCC   atomic.Uint32
-	latestNote atomic.Uint32
-	statusOK   atomic.Uint32 // 0/1
-	statusSeq  atomic.Uint32
-	seenSeq    atomic.Uint32
+	ccWanted    atomic.Uint32 // cc | (alt << 8)
+	noteWanted  atomic.Uint32 // plus | (minus << 8)
+	latestCC    atomic.Uint32
+	latestRawCC atomic.Uint32
+	latestNote  atomic.Uint32
+	statusOK    atomic.Uint32 // 0/1
+	statusSeq   atomic.Uint32
+	seenSeq     atomic.Uint32
 }
 
 func New(cfg config.MIDI) *Listener {
 	l := &Listener{}
 	l.storeWanted(cfg)
+	SetCCRange(cfg.CCMin, cfg.CCMax)
 	return l
 }
 
@@ -156,6 +158,7 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 		wantCC := l.ccWanted.Load()
 		if cc == uint8(wantCC) || cc == uint8(wantCC>>8) {
 			l.latestCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
+			l.latestRawCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
 			l.noteVarying(cc, val)
 			return
 		}
@@ -164,6 +167,7 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 		// button that always emits the same number never qualifies.
 		if l.noteVarying(cc, val) {
 			l.latestCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
+			l.latestRawCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
 		}
 		return
 	}
@@ -202,6 +206,17 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 	return cc, val, true
 }
 
+// PeekRawCC reports the most recent raw CC value without consuming it, so the
+// calibration UI can show what the fader is actually sending while the normal
+// brightness path keeps working.
+func (l *Listener) PeekRawCC() (cc, val uint8, ok bool) {
+	v := l.latestRawCC.Load()
+	if v&midiPresent == 0 {
+		return 0, 0, false
+	}
+	return uint8(v >> 8), uint8(v), true
+}
+
 func (l *Listener) TakeNote() (note uint8, viaCC bool, ok bool) {
 	v := l.latestNote.Swap(0)
 	if v&midiPresent == 0 {
@@ -235,6 +250,7 @@ func (l *Listener) cfgLocked() config.MIDI {
 
 func (l *Listener) Update(cfg config.MIDI) {
 	l.storeWanted(cfg)
+	SetCCRange(cfg.CCMin, cfg.CCMax)
 }
 
 func (l *Listener) Connected() (bool, string) {
@@ -265,20 +281,50 @@ func (l *Listener) Close() {
 	}()
 }
 
-func CCToPercent(value uint8) int {
-	if value >= 127 {
-		return 100
+// ccRange holds the calibrated fader endpoints, packed as min<<8|max so both
+// move together. Many controllers do not span 0-127: a fader topping out at
+// 117 mapped to 92% and the light could never be driven to full.
+var ccRange atomic.Uint32
+
+const defaultCCRange = uint32(0)<<8 | 127
+
+func init() { ccRange.Store(defaultCCRange) }
+
+// SetCCRange installs calibrated endpoints. An inverted or collapsed range
+// falls back to the full 0-127 span rather than making every move meaningless.
+func SetCCRange(min, max uint8) {
+	if max <= min {
+		ccRange.Store(defaultCCRange)
+		return
 	}
-	if value == 0 {
+	ccRange.Store(uint32(min)<<8 | uint32(max))
+}
+
+// CCRange reports the calibrated endpoints.
+func CCRange() (min, max uint8) {
+	v := ccRange.Load()
+	return uint8(v >> 8), uint8(v)
+}
+
+// CCToPercent maps a raw CC value onto 1-100 across the calibrated travel, so
+// a full throw is 100% on any controller.
+func CCToPercent(value uint8) int {
+	lo, hi := CCRange()
+	if value <= lo {
 		// Fader bottom is dimmest, never lamp-off. Govee brightness 0 is a
 		// power-off on both LAN and BLE (H6001 0x33 0x04 0x00).
 		return 1
 	}
-	// Integer map 1–126 → 1–99. (v*100)/127 truncates; 117 would become 92
-	// if someone used /128. Rounding keeps a full-throw fader at 100.
-	n := (int(value)*100 + 63) / 127
+	if value >= hi {
+		return 100
+	}
+	span := int(hi) - int(lo)
+	n := ((int(value)-int(lo))*100 + span/2) / span
 	if n < 1 {
 		return 1
+	}
+	if n > 100 {
+		return 100
 	}
 	return n
 }

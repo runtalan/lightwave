@@ -25,8 +25,15 @@ func main() {
 
 	cmd := "SHOW"
 	forceSetup := false
+	hidden := false
 	for _, arg := range os.Args[1:] {
 		switch strings.TrimSpace(arg) {
+		case "--hidden":
+			// Start in the background: lights, MIDI, and the Stream Deck
+			// socket come up, but no window takes focus. This is how the
+			// login agent starts Lightwave.
+			hidden = true
+			cmd = "NONE"
 		case "--toggle":
 			cmd = "TOGGLE"
 		case "--setup", "--config":
@@ -72,6 +79,7 @@ func main() {
 		Height:            height,
 		MinWidth:          WindowMinW,
 		MinHeight:         WindowMinH,
+		StartHidden:       hidden,
 		Frameless:         true,
 		AlwaysOnTop:       true,
 		DisableResize:     true,
@@ -85,6 +93,7 @@ func main() {
 			app.MarkUIReady()
 		},
 		OnShutdown: app.shutdown,
+		Menu:       appMenu(app),
 		Bind: []interface{}{
 			app,
 		},
@@ -109,6 +118,7 @@ func printHelp() {
 
 Usage:
   lightwave            Start (or focus) the HUD
+  lightwave --hidden   Start in the background, no window (login agent)
   lightwave --toggle   Show/hide the HUD (Stream Deck)
   lightwave --setup    Open Config (Lights tab)
   lightwave --config   Same as --setup

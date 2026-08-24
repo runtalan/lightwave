@@ -74,6 +74,8 @@ export namespace main {
 	    midiCCAlt: number;
 	    midiNotePlus: number;
 	    midiNoteMinus: number;
+	    midiCCMin: number;
+	    midiCCMax: number;
 	    idleHideSeconds: number;
 	    hasEnvKey: boolean;
 	    hasConfigKey: boolean;
@@ -81,6 +83,7 @@ export namespace main {
 	    envPath: string;
 	    configPath: string;
 	    mappingPath: string;
+	    launchAtLogin: boolean;
 	    webEnabled: boolean;
 	    webAddr: string;
 	    webRunning: boolean;
@@ -97,6 +100,8 @@ export namespace main {
 	        this.midiCCAlt = source["midiCCAlt"];
 	        this.midiNotePlus = source["midiNotePlus"];
 	        this.midiNoteMinus = source["midiNoteMinus"];
+	        this.midiCCMin = source["midiCCMin"];
+	        this.midiCCMax = source["midiCCMax"];
 	        this.idleHideSeconds = source["idleHideSeconds"];
 	        this.hasEnvKey = source["hasEnvKey"];
 	        this.hasConfigKey = source["hasConfigKey"];
@@ -104,6 +109,7 @@ export namespace main {
 	        this.envPath = source["envPath"];
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
+	        this.launchAtLogin = source["launchAtLogin"];
 	        this.webEnabled = source["webEnabled"];
 	        this.webAddr = source["webAddr"];
 	        this.webRunning = source["webRunning"];
@@ -154,6 +160,7 @@ export namespace main {
 	    hidden: boolean;
 	    mappingPath: string;
 	    configOpen: boolean;
+	    mapDirty: boolean;
 	    dancing: boolean;
 	    gradient: boolean;
 	    bleScanning: boolean;
@@ -185,6 +192,7 @@ export namespace main {
 	        this.hidden = source["hidden"];
 	        this.mappingPath = source["mappingPath"];
 	        this.configOpen = source["configOpen"];
+	        this.mapDirty = source["mapDirty"];
 	        this.dancing = source["dancing"];
 	        this.gradient = source["gradient"];
 	        this.bleScanning = source["bleScanning"];

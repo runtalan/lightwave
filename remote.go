@@ -23,6 +23,8 @@ import (
 //	ALL_OFF            -> everything off, pool cleared
 //	ALL_ON             -> every bound light on at the slider level
 //	ALL_TOGGLE         -> all off if anything is lit, else all on
+//	RECALL_TOGGLE      -> all off if anything is lit, else re-light exactly the
+//	                      pads that were on last time
 //	DANCE              -> toggle the colour animation
 //	GRADIENT           -> toggle single-colour vs gradient scenes
 //	PALETTE <+1|-1>    -> cycle palettes; the reply also names the palettes
@@ -106,6 +108,10 @@ func (a *App) RemoteCommand(cmd string) string {
 
 	case "ALL_TOGGLE":
 		a.ToggleAll()
+		return a.remoteState()
+
+	case "RECALL_TOGGLE":
+		a.RecallToggle()
 		return a.remoteState()
 
 	case "DANCE":
