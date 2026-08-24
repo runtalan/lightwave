@@ -80,7 +80,7 @@ export function ScanLAN():Promise<main.HUDState>;
 
 export function SetBrightness(arg1:number):Promise<void>;
 
-export function SetConfigAPIKey(arg1:string):Promise<void>;
+export function SetConfigAPIKey(arg1:string):Promise<main.HUDState>;
 
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 

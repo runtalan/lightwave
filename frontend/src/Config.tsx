@@ -1003,6 +1003,7 @@ function AccountPane({
   onFinish: () => Promise<void>
 }) {
   const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
   const s = state.settings
   const badge = s.hasEnvKey ? 'key in .env' : s.hasConfigKey ? 'key in config.json' : 'no key'
 
@@ -1036,8 +1037,9 @@ function AccountPane({
           onClick={() => {
             setErr('')
             SetConfigAPIKey('')
-              .then(() => {
+              .then((next) => {
                 setKey('')
+                onState(next)
                 setNote('Cleared stored key. .env still applies.')
               })
               .catch((e) => setErr(String(e)))
@@ -1048,15 +1050,21 @@ function AccountPane({
         <button
           type="button"
           className="primary"
-          disabled={!key.trim()}
+          disabled={busy || !key.trim()}
           onClick={() => {
+            setBusy(true)
             setErr('')
+            // Order matters: onFinish() closes the window, so the field is
+            // cleared only after it resolves. Clearing first would flip
+            // disabled={!key.trim()} mid-promise and strand the close.
             SetConfigAPIKey(key.trim())
-              .then(() => {
-                setKey('')
+              .then((next) => {
+                onState(next)
                 return onFinish()
               })
+              .then(() => setKey(''))
               .catch((e) => setErr(String(e)))
+              .finally(() => setBusy(false))
           }}
         >
           Save

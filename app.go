@@ -2242,18 +2242,21 @@ func (a *App) SaveSettings(in SettingsView) error {
 	return nil
 }
 
-func (a *App) SetConfigAPIKey(key string) error {
+// SetConfigAPIKey stores the Govee key in config.json and returns the updated
+// snapshot so the Account tab can refresh its copy of settings without waiting
+// for the emitState round trip.
+func (a *App) SetConfigAPIKey(key string) (HUDState, error) {
 	a.mu.Lock()
 	s := a.settings
 	s.GoveeAPIKey = strings.TrimSpace(key)
 	a.settings = s
 	a.mu.Unlock()
 	if err := config.SaveSettings(s); err != nil {
-		return err
+		return a.snapshot(), err
 	}
 	a.emitState()
 	go a.refreshDevices()
-	return nil
+	return a.snapshot(), nil
 }
 
 func (a *App) ScanLAN() HUDState {
