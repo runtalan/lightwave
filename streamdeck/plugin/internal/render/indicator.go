@@ -210,58 +210,12 @@ func drawFadeDot(img *image.RGBA, st Status) {
 	}
 }
 
-// drawLightCount shows lit/total as a row of pips along the top-left.
-func drawLightCount(img *image.RGBA, st Status) {
-	if st.Total == 0 {
-		return
-	}
-	n := st.Total
-	if n > 9 {
-		n = 9
-	}
-	for i := 0; i < n; i++ {
-		x := 10 + i*11
-		y := 20
-		lit := i < st.LightsOn
-		col := dim
-		a := 0.75
-		if lit {
-			col = lerp(neon, magenta, float64(i)/float64(max(n-1, 1)))
-			a = 1.0
-		}
-		for dy := -3; dy <= 3; dy++ {
-			for dx := -3; dx <= 3; dx++ {
-				d := math.Hypot(float64(dx), float64(dy))
-				alpha := 1.0 - (d-2.2)/1.2
-				if d <= 2.2 {
-					alpha = 1
-				}
-				if alpha <= 0 {
-					continue
-				}
-				px, py := x+dx, y+dy
-				if px < 0 || py < 0 || px >= Size || py >= Size {
-					continue
-				}
-				img.Set(px, py, blend(img.RGBAAt(px, py), col, alpha*a))
-			}
-		}
-	}
-}
-
 func border(img *image.RGBA) {
 	for i := 0; i < Size; i++ {
 		for _, p := range [][2]int{{i, 0}, {i, Size - 1}, {0, i}, {Size - 1, i}} {
 			img.Set(p[0], p[1], blend(img.RGBAAt(p[0], p[1]), neon, 0.5))
 		}
 	}
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // drawText renders a string in the 5x7 font at (x, y), scaled by `scale`.
