@@ -164,6 +164,12 @@ export function Config({ state, onState }: Props) {
           <p className="eyebrow">{state.firstRun ? 'first ignition' : 'control deck'}</p>
           <h1>Config</h1>
         </div>
+        {/* Leaving needs a button, not just Escape: the key is invisible and
+            the pad map is easy to lose. requestExit asks before discarding
+            unsaved work and goes straight back to the HUD when there is none. */}
+        <button type="button" className="ghost" onClick={requestExit}>
+          Cancel
+        </button>
       </header>
 
       <div className="config-shell">
