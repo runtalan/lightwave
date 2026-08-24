@@ -1037,9 +1037,8 @@ function AccountPane({
           onClick={() => {
             setErr('')
             SetConfigAPIKey('')
-              .then((next) => {
+              .then(() => {
                 setKey('')
-                onState(next)
                 setNote('Cleared stored key. .env still applies.')
               })
               .catch((e) => setErr(String(e)))
@@ -1054,14 +1053,14 @@ function AccountPane({
           onClick={() => {
             setBusy(true)
             setErr('')
-            // Order matters: onFinish() closes the window, so the field is
-            // cleared only after it resolves. Clearing first would flip
-            // disabled={!key.trim()} mid-promise and strand the close.
+            // Save then close, with nothing between: onState() here would
+            // re-render the parent mid-chain and strand onFinish(). The
+            // backend's emitState already pushes the new key to App's
+            // 'state' listener, so the snapshot needs no manual plumbing.
+            // Clearing the field waits until after the close for the same
+            // reason — disabled={!key.trim()} would flip under the promise.
             SetConfigAPIKey(key.trim())
-              .then((next) => {
-                onState(next)
-                return onFinish()
-              })
+              .then(() => onFinish())
               .then(() => setKey(''))
               .catch((e) => setErr(String(e)))
               .finally(() => setBusy(false))
