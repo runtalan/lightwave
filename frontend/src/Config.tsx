@@ -45,7 +45,30 @@ export function Config({ state, onState }: Props) {
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
   const [midiDraft, setMidiDraft] = useState<SettingsView>(state.settings)
-  useEffect(() => setMidiDraft(state.settings), [state.settings])
+  // Re-seed the draft from the backend only when a saved value actually
+  // changes. normalizeState rebuilds settings on every push and emitState
+  // fires on every status poll, so depending on the object itself reset the
+  // form roughly once a second — a typed note number never survived long
+  // enough to be saved.
+  const savedMidiKey = [
+    state.settings.midiCC,
+    state.settings.midiCCAlt,
+    state.settings.midiNotePlus,
+    state.settings.midiNoteMinus,
+    state.settings.midiNoteRecall,
+    state.settings.midiChanCC,
+    state.settings.midiChanPalette,
+    state.settings.midiChanRecall,
+    state.settings.midiCCMin,
+    state.settings.midiCCMax,
+    state.settings.idleHideSeconds,
+  ].join(',')
+  useEffect(() => {
+    setMidiDraft(state.settings)
+    // state.settings is intentionally omitted: it is a fresh object on every
+    // push, and savedMidiKey already captures every field this form edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedMidiKey])
   const [confirmExit, setConfirmExit] = useState(false)
 
   // Unsaved work is either a settings draft the user edited but did not save,
