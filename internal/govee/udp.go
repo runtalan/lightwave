@@ -1,6 +1,7 @@
 package govee
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -332,6 +333,9 @@ func SendBrightness(ip string, percent int) error {
 		percent = 100
 	}
 	if IsBLE(ip) {
+		if IsClassicBulb(ModelOf(ip)) {
+			return bleSend(ip, blePacketBrightness255(percent))
+		}
 		return bleSend(ip, blePacketBrightness(percent))
 	}
 	return sendControl(ip, fmt.Sprintf(`{"msg":{"cmd":"brightness","data":{"value":%d}}}`, percent))
@@ -352,72 +356,148 @@ func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
 			if turnOn {
 				_ = SendTurn(ip, true)
 			}
-			_ = SendBrightness(ip, percent)
+			from := percent
+			if v, ok := lastBright.Load(ip); ok {
+				from = v.(int)
+			}
+			steps := 1
+			delta := percent - from
+			if delta < 0 {
+				delta = -delta
+			}
+			if !turnOn && delta > 12 {
+				steps = 4
+			}
+			for i := 1; i <= steps; i++ {
+				v := from + (percent-from)*i/steps
+				_ = SendBrightness(ip, v)
+				if i < steps {
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			lastBright.Store(ip, percent)
 		}(ip)
 	}
 }
 
+var lastBright sync.Map
+
 func SendColor(ip string, r, g, b, kelvin int) error {
+	if strings.TrimSpace(ip) == "" {
+		return nil
+	}
+	r, g, b = clampByte(r), clampByte(g), clampByte(b)
 	if IsBLE(ip) {
-		// Classic single-zone lamps answer manual-color mode 0x02; RGBIC
-		// models only answer the segment command and ignore 0x02. Firmware
-		// drops the variant it does not speak, so send both rather than
-		// maintaining a per-model table.
+		return sendBLEColor(ip, r, g, b, kelvin)
+	}
+	return sendLANColor(ip, r, g, b, kelvin)
+}
+
+func clampByte(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return v
+}
+
+func sendBLEColor(ip string, r, g, b, kelvin int) error {
+	model := ModelOf(ip)
+	// Classic bulbs (H6001): 0x02 RGB and 0x0b RGBWW only. The RGBIC
+	// segment opcode 0x15 is a different mode on these lamps — sending it
+	// after 0x02 can leave them stuck on one colour.
+	if IsClassicBulb(model) {
 		err := bleSend(ip, blePacketColorLegacy(r, g, b))
-		if err2 := bleSend(ip, blePacketColorSegment(r, g, b)); err == nil {
-			err = err2
+		if e := bleSend(ip, blePacketColorRGBWW(r, g, b, 0, 0)); err == nil {
+			err = e
 		}
 		return err
 	}
-	if kelvin > 0 {
-		return sendControl(ip, fmt.Sprintf(
-			`{"msg":{"cmd":"colorwc","data":{"color":{"r":%d,"g":%d,"b":%d},"colorTemInKelvin":%d}}}`,
-			r, g, b, kelvin,
-		))
+	if IsRGBIC(model) {
+		err := bleSend(ip, blePacketColorLegacy(r, g, b))
+		if e := bleSend(ip, blePacketColorSegment(r, g, b)); err == nil {
+			err = e
+		}
+		return err
 	}
-	if err := sendControl(ip, fmt.Sprintf(
-		`{"msg":{"cmd":"colorwc","data":{"color":{"r":%d,"g":%d,"b":%d},"colorTemInKelvin":0}}}`,
-		r, g, b,
-	)); err == nil {
-		return nil
+	// Unknown SKU: send both forms. RGBIC ignores 0x02; a bulb that does not
+	// speak 0x15 drops it. Known bulbs never take this branch.
+	err := bleSend(ip, blePacketColorLegacy(r, g, b))
+	if e := bleSend(ip, blePacketColorSegment(r, g, b)); err == nil {
+		err = e
 	}
-	return sendControl(ip, fmt.Sprintf(`{"msg":{"cmd":"color","data":{"r":%d,"g":%d,"b":%d}}}`, r, g, b))
+	_ = kelvin // BLE has no colour-temperature opcode on this path; RGB carries the scene.
+	return err
 }
 
-// SendGradient paints a multi-colour scene from one themed ramp.
-//
-// Only RGBIC strips can actually show more than one colour at a time, so this
-// degrades deliberately rather than leaving anything dark:
-//
-//   - RGBIC over BLE: the colours are spread across the strip's zones, one
-//     write per band.
-//   - Single-zone lamps over BLE: they drop the segment command and take the
-//     legacy whole-lamp write instead, landing on the ramp's middle colour.
-//   - LAN: the Govee LAN API has no multi-zone command at all, so a Wi-Fi lamp
-//     takes the middle colour — the same colour it would have had in single
-//     mode.
-//
-// Sending both BLE forms is the same belt-and-braces SendColor already uses:
-// firmware ignores the variant it does not speak, which is cheaper than
-// maintaining a per-model capability table.
+func sendLANColor(ip string, r, g, b, kelvin int) error {
+	// UDP WriteToUDP succeeding is not an ACK. Older firmware speaks `color`
+	// and ignores `colorwc`; newer firmware is the reverse. Send both.
+	k := 0
+	if kelvin > 0 {
+		k = kelvin
+	}
+	err := sendControl(ip, fmt.Sprintf(
+		`{"msg":{"cmd":"colorwc","data":{"color":{"r":%d,"g":%d,"b":%d},"colorTemInKelvin":%d}}}`,
+		r, g, b, k,
+	))
+	if e := sendControl(ip, fmt.Sprintf(
+		`{"msg":{"cmd":"color","data":{"r":%d,"g":%d,"b":%d}}}`,
+		r, g, b,
+	)); err == nil {
+		err = e
+	}
+	return err
+}
+
+// SendGradient paints a multi-colour ramp across an RGBIC strip's zones.
+// Single-zone lamps (H6001 and kin) cannot show more than one colour: they
+// receive the ramp's middle swatch as a solid via SendColor.
 func SendGradient(ip string, cols []color.RGBK) error {
 	if len(cols) == 0 || strings.TrimSpace(ip) == "" {
 		return nil
 	}
 	mid := cols[len(cols)/2]
-	if !IsBLE(ip) {
-		return SendColor(ip, mid.R, mid.G, mid.B, mid.Kelvin)
+	model := ModelOf(ip)
+	if !SupportsSegments(model) {
+		return SendColor(ip, mid.R, mid.G, mid.B, 0)
 	}
-	// Legacy first, so on any lamp that answers both the per-zone colours are
-	// what remain on the strip.
-	err := bleSend(ip, blePacketColorLegacy(mid.R, mid.G, mid.B))
+	if IsBLE(ip) {
+		err := bleSend(ip, blePacketColorLegacy(mid.R, mid.G, mid.B))
+		for i, mask := range bleSegmentMasks(len(cols)) {
+			c := cols[i]
+			if e := bleSend(ip, blePacketColorSegmentMask(c.R, c.G, c.B, mask)); err == nil {
+				err = e
+			}
+		}
+		return err
+	}
+	// LAN RGBIC: ptReal carries the same BLE segment frames as base64.
+	// colour/colorwc is still sent so firmware that ignores ptReal still
+	// shows the scene's middle colour rather than going dark.
+	var pkts [][]byte
 	for i, mask := range bleSegmentMasks(len(cols)) {
 		c := cols[i]
-		if e := bleSend(ip, blePacketColorSegmentMask(c.R, c.G, c.B, mask)); err == nil {
-			err = e
-		}
+		pkts = append(pkts, blePacketColorSegmentMask(c.R, c.G, c.B, mask))
 	}
-	return err
+	_ = sendPtReal(ip, pkts)
+	return SendColor(ip, mid.R, mid.G, mid.B, 0)
+}
+
+func sendPtReal(ip string, pkts [][]byte) error {
+	if len(pkts) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(pkts))
+	for _, p := range pkts {
+		parts = append(parts, `"`+base64.StdEncoding.EncodeToString(p)+`"`)
+	}
+	return sendControl(ip, fmt.Sprintf(
+		`{"msg":{"cmd":"ptReal","data":{"command":[%s]}}}`,
+		strings.Join(parts, ","),
+	))
 }
 
 var (

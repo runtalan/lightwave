@@ -207,6 +207,32 @@ func (e *Engine) Name() string {
 	return e.Palette().Name
 }
 
+// SceneColors is what the HUD paints onto a pool of n lamps.
+//
+//   - Single (gradient=false): every lamp gets the same colour — the palette's
+//     centre swatch — so the room reads as one wash.
+//   - Gradient (gradient=true): complementary/adjacent swatches are spread
+//     across the pool. A single lamp still gets the centre (it cannot show a
+//     multi-light scene by itself).
+func (e *Engine) SceneColors(n int, gradient bool) []RGBK {
+	if n <= 0 {
+		return nil
+	}
+	p := e.Palette()
+	if len(p.Colors) == 0 {
+		return nil
+	}
+	if !gradient || n == 1 {
+		c := p.Colors[len(p.Colors)/2]
+		out := make([]RGBK, n)
+		for i := range out {
+			out[i] = c
+		}
+		return out
+	}
+	return e.Distribute(n)
+}
+
 // Distribute spreads complementary/adjacent colors from the current palette
 // across n devices. A single device gets the palette's center swatch.
 func (e *Engine) Distribute(n int) []RGBK {

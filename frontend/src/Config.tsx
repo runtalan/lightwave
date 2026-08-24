@@ -376,7 +376,7 @@ function MidiPane({
         />
       </label>
       <label className="field">
-        <span>Gradient toggle note</span>
+        <span>Color − note</span>
         <input
           type="number"
           min={0}
@@ -464,10 +464,10 @@ function RemotePane({
       {s.webRunning && (
         <>
           <p className="status">Open on your phone:</p>
-          {s.webUrls.length === 0 ? (
+          {(s.webUrls ?? []).length === 0 ? (
             <p className="status bad">No private address found — connect to your VPN or LAN.</p>
           ) : (
-            s.webUrls.map((u) => (
+            (s.webUrls ?? []).map((u) => (
               <p key={u} className="status web-url">
                 {u}
                 {s.webHasToken ? '?token=…' : ''}

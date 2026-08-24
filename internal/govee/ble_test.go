@@ -62,6 +62,72 @@ func TestBLEPacketBrightness(t *testing.T) {
 	}
 }
 
+func TestBLEPacketBrightness255(t *testing.T) {
+	pkt := blePacketBrightness255(100)
+	xorCheck(t, pkt)
+	if pkt[2] != 255 {
+		t.Fatalf("brightness255(100) = %d, want 255", pkt[2])
+	}
+	dim := blePacketBrightness255(1)
+	if dim[2] < 1 {
+		t.Fatal("brightness255 floor vanished")
+	}
+}
+
+func TestBLEPacketColorRGBWW(t *testing.T) {
+	pkt := blePacketColorRGBWW(10, 20, 30, 0, 0)
+	xorCheck(t, pkt)
+	if pkt[2] != 0x0b || pkt[3] != 10 || pkt[4] != 20 || pkt[5] != 30 {
+		t.Fatalf("rgbww = % x", pkt[:7])
+	}
+}
+
+func TestModelClass(t *testing.T) {
+	if !IsClassicBulb("H6001") || !IsClassicBulb("h6001") || IsRGBIC("H6001") {
+		t.Fatal("H6001 must be a classic bulb, not RGBIC")
+	}
+	if !IsRGBIC("H617A") || IsClassicBulb("H617A") || !SupportsSegments("H617A") {
+		t.Fatal("H617A must be RGBIC")
+	}
+	if SupportsSegments("H6001") || SupportsSegments("H6072") {
+		t.Fatal("bulbs and floor lamps must not advertise strip segments")
+	}
+}
+
+func TestSendColorClassicBulbNoSegment(t *testing.T) {
+	var got [][]byte
+	setBLESender(func(addr string, pkt []byte) error {
+		got = append(got, append([]byte(nil), pkt...))
+		return nil
+	})
+	t.Cleanup(func() { setBLESender(nil) })
+	Remember("ble:h6001", "H6001")
+	if err := SendColor("ble:h6001", 255, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("no packets sent")
+	}
+	sawLegacy, sawRGBWW := false, false
+	for _, p := range got {
+		if len(p) < 3 {
+			continue
+		}
+		if p[1] == 0x05 && p[2] == 0x15 {
+			t.Fatalf("H6001 must not receive RGBIC segment packets: % x", p)
+		}
+		if p[1] == 0x05 && p[2] == 0x02 {
+			sawLegacy = true
+		}
+		if p[1] == 0x05 && p[2] == 0x0b {
+			sawRGBWW = true
+		}
+	}
+	if !sawLegacy || !sawRGBWW {
+		t.Fatalf("H6001 expected 0x02 and 0x0b, got %d packets", len(got))
+	}
+}
+
 func TestBLEPacketColor(t *testing.T) {
 	leg := blePacketColorLegacy(255, 0, 0)
 	xorCheck(t, leg)

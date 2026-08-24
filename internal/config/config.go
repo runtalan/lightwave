@@ -136,6 +136,9 @@ type Settings struct {
 	// WebToken, when set, is required by every request on top of the
 	// private-network restriction.
 	WebToken string `json:"webToken,omitempty"`
+	// Gradient is the HUD scene style: false paints every pooled lamp the
+	// same colour; true spreads complementary/adjacent swatches across the pool.
+	Gradient bool `json:"gradient"`
 }
 
 type settingsFile struct {
@@ -148,6 +151,7 @@ type settingsFile struct {
 	WebEnabled      *bool   `json:"webEnabled"`
 	WebAddr         *string `json:"webAddr"`
 	WebToken        *string `json:"webToken"`
+	Gradient        *bool   `json:"gradient"`
 }
 
 func EnvAPIKey() string {
@@ -234,6 +238,9 @@ func LoadSettings() Settings {
 	}
 	if raw.WebToken != nil {
 		s.WebToken = *raw.WebToken
+	}
+	if raw.Gradient != nil {
+		s.Gradient = *raw.Gradient
 	}
 	return s
 }

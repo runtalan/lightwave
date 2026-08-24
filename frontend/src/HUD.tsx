@@ -81,10 +81,12 @@ export function HUD({ state }: Props) {
         void CycleColor(1)
         return
       }
-      // Minus switches the scene style rather than cycling the palette
-      // backwards; plus still walks the palette and wraps, so every palette
-      // stays reachable.
       if (e.code === 'NumpadSubtract' || e.key === '-') {
+        e.preventDefault()
+        void CycleColor(-1)
+        return
+      }
+      if (e.code === 'Slash' || e.code === 'NumpadDivide' || e.key === '/') {
         e.preventDefault()
         void ToggleGradient()
         return
@@ -109,6 +111,9 @@ export function HUD({ state }: Props) {
         <div>
           <p className="eyebrow">lightwave</p>
           <h1>{state.paletteName}</h1>
+          <p className={`mode-chip ${state.gradient ? 'on' : ''}`}>
+            {state.gradient ? 'GRADIENT' : 'SINGLE'}
+          </p>
         </div>
         <button type="button" className="config-launch" onClick={() => void OpenConfig()}>
           Config
@@ -130,12 +135,18 @@ export function HUD({ state }: Props) {
         <li>
           <button type="button" className="keycap" onClick={() => void CycleColor(1)}>
             <kbd>+</kbd>
-            <span>palette</span>
+            <span>palette +</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" className="keycap" onClick={() => void CycleColor(-1)}>
+            <kbd>−</kbd>
+            <span>palette −</span>
           </button>
         </li>
         <li>
           <button type="button" className="keycap" onClick={() => void ToggleGradient()}>
-            <kbd className={state.gradient ? 'live' : ''}>-</kbd>
+            <kbd className={state.gradient ? 'live' : ''}>/</kbd>
             <span>{state.gradient ? 'gradient' : 'single'}</span>
           </button>
         </li>
@@ -186,7 +197,7 @@ export function HUD({ state }: Props) {
         <span className={state.midiConnected ? 'ok' : 'dim'}>
           {state.midiConnected ? `midi · ${state.midiPort}` : 'midi silent'}
         </span>
-        <span className="dim">+ color · − {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
+        <span className="dim">+ / − palette · / {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
       </footer>
     </div>
   )

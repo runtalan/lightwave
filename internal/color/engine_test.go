@@ -2,6 +2,48 @@ package color
 
 import "testing"
 
+func TestSceneColors(t *testing.T) {
+	e := Engine{}
+	for e.Name() != "Sunset" {
+		e.Cycle(1)
+	}
+	same := e.SceneColors(4, false)
+	if len(same) != 4 {
+		t.Fatalf("single n=4: got %d", len(same))
+	}
+	for i := 1; i < len(same); i++ {
+		if same[i] != same[0] {
+			t.Fatalf("single mode must paint every lamp the same colour: %v vs %v", same[0], same[i])
+		}
+	}
+	spread := e.SceneColors(4, true)
+	if len(spread) != 4 {
+		t.Fatalf("gradient n=4: got %d", len(spread))
+	}
+	distinct := 0
+	seen := map[RGBK]bool{}
+	for _, c := range spread {
+		if !seen[c] {
+			seen[c] = true
+			distinct++
+		}
+	}
+	if distinct < 3 {
+		t.Fatalf("gradient across 4 lamps only produced %d distinct colours: %v", distinct, spread)
+	}
+	one := e.SceneColors(1, true)
+	if len(one) != 1 {
+		t.Fatal("one lamp in gradient still needs a colour")
+	}
+}
+
+func TestSceneColorsEmpty(t *testing.T) {
+	e := Engine{}
+	if e.SceneColors(0, true) != nil || e.SceneColors(-1, false) != nil {
+		t.Fatal("n<=0 should be nil")
+	}
+}
+
 func TestGradientAt(t *testing.T) {
 	p := Palettes[0]
 	for _, n := range []int{1, 2, 8, 15} {

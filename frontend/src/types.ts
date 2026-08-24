@@ -69,7 +69,7 @@ export function emptySettings(): SettingsView {
     midiCCAlt: 1,
     midiNotePlus: 60,
     midiNoteMinus: 61,
-    idleHideSeconds: 3,
+    idleHideSeconds: 10,
     hasEnvKey: false,
     hasConfigKey: false,
     hasApiKey: false,
@@ -98,6 +98,13 @@ let baseState: HUDState | null = null
 export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDState {
   const base = (baseState ??= emptyState())
   if (!raw) return base
+  const settings = raw.settings
+    ? {
+        ...base.settings,
+        ...raw.settings,
+        webUrls: Array.isArray(raw.settings.webUrls) ? raw.settings.webUrls : base.settings.webUrls,
+      }
+    : base.settings
   return {
     ...base,
     ...raw,
@@ -105,7 +112,11 @@ export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDSt
     catalog: Array.isArray(raw.catalog) ? raw.catalog : [],
     activePool: Array.isArray(raw.activePool) ? raw.activePool : [],
     brightness: clampNum(raw.brightness, base.brightness, 0, 100),
-    settings: raw.settings ? { ...base.settings, ...raw.settings } : base.settings,
+    needsSetup: Boolean(raw.needsSetup),
+    setupOpen: Boolean(raw.setupOpen),
+    configOpen: Boolean(raw.configOpen),
+    hidden: Boolean(raw.hidden),
+    settings,
   }
 }
 
@@ -127,9 +138,9 @@ export function emptyState(): HUDState {
     midiConnected: false,
     midiPort: '',
     deviceCount: 0,
-    needsSetup: true,
-    setupOpen: true,
-    configOpen: true,
+    needsSetup: false,
+    setupOpen: false,
+    configOpen: false,
     dancing: false,
     gradient: false,
     hasApiKey: false,

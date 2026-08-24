@@ -91,10 +91,36 @@ func blePacketBrightness(percent int) []byte {
 	return blePacket([]byte{0x33, 0x04, byte(percent)})
 }
 
+// blePacketBrightness255 is the 0–255 brightness scale older single-zone
+// bulbs (H6001 and kin) expect. Do not send this to RGBIC strips: a byte
+// above 100 leaks into their colour state.
+func blePacketBrightness255(percent int) []byte {
+	if percent < 1 {
+		percent = 1
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	v := (percent*255 + 50) / 100
+	if v < 1 {
+		v = 1
+	}
+	if v > 255 {
+		v = 255
+	}
+	return blePacket([]byte{0x33, 0x04, byte(v)})
+}
+
 // blePacketColorLegacy sets the whole lamp via manual-color mode 0x02 —
 // the command classic single-zone bulbs and strips understand.
 func blePacketColorLegacy(r, g, b int) []byte {
 	return blePacket([]byte{0x33, 0x05, 0x02, byte(r), byte(g), byte(b)})
+}
+
+// blePacketColorRGBWW is the RGBWW form (mode 0x0b) some H600x bulbs want
+// instead of — or in addition to — 0x02. WW/CW of 0 keeps the RGB diodes on.
+func blePacketColorRGBWW(r, g, b, ww, cw int) []byte {
+	return blePacket([]byte{0x33, 0x05, 0x0b, byte(r), byte(g), byte(b), 0, 0, 0, byte(ww), byte(cw)})
 }
 
 // bleSegments is how many addressable zones the segment command reaches: the

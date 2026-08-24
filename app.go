@@ -137,10 +137,12 @@ type SettingsView struct {
 type App struct {
 	// ctx is written once by startup and read by every background goroutine
 	// (MIDI drain, brightness pump, idle loop, IPC). It must be accessed only
-	// through ctxOK/setCtx: an unsynchronized read can hand Wails a context
-	// that has no "events" value, and Wails answers that with log.Fatalf —
-	// an immediate os.Exit that no recover() can stop.
-	ctxVal atomic.Pointer[context.Context]
+	// through ctxOK/setCtx: handing Wails a context that lacks "events" or
+	// "frontend" makes the runtime call log.Fatalf — an immediate os.Exit
+	// that no recover() can stop. Stored by value (atomic.Value), never as a
+	// pointer to a function parameter: that pointer can dangle after startup
+	// returns and later ShowHUD/emit calls then kill the process on load.
+	ctxVal atomic.Value // context.Context
 
 	mu           sync.Mutex
 	slots        []config.SlotBinding
@@ -160,8 +162,12 @@ type App struct {
 	lastActivity time.Time
 	shownAt      time.Time
 	uiReady      bool
-	fadeCancel   int
-	sizedMode    int // 0 never sized, 1 HUD, 2 config
+	// hideGen increments only when the window is deliberately shown or
+	// dragged. HideHUD captures it so an in-flight fade can be aborted by
+	// ShowHUD — not by clicks, keys, or MIDI, which used to emit hud:shown
+	// 90ms after hud:fade-out and flicker the shell.
+	hideGen   int
+	sizedMode int // 0 never sized, 1 HUD, 2 config
 
 	ipcSrv       atomic.Pointer[ipc.Server]
 	lastRemoteMu sync.Mutex
@@ -186,9 +192,11 @@ type App struct {
 	hiddenAt        time.Time
 	dancing         bool
 	danceGen        int
-	// gradient selects the scene style: false paints each lamp one colour,
-	// true spreads a themed ramp across each strip's zones.
-	gradient bool
+	// gradient selects the scene style: false paints every pooled lamp the
+	// same palette colour; true spreads complementary/adjacent swatches
+	// across the pool. RGBIC strips also get a zone ramp in gradient mode.
+	gradient  bool
+	lastColor map[string]color.RGBK
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
 	// report a new power state, and believing a stale reply would toggle the
@@ -215,6 +223,8 @@ func NewApp(forceSetup bool) *App {
 		lastActivity: time.Now(),
 		stop:         make(chan struct{}),
 		brightKick:   make(chan struct{}, 1),
+		gradient:     settings.Gradient,
+		lastColor:    map[string]color.RGBK{},
 	}
 	if len(a.slots) != 9 {
 		a.slots = config.LoadSlotFile().Slots
@@ -242,25 +252,34 @@ func (a *App) setCtx(ctx context.Context) {
 	if ctx == nil {
 		return
 	}
-	a.ctxVal.Store(&ctx)
+	a.ctxVal.Store(ctx)
 }
 
 // ctxOK returns the lifecycle context and whether it is safe to hand to the
-// Wails runtime. It rejects a context that carries no "events" value, which is
-// the exact input that makes the runtime call log.Fatalf and kill the process.
+// Wails runtime. WindowShow/Hide/Quit need "frontend"; EventsEmit needs
+// "events". Either missing makes the runtime call log.Fatalf and kill the
+// process, so both are required before any runtime call.
 func (a *App) ctxOK() (context.Context, bool) {
-	p := a.ctxVal.Load()
-	if p == nil || *p == nil {
+	v := a.ctxVal.Load()
+	if v == nil {
 		return nil, false
 	}
-	ctx := *p
-	if ctx.Value("events") == nil {
+	ctx, ok := v.(context.Context)
+	if !ok || ctx == nil {
+		return nil, false
+	}
+	if ctx.Value("events") == nil || ctx.Value("frontend") == nil {
 		return nil, false
 	}
 	return ctx, true
 }
 
 func (a *App) startup(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("startup recovered: %v", r)
+		}
+	}()
 	a.setCtx(ctx)
 	// Env and settings were already loaded in main before NewApp; nothing can
 	// have changed them since, so re-walking the .env search paths here only
@@ -294,8 +313,10 @@ func (a *App) startup(ctx context.Context) {
 		_ = a.midi.Start()
 	}()
 
-	runtime.WindowShow(ctx)
-	runtime.WindowCenter(ctx)
+	if c, ok := a.ctxOK(); ok {
+		runtime.WindowShow(c)
+		runtime.WindowCenter(c)
+	}
 	a.noteShow()
 
 	// Clicking the Dock icon while the HUD is hidden must bring it back.
@@ -415,6 +436,7 @@ func (a *App) drainMIDI() bool {
 		activity = true
 	}
 	if _, val, ok := a.midi.TakeCC(); ok {
+		// Brightness only. Never ShowHUD/HideHUD/ToggleWindow from MIDI.
 		a.applyBrightness(midilstn.CCToPercent(val), false)
 		activity = true
 	}
@@ -425,9 +447,7 @@ func (a *App) drainMIDI() bool {
 		if note == plus {
 			a.CycleColor(1)
 		} else if note == minus {
-			// Matches the minus key on the HUD: palette on plus, scene style
-			// on minus.
-			a.ToggleGradient()
+			a.CycleColor(-1)
 		}
 		activity = true
 	}
@@ -451,13 +471,20 @@ func (a *App) scheduleStateEmit() {
 }
 
 func (a *App) HandleIPC(cmd string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("ipc: %q recovered: %v", cmd, r)
+		}
+	}()
 	switch cmd {
 	case "SETUP", "CONFIG":
 		a.OpenConfig()
 		a.ShowHUD()
 	case "SHOW":
 		a.ShowHUD()
-	default:
+	case "TOGGLE":
+		// Stream Deck / `lightwave --toggle` only. Unknown socket lines must
+		// not hide the window — a stuck sender would flicker hide/show.
 		a.ToggleWindow()
 	}
 }
@@ -496,7 +523,11 @@ func (a *App) mergeLAN(d govee.Device) {
 			if a.slots[i].Model == "" {
 				a.slots[i].Model = d.Model
 			}
+			govee.Remember(a.slots[i].IP, a.slots[i].Model)
 		}
+	}
+	if d.IP != "" {
+		govee.Remember(d.IP, d.Model)
 	}
 }
 
@@ -565,6 +596,7 @@ func (a *App) mergeBLELocked(d govee.Device) {
 		if a.slots[i].Model == "" {
 			a.slots[i].Model = d.Model
 		}
+		govee.Remember(a.slots[i].IP, a.slots[i].Model)
 		// Upgrade placeholder names ("H617A", "H617A (BLE)") to the best we
 		// have — the cloud name for matched lamps, the suffixed fallback
 		// otherwise — but never touch a name the user chose.
@@ -572,6 +604,9 @@ func (a *App) mergeBLELocked(d govee.Device) {
 		if best != "" && stale && s.Name != best {
 			a.slots[i].Name = best
 		}
+	}
+	if d.IP != "" {
+		govee.Remember(d.IP, d.Model)
 	}
 }
 
@@ -841,28 +876,26 @@ func (a *App) danceLoop(gen int) {
 			return
 		}
 		pal := a.engine.Palette()
-		ips := a.poolIPsLocked()
+		dests := a.poolDestsLocked()
 		grad := a.gradient
 		a.mu.Unlock()
 
-		if len(ips) == 0 {
+		if len(dests) == 0 {
 			continue
 		}
 		phase := time.Since(start).Seconds() / dancePeriod.Seconds()
-		// One swatch of separation per lamp, expressed as a fraction of the
-		// tour so both styles offset the group identically.
-		lampStep := 1.0 / float64(len(pal.Colors))
-		for i, ip := range ips {
-			// Offsetting each lamp by one swatch keeps the group in adjacent
-			// parts of the palette: a moving gradient, not clones.
-			if grad {
-				// The whole ramp drifts along the palette, so a strip shows a
-				// travelling gradient rather than one drifting colour.
-				_ = govee.SendGradient(ip, pal.GradientAt(phase+float64(i)*lampStep, govee.GradientBands))
+		for i, d := range dests {
+			if grad && govee.SupportsSegments(d.Model) {
+				lampStep := 1.0 / float64(len(pal.Colors))
+				_ = govee.SendGradient(d.IP, pal.GradientAt(phase+float64(i)*lampStep, govee.GradientBands))
 				continue
 			}
-			c := pal.Walk(i, phase)
-			_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
+			offset := 0
+			if grad {
+				offset = i
+			}
+			c := pal.Walk(offset, phase)
+			_ = govee.SendColor(d.IP, c.R, c.G, c.B, 0)
 		}
 	}
 }
@@ -892,9 +925,16 @@ func (a *App) dockReopenLoop() {
 		case <-t.C:
 			a.mu.Lock()
 			hidden := a.hidden
+			hiding := a.hiding
 			hiddenAt := a.hiddenAt
 			a.mu.Unlock()
-			if !hidden {
+			if !hidden || hiding {
+				sawInactive = false
+				continue
+			}
+			// hideApp() plus AlwaysOnTop can bounce activation for a beat.
+			// Treat that leftover focus as part of the hide, not a Dock click.
+			if time.Since(hiddenAt) < time.Second {
 				sawInactive = false
 				continue
 			}
@@ -1113,9 +1153,7 @@ func (a *App) PingActivity() {
 	a.recordUserActivity()
 }
 
-// PingMotion records pointer motion. With auto-hide gone it only keeps
-// lastActivity fresh for the stale-drag reset; it must not cancel a
-// deliberate hide, so it leaves fadeCancel alone.
+// PingMotion records pointer motion. It must not abort an in-flight hide.
 func (a *App) PingMotion() {
 	a.mu.Lock()
 	a.lastActivity = time.Now()
@@ -1134,18 +1172,15 @@ func (a *App) MarkUIReady() {
 func (a *App) noteShow() {
 	a.mu.Lock()
 	a.lastActivity = time.Now()
-	a.fadeCancel++
+	a.hideGen++
 	a.shownAt = time.Now()
 	a.mu.Unlock()
-	a.emit("activity")
 }
 
 func (a *App) recordUserActivity() {
 	a.mu.Lock()
 	a.lastActivity = time.Now()
-	a.fadeCancel++
 	a.mu.Unlock()
-	a.emit("activity")
 }
 
 func (a *App) ToggleSlot(n int) error {
@@ -1381,6 +1416,9 @@ func (a *App) brightnessPump() {
 			percent := clampBrightness(int(a.pendingBright.Load()))
 			a.mu.Lock()
 			a.brightness = percent
+			// Slider / MIDI CC counts as activity here (after coalesce), never
+			// from the CoreMIDI callback, and never as a show/hide.
+			a.lastActivity = time.Now()
 			ips := a.poolIPsLocked()
 			wasOff := a.lastSentBright == 0
 			unchanged := a.lastSentBright == percent
@@ -1410,53 +1448,82 @@ func (a *App) applyPaletteToPool() {
 	a.paintScene(false)
 }
 
-// paintScene writes the current palette across the pool in whichever style is
-// selected: one colour per lamp in single mode, or a themed gradient spread
-// across each strip's zones in gradient mode. Each lamp starts its ramp one
-// swatch further along, so a room reads as composed rather than as the same
-// gradient repeated.
+// paintScene writes the current palette across the pool.
+//
+// Single mode: every lamp gets the same centre swatch.
+// Gradient mode: complementary/adjacent swatches are spread across devices
+// (that's the room-level scene). RGBIC strips also get a zone ramp; bulbs
+// such as H6001 cannot show a strip gradient, so they take their distributed
+// solid colour.
 //
 // turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
-// may have been switched off at the wall); repainting lamps that are already
-// lit does not, so a repaint never turns anything back on.
+// may have been switched off at the wall).
 func (a *App) paintScene(turnOn bool) {
 	a.mu.Lock()
-	ips := a.poolIPsLocked()
+	dests := a.poolDestsLocked()
 	grad := a.gradient
-	var swatches []color.RGBK
-	var ramps [][]color.RGBK
-	if grad {
-		pal := a.engine.Palette()
-		ramps = make([][]color.RGBK, len(ips))
-		for i := range ips {
-			ramps[i] = pal.Gradient(i, govee.GradientBands)
-		}
-	} else {
-		swatches = a.engine.Distribute(len(ips))
+	pal := a.engine.Palette()
+	swatches := a.engine.SceneColors(len(dests), grad)
+	prev := map[string]color.RGBK{}
+	for k, v := range a.lastColor {
+		prev[k] = v
 	}
 	a.mu.Unlock()
-	if !grad && len(swatches) == 0 {
+	if len(dests) == 0 || len(swatches) == 0 {
 		return
 	}
-	for i, ip := range ips {
-		if turnOn {
-			_ = govee.SendTurn(ip, true)
-		}
-		if grad {
-			_ = govee.SendGradient(ip, ramps[i])
-			continue
-		}
+
+	const steps = 4
+	next := make([]color.RGBK, len(dests))
+	for i, d := range dests {
 		c := swatches[0]
 		if i < len(swatches) {
 			c = swatches[i]
 		}
-		_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
+		// Gradient scenes must travel as RGB. Sending colorTemInKelvin>0 makes
+		// Govee ignore RGB and light the white diodes — a pool of Warm Whites
+		// then looks like one colour.
+		if grad {
+			c.Kelvin = 0
+		}
+		next[i] = c
+		if turnOn {
+			_ = govee.SendTurn(d.IP, true)
+		}
+		if grad && govee.SupportsSegments(d.Model) {
+			_ = govee.SendGradient(d.IP, pal.Gradient(i, govee.GradientBands))
+			continue
+		}
+		from, ok := prev[d.IP]
+		if !ok || (from.R == c.R && from.G == c.G && from.B == c.B && from.Kelvin == c.Kelvin) {
+			_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
+			continue
+		}
+		for s := 1; s <= steps; s++ {
+			mix := color.Lerp(from, c, float64(s)/float64(steps))
+			k := mix.Kelvin
+			if grad {
+				k = 0
+			}
+			_ = govee.SendColor(d.IP, mix.R, mix.G, mix.B, k)
+			if s < steps {
+				time.Sleep(30 * time.Millisecond)
+			}
+		}
 	}
+	a.mu.Lock()
+	if a.lastColor == nil {
+		a.lastColor = map[string]color.RGBK{}
+	}
+	for i, d := range dests {
+		a.lastColor[d.IP] = next[i]
+	}
+	a.mu.Unlock()
 }
 
-// ToggleGradient switches between a single colour per lamp and a multi-colour
-// gradient across each strip, then repaints the pool so the change is visible
-// at once. Bound to the minus key.
+// ToggleGradient switches between a single colour for the whole pool and a
+// complementary spread across devices, then repaints so the change is visible
+// at once. Bound to `/` (slash / numpad divide). Persisted in config.json.
 func (a *App) ToggleGradient() HUDState {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1468,12 +1535,18 @@ func (a *App) ToggleGradient() HUDState {
 	a.gradient = !a.gradient
 	on := a.gradient
 	dancing := a.dancing
+	s := a.settings
+	s.Gradient = on
+	a.settings = s
 	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist gradient: %v", err)
+	}
 
 	// While dancing, the animation loop owns the colours and will pick the new
 	// style up on its next tick; repainting here would only fight it.
 	if !dancing {
-		a.paintScene(false)
+		a.paintScene(true)
 	}
 	a.emitState()
 	a.emit("gradient:toggle", on)
@@ -1500,9 +1573,27 @@ func (a *App) CycleColor(direction int) HUDState {
 }
 
 func (a *App) poolIPsLocked() []string {
-	ips := make([]string, 0, 9)
+	dests := a.poolDestsLocked()
+	ips := make([]string, len(dests))
+	for i, d := range dests {
+		ips[i] = d.IP
+	}
+	return ips
+}
+
+type lampDest struct {
+	IP    string
+	Model string
+}
+
+func (a *App) poolDestsLocked() []lampDest {
+	out := make([]lampDest, 0, 9)
 	if a.pool == nil {
-		return ips
+		return out
+	}
+	byID := map[string]govee.Device{}
+	for _, d := range a.catalog {
+		byID[govee.NormalizeID(d.ID)] = d
 	}
 	limit := len(a.slots)
 	if limit > 9 {
@@ -1512,12 +1603,24 @@ func (a *App) poolIPsLocked() []string {
 		if !a.pool[n] {
 			continue
 		}
-		ip := strings.TrimSpace(a.slots[n-1].IP)
-		if ip != "" {
-			ips = append(ips, ip)
+		s := a.slots[n-1]
+		ip := strings.TrimSpace(s.IP)
+		model := s.Model
+		if d, ok := byID[govee.NormalizeID(s.DeviceID)]; ok {
+			if d.IP != "" {
+				ip = d.IP
+			}
+			if model == "" {
+				model = d.Model
+			}
 		}
+		if ip == "" {
+			continue
+		}
+		govee.Remember(ip, model)
+		out = append(out, lampDest{IP: ip, Model: model})
 	}
-	return ips
+	return out
 }
 
 func (a *App) OpenSetup() {
@@ -1858,8 +1961,10 @@ func (a *App) ShowHUD() {
 	}()
 	a.mu.Lock()
 	setup := a.setupOpen
+	wasHidden := a.hidden || a.hiding
 	a.hidden = false
 	a.hiding = false
+	a.hideGen++
 	a.mu.Unlock()
 	a.sizeForMode(setup)
 	// Restore opacity before the window is on screen, so it appears with the
@@ -1867,10 +1972,12 @@ func (a *App) ShowHUD() {
 	a.emit("hud:shown")
 	a.emitState()
 	runtime.WindowShow(ctx)
-	runtime.WindowSetAlwaysOnTop(ctx, true)
-	// WindowShow unhides the window but does not activate the process; without
-	// this the HUD can reappear behind whatever the user was working in.
-	activateApp()
+	// AlwaysOnTop is set once in main.go. Re-applying it on every show —
+	// especially from the 300ms dock watcher — makes AppKit bounce a
+	// frameless window. Only raise the app when coming back from a hide.
+	if wasHidden {
+		activateApp()
+	}
 	a.noteShow()
 }
 
@@ -1884,7 +1991,7 @@ func (a *App) HideHUD() {
 		return
 	}
 	a.hiding = true
-	token := a.fadeCancel
+	token := a.hideGen
 	a.mu.Unlock()
 	a.emit("hud:fade-out")
 	go func() {
@@ -1892,7 +1999,9 @@ func (a *App) HideHUD() {
 		// reads as the UI dismantling itself piece by piece.
 		time.Sleep(90 * time.Millisecond)
 		a.mu.Lock()
-		if a.fadeCancel != token || a.setupOpen || a.dragging {
+		// Abort only if ShowHUD / drag / config bumped hideGen. Clicks, keys,
+		// and MIDI must not emit hud:shown here or the shell flickers.
+		if a.hideGen != token || a.setupOpen || a.dragging {
 			a.hiding = false
 			a.mu.Unlock()
 			a.emit("hud:shown")
@@ -1933,7 +2042,7 @@ func (a *App) StartWindowDrag() {
 	a.mu.Lock()
 	a.dragging = true
 	a.lastActivity = time.Now()
-	a.fadeCancel++
+	a.hideGen++
 	if a.hiding {
 		a.hiding = false
 		a.hidden = false
@@ -1951,7 +2060,7 @@ func (a *App) EndWindowDrag() {
 
 func (a *App) ToggleWindow() {
 	a.mu.Lock()
-	hidden := a.hidden
+	hidden := a.hidden || a.hiding
 	a.mu.Unlock()
 	if hidden {
 		a.ShowHUD()

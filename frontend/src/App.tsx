@@ -12,32 +12,49 @@ export default function App() {
 
   useEffect(() => {
     let alive = true
-    void MarkUIReady()
-    GetState()
-      .then((s) => {
+    let unbind = () => {}
+    try {
+      void MarkUIReady()
+    } catch {
+      /* Wails runtime not injected yet */
+    }
+    try {
+      GetState()
+        .then((s) => {
+          if (alive) setState(normalizeState(s))
+        })
+        .catch(() => undefined)
+    } catch {
+      /* same: first paint must not throw */
+    }
+    try {
+      EventsOn('state', (s: HUDState) => {
         if (alive) setState(normalizeState(s))
       })
-      .catch(() => undefined)
-    EventsOn('state', (s: HUDState) => {
-      if (alive) setState(normalizeState(s))
-    })
-    EventsOn('hud:fade-out', () => {
-      if (alive) setFading(true)
-    })
-    EventsOn('hud:shown', () => {
-      if (alive) setFading(false)
-    })
-    const unbind = bindWindowActivity()
+      EventsOn('hud:fade-out', () => {
+        if (alive) setFading(true)
+      })
+      EventsOn('hud:shown', () => {
+        if (alive) setFading(false)
+      })
+      unbind = bindWindowActivity()
+    } catch {
+      /* listeners are best-effort; the first GetState is enough to render */
+    }
     return () => {
       alive = false
       unbind()
-      EventsOff('state')
-      EventsOff('hud:fade-out')
-      EventsOff('hud:shown')
+      try {
+        EventsOff('state')
+        EventsOff('hud:fade-out')
+        EventsOff('hud:shown')
+      } catch {
+        /* runtime already gone */
+      }
     }
   }, [])
 
-  const config = state.configOpen || state.setupOpen || state.needsSetup
+  const config = Boolean(state.configOpen || state.setupOpen || state.needsSetup)
 
   return (
     <div className={`hud-shell ${fading && !config ? 'is-fading' : ''}`}>

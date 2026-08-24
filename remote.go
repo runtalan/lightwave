@@ -116,9 +116,8 @@ func (a *App) RemoteCommand(cmd string) string {
 		return a.remoteState()
 
 	case "PALETTE":
-		// Still cycles both ways here even though the HUD's minus key now
-		// toggles gradient: PALETTE -1 is a published wire verb the Stream
-		// Deck plugin binds to its own key.
+		// Still cycles both ways: PALETTE -1 is a published wire verb the Stream
+		// Deck plugin binds to its own key. HUD +/− now match this.
 		dir := 1
 		if strings.HasPrefix(arg, "-") {
 			dir = -1
