@@ -126,7 +126,12 @@ func (l *Listener) Start() error {
 	l.alive = true
 	cfg := l.cfgLocked()
 	l.mu.Unlock()
-	log.Printf("midi: listening on %s (CC %d/%d, palette notes 60−/61+ and +%d -%d, all channels)", name, cfg.CC, cfg.CCAlt, cfg.NotePlus, cfg.NoteMinus)
+	recall := "unassigned"
+	if cfg.NoteRecall != 0 {
+		recall = fmt.Sprint(cfg.NoteRecall)
+	}
+	log.Printf("midi: listening on %s (CC %d/%d, palette notes 60−/61+ and +%d -%d, recall %s, all channels)",
+		name, cfg.CC, cfg.CCAlt, cfg.NotePlus, cfg.NoteMinus, recall)
 	l.setStatus(true, name)
 	return nil
 }
@@ -142,9 +147,15 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 
 	want := l.noteWanted.Load()
 	plus, minus, recall := uint8(want), uint8(want>>8), uint8(want>>16)
-	// Recall is checked first: a user is free to map it to 60/61, and an
-	// explicit assignment should win over the hardcoded palette keys.
-	if recall != 0 {
+	// Recall is checked before the palette match: an explicit assignment
+	// should win over the hardcoded 60/61 palette keys.
+	//
+	// It is deliberately not checked ahead of the brightness CCs. A fader
+	// bound to the same number would otherwise fire recall on every step of a
+	// sweep and never reach the brightness path, which loses the slider
+	// entirely — a far worse failure than a recall key that does nothing. The
+	// brightness CCs are only ever CC messages, so notes are unaffected.
+	if recall != 0 && !l.isBrightnessCC([]byte(msg), recall) {
 		if num, ok := NoteTrigger([]byte(msg), recall); ok {
 			l.latestNote.Store(midiPresent | uint32(num)<<8 | midiRecall)
 			return
@@ -454,4 +465,15 @@ func NoteTrigger(msg []byte, want uint8) (num uint8, ok bool) {
 		return n, true
 	}
 	return 0, false
+}
+
+// isBrightnessCC reports whether this message is a Control Change on one of
+// the configured brightness CCs. Used to stop a recall note assigned to the
+// fader's own number from swallowing every slider move.
+func (l *Listener) isBrightnessCC(msg []byte, num uint8) bool {
+	if len(msg) < 3 || msg[0]>>4 != 0xB {
+		return false
+	}
+	w := l.ccWanted.Load()
+	return num == uint8(w) || num == uint8(w>>8)
 }
