@@ -663,14 +663,15 @@ function HudPane({
 }) {
   const s = state.settings
   const [busy, setBusy] = useState(false)
+  const on = s.launchAtLogin
 
-  function toggleLogin(on: boolean) {
+  function toggleLogin(next: boolean) {
     setBusy(true)
     setErr('')
     setNote('')
-    SetLaunchAtLogin(on)
+    SetLaunchAtLogin(next)
       .then(() =>
-        setNote(on ? 'Lightwave will start hidden at login.' : 'Lightwave will not start at login.'),
+        setNote(next ? 'Lightwave will start hidden at login.' : 'Lightwave will not start at login.'),
       )
       .catch((e) => setErr(String(e)))
       .finally(() => setBusy(false))
@@ -678,32 +679,76 @@ function HudPane({
 
   return (
     <div className="pane form-pane">
-      <p className="lede">
-        The HUD never hides on its own. Press <code>Enter</code> to dismiss it, or use the Stream Deck toggle.
-        Hide does not quit; launch again or <code>--toggle</code> to show.
-      </p>
-      <BrightnessSlider value={state.brightness} label="brightness" />
+      {/* Startup leads the page: it is the only setting here that changes what
+          the machine does on its own, and it was previously buried under a
+          stray brightness slider. */}
+      <section className={`group feature ${on ? 'on' : ''}`}>
+        <div className="feature-head">
+          <div>
+            <h3 className="group-title">Start at login</h3>
+            <p className="group-hint">
+              Lightwave launches when you log in and stays hidden — lights, fader, and Stream Deck
+              keys live straight away, with no window taking focus.
+            </p>
+          </div>
+          <span className={`state-pill ${on ? 'ok' : ''}`}>{on ? 'On' : 'Off'}</span>
+        </div>
+        <footer className="actions">
+          <button
+            type="button"
+            className={on ? 'ghost' : 'primary'}
+            disabled={busy}
+            onClick={() => toggleLogin(!on)}
+          >
+            {on ? 'Turn off' : 'Turn on'}
+          </button>
+        </footer>
+      </section>
 
-      <div className={`key-badge ${s.launchAtLogin ? 'ok' : 'bad'}`}>
-        {s.launchAtLogin ? 'starts at login' : 'manual start'}
-      </div>
-      <p className="lede">
-        Start Lightwave when you log in. It comes up hidden — the lights, the fader, and the
-        Stream Deck keys are live straight away, with no window taking focus.
-      </p>
-      <footer className="actions">
-        <button
-          type="button"
-          className={s.launchAtLogin ? 'ghost' : 'primary'}
-          disabled={busy}
-          onClick={() => toggleLogin(!s.launchAtLogin)}
-        >
-          {s.launchAtLogin ? 'Disable' : 'Start at login'}
-        </button>
-        <button type="button" className="primary" onClick={() => void onFinish()}>
-          Save
-        </button>
-      </footer>
+      <section className="group">
+        <h3 className="group-title">Showing and hiding</h3>
+        <p className="group-hint">
+          The HUD never hides on its own — if it disappears, something dismissed it.
+        </p>
+        <dl className="shortcuts">
+          <div>
+            <dt><kbd>Enter</kbd></dt>
+            <dd>Dismiss the HUD</dd>
+          </div>
+          <div>
+            <dt><kbd>0</kbd></dt>
+            <dd>All lights off, or back on</dd>
+          </div>
+          <div>
+            <dt><kbd>1</kbd>–<kbd>9</kbd></dt>
+            <dd>Toggle that pad</dd>
+          </div>
+          <div>
+            <dt><kbd>+</kbd> <kbd>−</kbd></dt>
+            <dd>Cycle the palette</dd>
+          </div>
+          <div>
+            <dt><kbd>/</kbd></dt>
+            <dd>Gradient or single colour</dd>
+          </div>
+          <div>
+            <dt><kbd>*</kbd></dt>
+            <dd>Start or stop the colour fade</dd>
+          </div>
+          <div>
+            <dt><kbd>,</kbd></dt>
+            <dd>Open this Config window</dd>
+          </div>
+          <div>
+            <dt><kbd>.</kbd></dt>
+            <dd>Quit Lightwave outright</dd>
+          </div>
+        </dl>
+        <p className="group-hint">
+          Hiding does not quit Lightwave: the lights, the fader, and the Stream Deck keys keep
+          working. Launch it again to bring the window back.
+        </p>
+      </section>
     </div>
   )
 }
