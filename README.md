@@ -32,7 +32,8 @@ The cloud is used for exactly one thing: reading your light *names* during setup
 | **1–9** | Toggle that light on or off |
 | **0** | Toggle every light — all off, or all back on |
 | **Slider / dial** | Dim every lit light together, smoothly |
-| **+ / −** | Cycle color palettes |
+| **+** | Cycle color palettes |
+| **−** | Switch between single-color and gradient scenes |
 | **\*** | Start or stop a slow color fade across the room |
 | **Enter** | Hide the window (it keeps running) |
 | **.** | Quit |
@@ -41,11 +42,79 @@ Lights that are on glow on screen, so the window is a live map of the room. If y
 
 ### Color palettes
 
-Eight built-in palettes: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, and Sunset.
+Thirteen built-in palettes, in two groups.
+
+**Vivid** — for when the lights are part of the room's character: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset.
+
+**Peaceful** — quiet light to live under rather than look at: Sage, Lavender Mist, Candlelight, Morning Haze, Blush.
+
+The peaceful set stays inside a narrow band of hue and lightness, and every swatch keeps a grey undertone instead of running a channel to full — that is what separates sage from lime, and dusty rose from red. Candlelight sits at the 1850–2150K a candle actually burns at, deeper and oranger than Warm Whites, for the end of an evening rather than the working part of one.
+
+Because they are low-contrast, pooled lamps land on closely related shades rather than contrasting ones. That is the point: the room reads as calm and whole. The vivid palettes are still there when a set of lamps should read as distinct.
 
 When several lights are on, they don't all get the same color — Lightwave spreads related shades across the group, so a room reads as *composed* rather than uniform. Press `*` and those colors drift slowly through the palette, each light offset from the next.
 
+### Single or gradient scenes
+
+Press `−` to switch between the two scene styles:
+
+- **Single** — every light gets one color from the palette.
+- **Gradient** — RGBIC strips get a *multi-color* scene instead: the palette is painted across the strip's length as a smooth ramp, so one strip shows several related shades at once. Each strip starts its ramp at a different point in the palette, so two strips in a room complement rather than mirror each other.
+
+Gradient mode stays inside the palette you picked — it's the same theme, spread out in space rather than collapsed to one color. It also works while the `*` fade is running, in which case the gradient travels along the strip.
+
+Lights that can't show more than one color at a time — single-zone bulbs, and anything on Wi-Fi, since Govee's LAN API has no multi-zone command — fall back to the middle color of the ramp, which is the color they would have shown in single mode. Nothing goes dark, and gradient mode is safe to leave on with a mixed set of lights.
+
 ---
+
+## Phone control over your network
+
+Lightwave can serve its own HUD to a phone or tablet. It is the *same* interface
+— the same React build the desktop window runs, not a second mobile app — so
+the pads, the dimmer, the palettes and the fades all behave identically.
+
+Turn it on in **Config → Remote**, then open the printed address on your phone.
+
+### It is control-only
+
+A browser can work the lights and nothing else. It cannot quit Lightwave, hide
+or move the window, rescan for devices, edit the pad map, or read or change
+your Govee API key. The allowlist lives in Go, so this holds for a hand-written
+request too, not just for the buttons the phone shows.
+
+The phone always shows the control HUD, whatever the desktop window happens to
+be displaying.
+
+### Only reachable on a private network
+
+Every request is checked against the client's address, and **anything routable
+on the public internet is refused**. Allowed: your LAN (`10.x`, `172.16–31.x`,
+`192.168.x`), VPN ranges including the `100.64/10` block Tailscale hands out,
+IPv6 unique-local (`fc00::/7`), link-local, and loopback.
+
+This is enforced on every request, so even if the server is bound more widely
+than you meant, a public client still cannot touch the lights.
+
+Two further controls:
+
+- **Listen address.** `:8787` listens on every interface. Set it to a specific
+  VPN address — `100.92.4.7:8787` — to bind only that one, so the port is not
+  open on your LAN at all.
+- **Token.** Optional, blank by default. When set, every request must carry it,
+  which is worth doing on a VPN shared with people who should not be reaching
+  your lights. Open the URL with `?token=…` once and the phone stores it, so
+  bookmarking or adding to the home screen keeps working.
+
+The server is **off until you switch it on** and binds nothing before that.
+Starting and stopping take effect immediately — no restart.
+
+### What it costs
+
+Close to nothing. It serves the bundle already embedded in the binary, so the
+assets are not duplicated. Measured heap with the server up and six live
+clients streaming state: **about 170 KB**. Idle, it is lost in GC noise. There
+is no polling — state is pushed over a single event stream, and the phone
+reconnects on its own after a sleep or a network change.
 
 ## Requirements
 
@@ -117,7 +186,8 @@ If auto-learn picks the wrong control, set it explicitly in **Config → MIDI**:
 |---|---|
 | Brightness CC | The dial or fader that dims your lights |
 | Alternate CC | A second dial, if you have one |
-| Color + / − note | Buttons that cycle palettes |
+| Color + note | Button that cycles palettes |
+| Gradient toggle note | Button that switches single / gradient scenes |
 
 To find your controller's numbers, use a free MIDI monitor ([MIDI Monitor](https://www.snoize.com/midimonitor/) on macOS), turn the knob, and read the **CC number** it reports.
 

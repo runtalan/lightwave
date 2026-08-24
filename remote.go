@@ -24,6 +24,7 @@ import (
 //	ALL_ON             -> every bound light on at the slider level
 //	ALL_TOGGLE         -> all off if anything is lit, else all on
 //	DANCE              -> toggle the colour animation
+//	GRADIENT           -> toggle single-colour vs gradient scenes
 //	PALETTE <+1|-1>    -> cycle palettes
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
@@ -110,7 +111,14 @@ func (a *App) RemoteCommand(cmd string) string {
 		a.ToggleDance()
 		return a.remoteState()
 
+	case "GRADIENT":
+		a.ToggleGradient()
+		return a.remoteState()
+
 	case "PALETTE":
+		// Still cycles both ways here even though the HUD's minus key now
+		// toggles gradient: PALETTE -1 is a published wire verb the Stream
+		// Deck plugin binds to its own key.
 		dir := 1
 		if strings.HasPrefix(arg, "-") {
 			dir = -1
@@ -133,6 +141,7 @@ type RemoteState struct {
 	Brightness int           `json:"brightness"`
 	Palette    string        `json:"palette"`
 	Dancing    bool          `json:"dancing"`
+	Gradient   bool          `json:"gradient"`
 	Swatches   []RemoteColor `json:"swatches"`
 }
 
@@ -160,6 +169,7 @@ func (a *App) remoteState() string {
 		Brightness: a.brightness,
 		Palette:    pal.Name,
 		Dancing:    a.dancing,
+		Gradient:   a.gradient,
 		Swatches:   make([]RemoteColor, 0, len(pal.Colors)),
 	}
 	for _, c := range pal.Colors {

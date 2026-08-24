@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"lightwave/internal/color"
+
 	"golang.org/x/net/ipv4"
 )
 
@@ -150,6 +152,9 @@ func (u *UDP) readLoop() {
 		if addr != nil {
 			src = addr.IP.String()
 		}
+		// handle runs synchronously and json.Unmarshal copies whatever it
+		// keeps, so the read buffer can be reused as-is: copying every
+		// packet here was one allocation per status reply for nothing.
 		func(raw []byte, from string) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -157,7 +162,7 @@ func (u *UDP) readLoop() {
 				}
 			}()
 			u.handle(raw, from)
-		}(append([]byte(nil), buf[:n]...), src)
+		}(buf[:n], src)
 	}
 }
 
@@ -377,6 +382,42 @@ func SendColor(ip string, r, g, b, kelvin int) error {
 		return nil
 	}
 	return sendControl(ip, fmt.Sprintf(`{"msg":{"cmd":"color","data":{"r":%d,"g":%d,"b":%d}}}`, r, g, b))
+}
+
+// SendGradient paints a multi-colour scene from one themed ramp.
+//
+// Only RGBIC strips can actually show more than one colour at a time, so this
+// degrades deliberately rather than leaving anything dark:
+//
+//   - RGBIC over BLE: the colours are spread across the strip's zones, one
+//     write per band.
+//   - Single-zone lamps over BLE: they drop the segment command and take the
+//     legacy whole-lamp write instead, landing on the ramp's middle colour.
+//   - LAN: the Govee LAN API has no multi-zone command at all, so a Wi-Fi lamp
+//     takes the middle colour — the same colour it would have had in single
+//     mode.
+//
+// Sending both BLE forms is the same belt-and-braces SendColor already uses:
+// firmware ignores the variant it does not speak, which is cheaper than
+// maintaining a per-model capability table.
+func SendGradient(ip string, cols []color.RGBK) error {
+	if len(cols) == 0 || strings.TrimSpace(ip) == "" {
+		return nil
+	}
+	mid := cols[len(cols)/2]
+	if !IsBLE(ip) {
+		return SendColor(ip, mid.R, mid.G, mid.B, mid.Kelvin)
+	}
+	// Legacy first, so on any lamp that answers both the per-zone colours are
+	// what remain on the strip.
+	err := bleSend(ip, blePacketColorLegacy(mid.R, mid.G, mid.B))
+	for i, mask := range bleSegmentMasks(len(cols)) {
+		c := cols[i]
+		if e := bleSend(ip, blePacketColorSegmentMask(c.R, c.G, c.B, mask)); err == nil {
+			err = e
+		}
+	}
+	return err
 }
 
 var (

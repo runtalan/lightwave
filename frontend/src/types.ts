@@ -28,6 +28,11 @@ export type SettingsView = {
   envPath: string
   configPath: string
   mappingPath: string
+  webEnabled: boolean
+  webAddr: string
+  webRunning: boolean
+  webHasToken: boolean
+  webUrls: string[]
 }
 
 export type HUDState = {
@@ -43,6 +48,7 @@ export type HUDState = {
   setupOpen: boolean
   configOpen: boolean
   dancing: boolean
+  gradient: boolean
   hasApiKey: boolean
   discoverError: string
   discovering: boolean
@@ -53,7 +59,7 @@ export type HUDState = {
   settings: SettingsView
 }
 
-export type ConfigTab = 'lights' | 'midi' | 'hud' | 'account'
+export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'account'
 
 export const NUMPAD_ORDER = [7, 8, 9, 4, 5, 6, 1, 2, 3] as const
 
@@ -70,6 +76,11 @@ export function emptySettings(): SettingsView {
     envPath: '',
     configPath: '',
     mappingPath: '',
+    webEnabled: false,
+    webAddr: ':8787',
+    webRunning: false,
+    webHasToken: false,
+    webUrls: [],
   }
 }
 
@@ -79,8 +90,13 @@ export function clampNum(n: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, Math.round(v)))
 }
 
+// Shared read-only defaults for normalizeState. State objects are treated as
+// immutable throughout the app, so the fallback slots/settings can be shared
+// across every incoming event instead of rebuilding 9 slot objects per push.
+let baseState: HUDState | null = null
+
 export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDState {
-  const base = emptyState()
+  const base = (baseState ??= emptyState())
   if (!raw) return base
   return {
     ...base,
@@ -115,6 +131,7 @@ export function emptyState(): HUDState {
     setupOpen: true,
     configOpen: true,
     dancing: false,
+    gradient: false,
     hasApiKey: false,
     discoverError: '',
     discovering: false,

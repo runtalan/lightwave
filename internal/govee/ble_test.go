@@ -106,3 +106,66 @@ func TestBLENameParsing(t *testing.T) {
 		t.Fatalf("suffix from tailless name = %q", s)
 	}
 }
+
+func TestBLESegmentMasks(t *testing.T) {
+	// Every zone must land in exactly one band: a gap leaves part of the strip
+	// on its previous colour, an overlap writes a zone twice.
+	for _, bands := range []int{1, 2, 3, 5, 8, 15} {
+		masks := bleSegmentMasks(bands)
+		if len(masks) != bands {
+			t.Fatalf("bands=%d: got %d masks", bands, len(masks))
+		}
+		var union uint16
+		for i, m := range masks {
+			if m == 0 {
+				t.Fatalf("bands=%d: band %d selects no zone", bands, i)
+			}
+			if union&m != 0 {
+				t.Fatalf("bands=%d: band %d overlaps an earlier band", bands, i)
+			}
+			union |= m
+		}
+		if union != allSegments {
+			t.Fatalf("bands=%d: coverage = %#x, want %#x", bands, union, allSegments)
+		}
+	}
+
+	// Bands must be contiguous runs, so the gradient reads along the strip
+	// instead of scattering colours across it.
+	for _, m := range bleSegmentMasks(4) {
+		trimmed := m
+		for trimmed&1 == 0 {
+			trimmed >>= 1
+		}
+		if trimmed&(trimmed+1) != 0 {
+			t.Fatalf("band mask %#x is not a contiguous run", m)
+		}
+	}
+
+	if got := bleSegmentMasks(0); got != nil {
+		t.Fatalf("zero bands = %v, want nil", got)
+	}
+	// More bands than zones is clamped rather than producing empty bands.
+	if got := len(bleSegmentMasks(64)); got != bleSegments {
+		t.Fatalf("oversized bands = %d, want %d", got, bleSegments)
+	}
+}
+
+func TestBLEPacketColorSegmentMask(t *testing.T) {
+	pkt := blePacketColorSegmentMask(1, 2, 3, 0x0F0)
+	xorCheck(t, pkt)
+	if pkt[2] != 0x15 || pkt[3] != 0x01 {
+		t.Fatalf("segment mode = % x", pkt[:4])
+	}
+	if pkt[4] != 1 || pkt[5] != 2 || pkt[6] != 3 {
+		t.Fatalf("colour payload = % x", pkt[4:7])
+	}
+	if pkt[12] != 0xF0 || pkt[13] != 0x00 {
+		t.Fatalf("mask bytes = % x, want f0 00", pkt[12:14])
+	}
+	// The whole-strip helper must stay byte-identical to the mask form, since
+	// that packet shape is the one known to work on real hardware.
+	if !bytes.Equal(blePacketColorSegment(9, 8, 7), blePacketColorSegmentMask(9, 8, 7, allSegments)) {
+		t.Fatal("whole-strip packet diverged from the masked form")
+	}
+}

@@ -98,6 +98,88 @@ var Palettes = []Palette{
 			{R: 96, G: 52, B: 168},
 		},
 	},
+
+	// Quiet palettes for living in rather than looking at. Three things set
+	// them apart from the saturated set above:
+	//
+	//   - Low internal contrast. Peaceful light is light you stop noticing, so
+	//     these stay inside a narrow slice of hue and lightness. That also
+	//     makes them the best gradients on a strip: Walk tours the palette as
+	//     a loop, so the last swatch blends back into the first, and a narrow
+	//     palette has no seam to hide.
+	//   - Desaturated. Each swatch keeps a grey undertone rather than running
+	//     a channel to 255, which is what separates sage from lime and dusty
+	//     rose from red.
+	//   - The fourth swatch is the deepest and the fifth eases back toward the
+	//     middle, so the wrap from swatch five to swatch one is as gentle as
+	//     every other step.
+	//
+	// Pooled lamps therefore land on closely related shades rather than
+	// contrasting ones. That is the intent: these are for a room that reads as
+	// calm and whole, and the palettes above are still there when a set of
+	// lamps should read as distinct.
+	{
+		// Sage through eucalyptus. The only greens in the set, and the easiest
+		// light to sit under for hours.
+		Name: "Sage",
+		Colors: []RGBK{
+			{R: 188, G: 204, B: 176},
+			{R: 166, G: 188, B: 158},
+			{R: 142, G: 170, B: 144},
+			{R: 120, G: 150, B: 130},
+			{R: 154, G: 180, B: 152},
+		},
+	},
+	{
+		// Muted lilac into dusk violet — the quiet counterpart to Purples,
+		// which runs at full neon saturation.
+		Name: "Lavender Mist",
+		Colors: []RGBK{
+			{R: 206, G: 194, B: 224},
+			{R: 186, G: 172, B: 212},
+			{R: 164, G: 150, B: 198},
+			{R: 142, G: 130, B: 178},
+			{R: 180, G: 168, B: 208},
+		},
+	},
+	{
+		// Firelight, at the 1850-2150K a candle actually burns at. Deeper and
+		// oranger than Warm Whites, for the end of an evening rather than the
+		// working part of one. Every swatch carries a temperature so the blend
+		// keeps one: Lerp only interpolates Kelvin when both ends specify it.
+		Name: "Candlelight",
+		Colors: []RGBK{
+			{R: 255, G: 138, B: 52, Kelvin: 1850},
+			{R: 255, G: 150, B: 68, Kelvin: 1950},
+			{R: 255, G: 164, B: 88, Kelvin: 2050},
+			{R: 252, G: 176, B: 108, Kelvin: 2150},
+			{R: 255, G: 152, B: 72, Kelvin: 1950},
+		},
+	},
+	{
+		// Powder blue with a grey undertone: cool and airy without the
+		// saturation of Ocean. Reads as daylight through cloud.
+		Name: "Morning Haze",
+		Colors: []RGBK{
+			{R: 198, G: 214, B: 226},
+			{R: 176, G: 198, B: 216},
+			{R: 152, G: 180, B: 204},
+			{R: 130, G: 160, B: 188},
+			{R: 166, G: 192, B: 212},
+		},
+	},
+	{
+		// Dusty rose. Warm like the ambers but pink rather than orange, and
+		// far enough from Reds that the two never read as the same idea.
+		Name: "Blush",
+		Colors: []RGBK{
+			{R: 236, G: 200, B: 196},
+			{R: 224, G: 178, B: 176},
+			{R: 208, G: 156, B: 156},
+			{R: 188, G: 136, B: 140},
+			{R: 218, G: 172, B: 172},
+		},
+	},
 }
 
 type Engine struct {
@@ -207,4 +289,32 @@ func (p Palette) Walk(offset int, t float64) RGBK {
 	a := p.Colors[((offset+i)%n+n)%n]
 	b := p.Colors[((offset+i+1)%n+n)%n]
 	return Lerp(a, b, frac)
+}
+
+// GradientAt samples n colours along a looped tour of the palette beginning at
+// phase t (0..1). It is the multi-colour counterpart to Walk: where Walk gives
+// one lamp one colour, this fills a strip's zones with a themed ramp. The tour
+// is a loop rather than a first-to-last ramp, so the two ends of the strip meet
+// on the same colour instead of showing a seam.
+func (p Palette) GradientAt(t float64, n int) []RGBK {
+	if n <= 0 || len(p.Colors) == 0 {
+		return nil
+	}
+	out := make([]RGBK, n)
+	for i := 0; i < n; i++ {
+		// Walk wraps its phase, so a fraction of the tour per zone keeps the
+		// spread even no matter how many zones are asked for.
+		out[i] = p.Walk(0, t+float64(i)/float64(n))
+	}
+	return out
+}
+
+// Gradient samples n colours starting from swatch `offset`. Giving each strip
+// in the pool a different offset keeps a room composed — related ramps out of
+// the same palette rather than the identical gradient repeated.
+func (p Palette) Gradient(offset, n int) []RGBK {
+	if len(p.Colors) == 0 {
+		return nil
+	}
+	return p.GradientAt(float64(offset)/float64(len(p.Colors)), n)
 }

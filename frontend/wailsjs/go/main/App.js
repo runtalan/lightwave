@@ -154,6 +154,18 @@ export function ToggleDance() {
   return window['go']['main']['App']['ToggleDance']();
 }
 
+export function ToggleGradient() {
+  return window['go']['main']['App']['ToggleGradient']();
+}
+
+export function SetWebEnabled(arg1) {
+  return window['go']['main']['App']['SetWebEnabled'](arg1);
+}
+
+export function SetWebConfig(arg1, arg2) {
+  return window['go']['main']['App']['SetWebConfig'](arg1, arg2);
+}
+
 export function ToggleSlot(arg1) {
   return window['go']['main']['App']['ToggleSlot'](arg1);
 }

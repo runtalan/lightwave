@@ -4,10 +4,9 @@ import {
   CycleColor,
   Quit,
   ToggleDance,
+  ToggleGradient,
   HideHUD,
   OpenConfig,
-  PingActivity,
-  PingMotion,
   ToggleSlot,
 } from '../wailsjs/go/main/App'
 import { BrightnessSlider, TitleBar } from './chrome'
@@ -19,28 +18,29 @@ type Props = {
   onState: (s: HUDState) => void
 }
 
+const KEY_TO_SLOT: Record<string, number> = {
+  Digit1: 1,
+  Digit2: 2,
+  Digit3: 3,
+  Digit4: 4,
+  Digit5: 5,
+  Digit6: 6,
+  Digit7: 7,
+  Digit8: 8,
+  Digit9: 9,
+  Numpad1: 1,
+  Numpad2: 2,
+  Numpad3: 3,
+  Numpad4: 4,
+  Numpad5: 5,
+  Numpad6: 6,
+  Numpad7: 7,
+  Numpad8: 8,
+  Numpad9: 9,
+}
+
 function keyToSlot(e: KeyboardEvent): number | null {
-  const map: Record<string, number> = {
-    Digit1: 1,
-    Digit2: 2,
-    Digit3: 3,
-    Digit4: 4,
-    Digit5: 5,
-    Digit6: 6,
-    Digit7: 7,
-    Digit8: 8,
-    Digit9: 9,
-    Numpad1: 1,
-    Numpad2: 2,
-    Numpad3: 3,
-    Numpad4: 4,
-    Numpad5: 5,
-    Numpad6: 6,
-    Numpad7: 7,
-    Numpad8: 8,
-    Numpad9: 9,
-  }
-  return map[e.code] ?? null
+  return KEY_TO_SLOT[e.code] ?? null
 }
 
 export function HUD({ state }: Props) {
@@ -51,7 +51,8 @@ export function HUD({ state }: Props) {
         void HideHUD()
         return
       }
-      void PingActivity()
+      // Activity pings are handled once, app-wide, by bindWindowActivity;
+      // a second ping per keystroke here just doubled the bridge traffic.
       // Period / numpad decimal: quit outright, unlike Enter which only hides.
       if (e.code === 'Period' || e.code === 'NumpadDecimal' || e.key === '.') {
         e.preventDefault()
@@ -80,9 +81,12 @@ export function HUD({ state }: Props) {
         void CycleColor(1)
         return
       }
+      // Minus switches the scene style rather than cycling the palette
+      // backwards; plus still walks the palette and wraps, so every palette
+      // stays reachable.
       if (e.code === 'NumpadSubtract' || e.key === '-') {
         e.preventDefault()
-        void CycleColor(-1)
+        void ToggleGradient()
         return
       }
       if (e.key === ',' || e.key === 'g' || e.key === 'G') {
@@ -90,12 +94,11 @@ export function HUD({ state }: Props) {
         void OpenConfig()
       }
     }
-    const onMove = () => void PingMotion()
+    // Mouse motion is already relayed (throttled) by bindWindowActivity in
+    // App; a second mousemove listener here doubled the per-event IPC.
     window.addEventListener('keydown', onKey)
-    window.addEventListener('mousemove', onMove)
     return () => {
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('mousemove', onMove)
     }
   }, [])
 
@@ -112,27 +115,47 @@ export function HUD({ state }: Props) {
         </button>
       </header>
 
-      <ul className="keymap" aria-label="Keyboard shortcuts">
+      {/* The legend doubles as controls. On the desktop this just means a key
+          can also be clicked; on a phone, where there is no keyboard, it is
+          the only way to reach fades, palettes and all-off. Entries that only
+          make sense on the desktop are marked so the web build can drop
+          them. */}
+      <ul className="keymap" aria-label="Shortcuts">
         <li>
-          <kbd className={state.dancing ? 'live' : ''}>*</kbd>
-          <span>color fades</span>
+          <button type="button" className="keycap" onClick={() => void ToggleDance()}>
+            <kbd className={state.dancing ? 'live' : ''}>*</kbd>
+            <span>color fades</span>
+          </button>
         </li>
         <li>
-          <kbd>-</kbd>
-          <kbd>+</kbd>
-          <span>palette</span>
+          <button type="button" className="keycap" onClick={() => void CycleColor(1)}>
+            <kbd>+</kbd>
+            <span>palette</span>
+          </button>
         </li>
         <li>
-          <kbd>0</kbd>
-          <span>all on/off</span>
+          <button type="button" className="keycap" onClick={() => void ToggleGradient()}>
+            <kbd className={state.gradient ? 'live' : ''}>-</kbd>
+            <span>{state.gradient ? 'gradient' : 'single'}</span>
+          </button>
         </li>
         <li>
-          <kbd>Enter</kbd>
-          <span>hide</span>
+          <button type="button" className="keycap" onClick={() => void ToggleAll()}>
+            <kbd>0</kbd>
+            <span>all on/off</span>
+          </button>
         </li>
-        <li>
-          <kbd>.</kbd>
-          <span>quit</span>
+        <li data-desktop-only>
+          <button type="button" className="keycap" onClick={() => void HideHUD()}>
+            <kbd>Enter</kbd>
+            <span>hide</span>
+          </button>
+        </li>
+        <li data-desktop-only>
+          <button type="button" className="keycap" onClick={() => void Quit()}>
+            <kbd>.</kbd>
+            <span>quit</span>
+          </button>
         </li>
       </ul>
 
@@ -163,7 +186,7 @@ export function HUD({ state }: Props) {
         <span className={state.midiConnected ? 'ok' : 'dim'}>
           {state.midiConnected ? `midi · ${state.midiPort}` : 'midi silent'}
         </span>
-        <span className="dim">+/− color · 1–9 pool</span>
+        <span className="dim">+ color · − {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
       </footer>
     </div>
   )

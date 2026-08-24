@@ -81,6 +81,11 @@ export namespace main {
 	    envPath: string;
 	    configPath: string;
 	    mappingPath: string;
+	    webEnabled: boolean;
+	    webAddr: string;
+	    webRunning: boolean;
+	    webHasToken: boolean;
+	    webUrls: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsView(source);
@@ -99,6 +104,11 @@ export namespace main {
 	        this.envPath = source["envPath"];
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
+	        this.webEnabled = source["webEnabled"];
+	        this.webAddr = source["webAddr"];
+	        this.webRunning = source["webRunning"];
+	        this.webHasToken = source["webHasToken"];
+	        this.webUrls = source["webUrls"];
 	    }
 	}
 	export class SlotView {
@@ -145,6 +155,7 @@ export namespace main {
 	    mappingPath: string;
 	    configOpen: boolean;
 	    dancing: boolean;
+	    gradient: boolean;
 	    settings: SettingsView;
 	
 	    static createFrom(source: any = {}) {
@@ -172,6 +183,7 @@ export namespace main {
 	        this.mappingPath = source["mappingPath"];
 	        this.configOpen = source["configOpen"];
 	        this.dancing = source["dancing"];
+	        this.gradient = source["gradient"];
 	        this.settings = this.convertValues(source["settings"], SettingsView);
 	    }
 	

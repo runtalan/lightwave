@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"lightwave/internal/govee"
 	"lightwave/internal/ipc"
 	midilstn "lightwave/internal/midi"
+	"lightwave/internal/web"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -109,21 +111,27 @@ type HUDState struct {
 	MappingPath   string         `json:"mappingPath"`
 	ConfigOpen    bool           `json:"configOpen"`
 	Dancing       bool           `json:"dancing"`
+	Gradient      bool           `json:"gradient"`
 	Settings      SettingsView   `json:"settings"`
 }
 
 type SettingsView struct {
-	MidiCC          int    `json:"midiCC"`
-	MidiCCAlt       int    `json:"midiCCAlt"`
-	MidiNotePlus    int    `json:"midiNotePlus"`
-	MidiNoteMinus   int    `json:"midiNoteMinus"`
-	IdleHideSeconds int    `json:"idleHideSeconds"`
-	HasEnvKey       bool   `json:"hasEnvKey"`
-	HasConfigKey    bool   `json:"hasConfigKey"`
-	HasAPIKey       bool   `json:"hasApiKey"`
-	EnvPath         string `json:"envPath"`
-	ConfigPath      string `json:"configPath"`
-	MappingPath     string `json:"mappingPath"`
+	MidiCC          int      `json:"midiCC"`
+	MidiCCAlt       int      `json:"midiCCAlt"`
+	MidiNotePlus    int      `json:"midiNotePlus"`
+	MidiNoteMinus   int      `json:"midiNoteMinus"`
+	IdleHideSeconds int      `json:"idleHideSeconds"`
+	HasEnvKey       bool     `json:"hasEnvKey"`
+	HasConfigKey    bool     `json:"hasConfigKey"`
+	HasAPIKey       bool     `json:"hasApiKey"`
+	EnvPath         string   `json:"envPath"`
+	ConfigPath      string   `json:"configPath"`
+	MappingPath     string   `json:"mappingPath"`
+	WebEnabled      bool     `json:"webEnabled"`
+	WebAddr         string   `json:"webAddr"`
+	WebRunning      bool     `json:"webRunning"`
+	WebHasToken     bool     `json:"webHasToken"`
+	WebURLs         []string `json:"webUrls"`
 }
 
 type App struct {
@@ -158,11 +166,15 @@ type App struct {
 	ipcSrv       atomic.Pointer[ipc.Server]
 	lastRemoteMu sync.Mutex
 	lastRemote   string
-	udp      *govee.UDP
-	ble      *govee.BLE
-	midi     *midilstn.Listener
-	midiCfg  config.MIDI
-	settings config.Settings
+	udp          *govee.UDP
+	ble          *govee.BLE
+	// webSrv serves the HUD to phones; webAssets is the same embedded bundle
+	// the desktop window runs, so hosting it costs no extra memory.
+	webSrv    *web.Server
+	webAssets fs.FS
+	midi      *midilstn.Listener
+	midiCfg   config.MIDI
+	settings  config.Settings
 
 	stop            chan struct{}
 	brightKick      chan struct{}
@@ -174,6 +186,9 @@ type App struct {
 	hiddenAt        time.Time
 	dancing         bool
 	danceGen        int
+	// gradient selects the scene style: false paints each lamp one colour,
+	// true spreads a themed ramp across each strip's zones.
+	gradient bool
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
 	// report a new power state, and believing a stale reply would toggle the
@@ -247,11 +262,9 @@ func (a *App) ctxOK() (context.Context, bool) {
 
 func (a *App) startup(ctx context.Context) {
 	a.setCtx(ctx)
-	config.LoadEnv()
-	a.mu.Lock()
-	a.settings = config.LoadSettings()
-	a.midiCfg = a.settings.MIDI()
-	a.mu.Unlock()
+	// Env and settings were already loaded in main before NewApp; nothing can
+	// have changed them since, so re-walking the .env search paths here only
+	// delayed first paint.
 
 	a.udp.OnStatus(a.applyDeviceStatus)
 	if err := a.udp.Start(func(d govee.Device) {
@@ -290,6 +303,12 @@ func (a *App) startup(ctx context.Context) {
 	// instead: the app becoming frontmost with no visible window.
 	go a.dockReopenLoop()
 
+	if a.settingsSnapshot().WebEnabled {
+		if err := a.startWebServer(); err != nil {
+			log.Printf("web: %v", err)
+		}
+	}
+
 	go a.refreshDevices()
 	go a.inactivityLoop()
 	go a.statusPollLoop()
@@ -327,7 +346,28 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.udp != nil {
 		a.udp.Close()
 	}
+	if a.webSrv != nil {
+		_ = a.webSrv.Stop()
+	}
 }
+
+// settingsSnapshot copies the settings under the lock.
+func (a *App) settingsSnapshot() config.Settings {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.settings
+}
+
+// MIDI events land in atomics on the CGO thread and are polled here. 8ms keeps
+// a knob turn feeling instant, but paying 125 wakeups/sec forever — hidden,
+// idle, or with no MIDI hardware at all — is pure battery drain. After a quiet
+// stretch the poll backs off; the first event after idle waits at most one
+// slow tick (below perception for a key press) and snaps the rate back up.
+const (
+	midiPollFast    = 8 * time.Millisecond
+	midiPollSlow    = 60 * time.Millisecond
+	midiPollFastFor = 2 * time.Second
+)
 
 func (a *App) midiApplyLoop() {
 	defer func() {
@@ -335,36 +375,48 @@ func (a *App) midiApplyLoop() {
 			log.Printf("midi: apply loop recovered: %v", r)
 		}
 	}()
-	t := time.NewTicker(8 * time.Millisecond)
+	t := time.NewTimer(midiPollFast)
 	defer t.Stop()
+	lastEvent := time.Now()
 	for {
 		select {
 		case <-a.stop:
 			return
 		case <-t.C:
-			a.drainMIDI()
 		}
+		if a.drainMIDI() {
+			lastEvent = time.Now()
+		}
+		next := midiPollFast
+		if time.Since(lastEvent) > midiPollFastFor {
+			next = midiPollSlow
+		}
+		t.Reset(next)
 	}
 }
 
-func (a *App) drainMIDI() {
+// drainMIDI applies pending MIDI input and reports whether anything arrived.
+func (a *App) drainMIDI() bool {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("midi: drain recovered: %v", r)
 		}
 	}()
 	if a.midi == nil {
-		return
+		return false
 	}
+	activity := false
 	if ok, port, changed := a.midi.TakeStatus(); changed {
 		a.mu.Lock()
 		a.midiOK = ok
 		a.midiPort = port
 		a.mu.Unlock()
 		a.emitState()
+		activity = true
 	}
 	if _, val, ok := a.midi.TakeCC(); ok {
 		a.applyBrightness(midilstn.CCToPercent(val), false)
+		activity = true
 	}
 	if note, ok := a.midi.TakeNote(); ok {
 		a.mu.Lock()
@@ -373,9 +425,13 @@ func (a *App) drainMIDI() {
 		if note == plus {
 			a.CycleColor(1)
 		} else if note == minus {
-			a.CycleColor(-1)
+			// Matches the minus key on the HUD: palette on plus, scene style
+			// on minus.
+			a.ToggleGradient()
 		}
+		activity = true
 	}
+	return activity
 }
 
 func (a *App) scheduleStateEmit() {
@@ -786,15 +842,25 @@ func (a *App) danceLoop(gen int) {
 		}
 		pal := a.engine.Palette()
 		ips := a.poolIPsLocked()
+		grad := a.gradient
 		a.mu.Unlock()
 
 		if len(ips) == 0 {
 			continue
 		}
 		phase := time.Since(start).Seconds() / dancePeriod.Seconds()
+		// One swatch of separation per lamp, expressed as a fraction of the
+		// tour so both styles offset the group identically.
+		lampStep := 1.0 / float64(len(pal.Colors))
 		for i, ip := range ips {
 			// Offsetting each lamp by one swatch keeps the group in adjacent
 			// parts of the palette: a moving gradient, not clones.
+			if grad {
+				// The whole ramp drifts along the palette, so a strip shows a
+				// travelling gradient rather than one drifting colour.
+				_ = govee.SendGradient(ip, pal.GradientAt(phase+float64(i)*lampStep, govee.GradientBands))
+				continue
+			}
 			c := pal.Walk(i, phase)
 			_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
 		}
@@ -917,6 +983,7 @@ func (a *App) snapshotLocked() HUDState {
 		PaletteIndex:  a.engine.Index,
 		PaletteName:   a.engine.Name(),
 		Dancing:       a.dancing,
+		Gradient:      a.gradient,
 		MIDIConnected: ok,
 		MIDIPort:      port,
 		DeviceCount:   len(a.catalog),
@@ -949,6 +1016,11 @@ func (a *App) apiKeyLocked() string {
 
 func (a *App) settingsViewLocked() SettingsView {
 	env := config.EnvAPIKey()
+	running := a.webSrv != nil && a.webSrv.Running()
+	var urls []string
+	if running {
+		urls = web.URLs(a.webSrv.Addr())
+	}
 	return SettingsView{
 		MidiCC:          a.settings.MidiCC,
 		MidiCCAlt:       a.settings.MidiCCAlt,
@@ -961,6 +1033,11 @@ func (a *App) settingsViewLocked() SettingsView {
 		EnvPath:         config.EnvFileHint(),
 		ConfigPath:      config.SettingsPath(),
 		MappingPath:     config.MappingPath(),
+		WebEnabled:      a.settings.WebEnabled,
+		WebAddr:         a.settings.WebAddr,
+		WebHasToken:     a.settings.WebToken != "",
+		WebRunning:      running,
+		WebURLs:         urls,
 	}
 }
 
@@ -978,11 +1055,20 @@ func (a *App) emit(name string, data ...interface{}) {
 }
 
 func (a *App) emitState() {
-	a.emit("state", a.snapshot())
+	st := a.snapshot()
+	a.emit("state", st)
 	// External controllers (the Stream Deck plugin) subscribe over the IPC
 	// socket; pushing here means their keys track the HUD, the numpad, and
 	// status polling without any extra plumbing at each call site.
 	a.publishRemoteState()
+	// Browsers get the same push. Only "state" is forwarded: the window
+	// events (hud:fade-out and friends) describe the desktop window, and
+	// replaying them would fade a phone screen to black when the desktop HUD
+	// is dismissed.
+	if a.webSrv != nil && a.webSrv.Running() {
+		// Reuse the snapshot already taken above rather than locking again.
+		a.webSrv.Publish("state", webStateFrom(st))
+	}
 }
 
 // SetIPCServer hands the app the socket server so it can answer remote
@@ -1316,23 +1402,82 @@ func (a *App) brightnessPump() {
 // spread. Skipped while the dance animation owns the colors.
 func (a *App) applyPaletteToPool() {
 	a.mu.Lock()
-	if a.dancing {
-		a.mu.Unlock()
+	dancing := a.dancing
+	a.mu.Unlock()
+	if dancing {
 		return
 	}
+	a.paintScene(false)
+}
+
+// paintScene writes the current palette across the pool in whichever style is
+// selected: one colour per lamp in single mode, or a themed gradient spread
+// across each strip's zones in gradient mode. Each lamp starts its ramp one
+// swatch further along, so a room reads as composed rather than as the same
+// gradient repeated.
+//
+// turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
+// may have been switched off at the wall); repainting lamps that are already
+// lit does not, so a repaint never turns anything back on.
+func (a *App) paintScene(turnOn bool) {
+	a.mu.Lock()
 	ips := a.poolIPsLocked()
-	swatches := a.engine.Distribute(len(ips))
+	grad := a.gradient
+	var swatches []color.RGBK
+	var ramps [][]color.RGBK
+	if grad {
+		pal := a.engine.Palette()
+		ramps = make([][]color.RGBK, len(ips))
+		for i := range ips {
+			ramps[i] = pal.Gradient(i, govee.GradientBands)
+		}
+	} else {
+		swatches = a.engine.Distribute(len(ips))
+	}
 	a.mu.Unlock()
-	if len(swatches) == 0 {
+	if !grad && len(swatches) == 0 {
 		return
 	}
 	for i, ip := range ips {
+		if turnOn {
+			_ = govee.SendTurn(ip, true)
+		}
+		if grad {
+			_ = govee.SendGradient(ip, ramps[i])
+			continue
+		}
 		c := swatches[0]
 		if i < len(swatches) {
 			c = swatches[i]
 		}
 		_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
 	}
+}
+
+// ToggleGradient switches between a single colour per lamp and a multi-colour
+// gradient across each strip, then repaints the pool so the change is visible
+// at once. Bound to the minus key.
+func (a *App) ToggleGradient() HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("gradient toggle recovered: %v", r)
+		}
+	}()
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.gradient = !a.gradient
+	on := a.gradient
+	dancing := a.dancing
+	a.mu.Unlock()
+
+	// While dancing, the animation loop owns the colours and will pick the new
+	// style up on its next tick; repainting here would only fight it.
+	if !dancing {
+		a.paintScene(false)
+	}
+	a.emitState()
+	a.emit("gradient:toggle", on)
+	return a.snapshot()
 }
 
 func (a *App) CycleColor(direction int) HUDState {
@@ -1347,17 +1492,8 @@ func (a *App) CycleColor(direction int) HUDState {
 	a.recordUserActivity()
 	a.mu.Lock()
 	pal := a.engine.Cycle(direction)
-	ips := a.poolIPsLocked()
-	swatches := a.engine.Distribute(len(ips))
 	a.mu.Unlock()
-	for i, ip := range ips {
-		c := swatches[0]
-		if i < len(swatches) {
-			c = swatches[i]
-		}
-		_ = govee.SendTurn(ip, true)
-		_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
-	}
+	a.paintScene(true)
 	a.emitState()
 	a.emit("color:cycle", pal.Name)
 	return a.snapshot()
@@ -1573,7 +1709,6 @@ func (a *App) SaveMappings(slots []config.SlotBinding) error {
 			seen[id] = s.Slot
 		}
 		s.DeviceID = id
-		s.Slot = s.Slot
 		normalized.Slots[s.Slot-1] = s
 	}
 	a.mu.Lock()
@@ -1827,9 +1962,11 @@ func (a *App) ToggleWindow() {
 
 // inactivityLoop no longer hides anything: the HUD stays up until the user
 // dismisses it (Enter, Stream Deck toggle, or --toggle). It only clears a
-// stale window-drag flag if a drag never received its pointerup.
+// stale window-drag flag if a drag never received its pointerup. The stale
+// threshold is 2s, so a 500ms tick resolves it just as well as the old 120ms
+// one at a quarter of the wakeups.
 func (a *App) inactivityLoop() {
-	t := time.NewTicker(120 * time.Millisecond)
+	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
 	for range t.C {
 		a.mu.Lock()

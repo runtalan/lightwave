@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -38,6 +39,13 @@ func main() {
 	}
 
 	app := NewApp(forceSetup)
+	// The phone server serves the same embedded bundle the window runs, so
+	// hosting it adds no assets to the process.
+	if dist, err := fs.Sub(assets, "frontend/dist"); err == nil {
+		app.SetWebAssets(dist)
+	} else {
+		fmt.Println("web: assets unavailable:", err.Error())
+	}
 	width, height := HUDW, HUDH
 	if app.IsSetupOpen() {
 		width, height = ConfigW, ConfigH
@@ -72,7 +80,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup:  app.startup,
+		OnStartup: app.startup,
 		OnDomReady: func(ctx context.Context) {
 			app.MarkUIReady()
 		},
@@ -105,6 +113,10 @@ Usage:
   lightwave --setup    Open Config (Lights tab)
   lightwave --config   Same as --setup
   lightwave --help     This text
+
+Phone control (Config -> Remote): serves the same HUD over HTTP to
+devices on your LAN or VPN. Off by default; public addresses are always
+refused.
 
 Single-instance: a second launch signals /tmp/lightwave.sock and exits.
 
