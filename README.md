@@ -42,7 +42,15 @@ Lights that are on glow on screen, so the window is a live map of the room. If y
 
 ### Color palettes
 
-Eight built-in palettes: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, and Sunset.
+Thirteen built-in palettes, in two groups.
+
+**Vivid** — for when the lights are part of the room's character: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset.
+
+**Peaceful** — quiet light to live under rather than look at: Sage, Lavender Mist, Candlelight, Morning Haze, Blush.
+
+The peaceful set stays inside a narrow band of hue and lightness, and every swatch keeps a grey undertone instead of running a channel to full — that is what separates sage from lime, and dusty rose from red. Candlelight sits at the 1850–2150K a candle actually burns at, deeper and oranger than Warm Whites, for the end of an evening rather than the working part of one.
+
+Because they are low-contrast, pooled lamps land on closely related shades rather than contrasting ones. That is the point: the room reads as calm and whole. The vivid palettes are still there when a set of lamps should read as distinct.
 
 When several lights are on, they don't all get the same color — Lightwave spreads related shades across the group, so a room reads as *composed* rather than uniform. Press `*` and those colors drift slowly through the palette, each light offset from the next.
 
@@ -129,7 +137,8 @@ If auto-learn picks the wrong control, set it explicitly in **Config → MIDI**:
 |---|---|
 | Brightness CC | The dial or fader that dims your lights |
 | Alternate CC | A second dial, if you have one |
-| Color + / − note | Buttons that cycle palettes |
+| Color + note | Button that cycles palettes |
+| Gradient toggle note | Button that switches single / gradient scenes |
 
 To find your controller's numbers, use a free MIDI monitor ([MIDI Monitor](https://www.snoize.com/midimonitor/) on macOS), turn the knob, and read the **CC number** it reports.
 

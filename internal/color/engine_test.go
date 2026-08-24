@@ -72,3 +72,55 @@ func TestGradientLoops(t *testing.T) {
 		t.Fatalf("tour is not seamless: start=%v wrap=%v", g[0], next)
 	}
 }
+
+// The palette table is written by hand, so guard the invariants the rest of
+// the engine assumes: Distribute indexes up to five swatches, Walk needs at
+// least two to interpolate between, and Lerp treats Kelvin 0 as "unset".
+func TestPalettesWellFormed(t *testing.T) {
+	seen := map[string]bool{}
+	for i, p := range Palettes {
+		if p.Name == "" {
+			t.Fatalf("palette %d has no name", i)
+		}
+		if seen[p.Name] {
+			t.Fatalf("duplicate palette name %q", p.Name)
+		}
+		seen[p.Name] = true
+		if len(p.Colors) < 2 {
+			t.Fatalf("%s: %d swatches, need at least 2", p.Name, len(p.Colors))
+		}
+		for j, c := range p.Colors {
+			for _, ch := range []int{c.R, c.G, c.B} {
+				if ch < 0 || ch > 255 {
+					t.Fatalf("%s swatch %d: channel %d outside 0-255", p.Name, j, ch)
+				}
+			}
+			if c.Kelvin != 0 && (c.Kelvin < 1000 || c.Kelvin > 10000) {
+				t.Fatalf("%s swatch %d: implausible Kelvin %d", p.Name, j, c.Kelvin)
+			}
+		}
+	}
+}
+
+// Every palette must survive the paths the app drives it through, at every
+// pool size a nine-pad deck can produce.
+func TestEveryPaletteDistributesAndRamps(t *testing.T) {
+	for _, p := range Palettes {
+		e := Engine{}
+		for e.Name() != p.Name {
+			e.Cycle(1)
+		}
+		for n := 1; n <= 9; n++ {
+			if got := len(e.Distribute(n)); got != n {
+				t.Fatalf("%s: Distribute(%d) = %d colours", p.Name, n, got)
+			}
+			if got := len(p.Gradient(n, gradientBands)); got != gradientBands {
+				t.Fatalf("%s: Gradient offset %d = %d bands", p.Name, n, got)
+			}
+		}
+	}
+}
+
+// Mirrors govee.GradientBands; kept local so the colour package stays free of
+// transport dependencies.
+const gradientBands = 8
