@@ -638,6 +638,17 @@ a,
   flex: 1;
 }
 
+/* Save and Cancel sit here, outside the scrolling pane body, so they hold the
+   same corner on every tab regardless of how tall that tab's content is. */
+.config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(176, 38, 255, 0.22);
+  flex-shrink: 0;
+}
+
 .rail {
   display: flex;
   flex-direction: column;

@@ -70,6 +70,10 @@ export function Config({ state, onState }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedMidiKey])
   const [confirmExit, setConfirmExit] = useState(false)
+  const [saving, setSaving] = useState(false)
+  // The Account tab's key field lives here so the shared action bar can save
+  // it: the bar is outside the pane that owns the input.
+  const [apiKey, setApiKey] = useState('')
 
   // Unsaved work is either a settings draft the user edited but did not save,
   // or pad edits that live only in memory until CommitMappings runs.
@@ -83,7 +87,9 @@ export function Config({ state, onState }: Props) {
     midiDraft.midiChanPalette !== state.settings.midiChanPalette ||
     midiDraft.midiChanRecall !== state.settings.midiChanRecall ||
     midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
-  const dirty = draftDirty || Boolean(state.mapDirty)
+  // A typed-but-unsaved API key counts as unsaved work too, so Cancel asks
+  // instead of dropping it silently.
+  const dirty = draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== ''
 
   async function discard() {
     setErr('')
@@ -103,6 +109,25 @@ export function Config({ state, onState }: Props) {
       return
     }
     void discard()
+  }
+
+  // One Save for every tab. The Account key is the only per-pane value the
+  // shared bar has to flush itself; persist() already covers the MIDI draft
+  // and, on the Lights tab, the pad map.
+  async function saveAll() {
+    setSaving(true)
+    setErr('')
+    try {
+      if (tab === 'account' && apiKey.trim()) {
+        await SetConfigAPIKey(apiKey.trim())
+        setApiKey('')
+      }
+      await persist(true)
+    } catch (e) {
+      setErr(String(e))
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function persist(close: boolean) {
@@ -131,8 +156,9 @@ export function Config({ state, onState }: Props) {
         e.preventDefault()
         e.stopImmediatePropagation()
         // Save and go back to the HUD: Cmd-S is "commit and done", not
-        // "commit and stay". persist(true) also commits the pad map.
-        void persist(true)
+        // "commit and stay". saveAll is the Save button's own path, so the
+        // Account key is flushed here too.
+        void saveAll()
         return
       }
       if (e.key === 'Escape') {
@@ -150,11 +176,11 @@ export function Config({ state, onState }: Props) {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-    // persist()/requestExit() close over midiDraft, tab and the dirty state;
-    // re-bind when any of them move so Cmd-S never flushes a stale draft and
-    // Escape always sees the current dirtiness. Capture phase +
+    // saveAll()/requestExit() close over midiDraft, tab, apiKey and the dirty
+    // state; re-bind when any of them move so Cmd-S never flushes a stale
+    // draft or a stale key, and Escape always sees the current dirtiness. Capture phase +
     // stopImmediatePropagation keep App's HUD-side Cmd-S from also firing.
-  }, [midiDraft, tab, confirmExit, dirty])
+  }, [midiDraft, tab, confirmExit, dirty, apiKey])
 
   return (
     <div className="panel config">
@@ -164,12 +190,6 @@ export function Config({ state, onState }: Props) {
           <p className="eyebrow">{state.firstRun ? 'first ignition' : 'control deck'}</p>
           <h1>Config</h1>
         </div>
-        {/* Leaving needs a button, not just Escape: the key is invisible and
-            the pad map is easy to lose. requestExit asks before discarding
-            unsaved work and goes straight back to the HUD when there is none. */}
-        <button type="button" className="ghost" onClick={requestExit}>
-          Cancel
-        </button>
       </header>
 
       <div className="config-shell">
@@ -192,24 +212,38 @@ export function Config({ state, onState }: Props) {
 
         <div className="config-body">
           {tab === 'lights' && (
-            <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />
+            <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} />
           )}
           {tab === 'midi' && (
-            <MidiPane
-              state={state}
-              draft={midiDraft}
-              setDraft={setMidiDraft}
-              setErr={setErr}
-              onFinish={() => persist(true)}
-            />
+            <MidiPane state={state} draft={midiDraft} setDraft={setMidiDraft} setErr={setErr} />
           )}
           {tab === 'hud' && (
-            <HudPane state={state} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />
+            <HudPane state={state} setErr={setErr} setNote={setNote} />
           )}
-          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />}
-          {tab === 'account' && <AccountPane state={state} onState={onState} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />}
+          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
+          {tab === 'account' && (
+            <AccountPane
+              state={state}
+              onState={onState}
+              setErr={setErr}
+              setNote={setNote}
+              apiKey={apiKey}
+              setApiKey={setApiKey}
+            />
+          )}
         </div>
       </div>
+
+      {/* One action bar for every tab, outside .config-body so it cannot
+          scroll away or shift with the length of the pane above it. */}
+      <footer className="config-actions">
+        <button type="button" className="ghost" onClick={requestExit}>
+          Cancel
+        </button>
+        <button type="button" className="primary" disabled={saving} onClick={() => void saveAll()}>
+          Save
+        </button>
+      </footer>
 
       {(err || note) && (
         <p className={`status ${err ? 'bad' : ''}`}>{err || note}</p>
@@ -226,7 +260,7 @@ export function Config({ state, onState }: Props) {
                 autoFocus
                 onClick={() => {
                   setConfirmExit(false)
-                  void persist(true)
+                  void saveAll()
                 }}
               >
                 Save and exit
@@ -250,13 +284,11 @@ function LightsPane({
   onState,
   setErr,
   setNote,
-  onFinish,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
-  onFinish: () => Promise<void>
 }) {
   const [focus, setFocus] = useState(7)
   const [busy, setBusy] = useState(false)
@@ -520,21 +552,6 @@ function LightsPane({
         <button type="button" className="ghost" onClick={() => FillRemaining().then(onState)}>
           Fill remaining
         </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true)
-            setErr('')
-            CommitMappings()
-              .then(() => onFinish())
-              .catch((e) => setErr(String(e)))
-              .finally(() => setBusy(false))
-          }}
-        >
-          Save
-        </button>
       </footer>
     </div>
   )
@@ -545,13 +562,11 @@ function MidiPane({
   draft,
   setDraft,
   setErr,
-  onFinish,
 }: {
   state: HUDState
   draft: SettingsView
   setDraft: (s: SettingsView) => void
   setErr: (s: string) => void
-  onFinish: () => Promise<void>
 }) {
   // Channel is per control because one controller can spread its keys, encoder
   // and fader across different channels. "Any" is the default and the safer
@@ -661,20 +676,6 @@ function MidiPane({
         </div>
       </section>
 
-      <footer className="actions">
-        <button
-          type="button"
-          className="primary"
-          onClick={() => {
-            setErr('')
-            SaveSettings(draft)
-              .then(() => onFinish())
-              .catch((e) => setErr(String(e)))
-          }}
-        >
-          Save
-        </button>
-      </footer>
     </div>
   )
 }
@@ -683,12 +684,10 @@ function HudPane({
   state,
   setErr,
   setNote,
-  onFinish,
 }: {
   state: HUDState
   setErr: (s: string) => void
   setNote: (s: string) => void
-  onFinish: () => Promise<void>
 }) {
   const s = state.settings
   const [busy, setBusy] = useState(false)
@@ -904,12 +903,10 @@ function RemotePane({
   state,
   setErr,
   setNote,
-  onFinish,
 }: {
   state: HUDState
   setErr: (s: string) => void
   setNote: (s: string) => void
-  onFinish: () => Promise<void>
 }) {
   const s = state.settings
   const [addr, setAddr] = useState(s.webAddr)
@@ -1002,16 +999,16 @@ function RemotePane({
           }}>
           Clear token
         </button>
-        <button type="button" className="primary" disabled={busy}
+        <button type="button" className="ghost" disabled={busy}
           onClick={() => {
             setBusy(true)
             setErr('')
             SetWebConfig(addr, token.trim())
-              .then(() => { setToken(''); return onFinish() })
+              .then(() => { setToken(''); setNote('Server settings applied.') })
               .catch((e) => setErr(String(e)))
               .finally(() => setBusy(false))
           }}>
-          Save
+          Apply
         </button>
       </footer>
     </div>
@@ -1023,16 +1020,16 @@ function AccountPane({
   onState,
   setErr,
   setNote,
-  onFinish,
+  apiKey,
+  setApiKey,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
-  onFinish: () => Promise<void>
+  apiKey: string
+  setApiKey: (v: string) => void
 }) {
-  const [key, setKey] = useState('')
-  const [busy, setBusy] = useState(false)
   const s = state.settings
   const badge = s.hasEnvKey ? 'key in .env' : s.hasConfigKey ? 'key in config.json' : 'no key'
 
@@ -1049,8 +1046,8 @@ function AccountPane({
           type="password"
           autoComplete="off"
           placeholder={s.hasConfigKey ? '••••••••' : 'Govee developer key'}
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
         />
       </label>
       <footer className="actions">
@@ -1067,35 +1064,13 @@ function AccountPane({
             setErr('')
             SetConfigAPIKey('')
               .then(() => {
-                setKey('')
+                setApiKey('')
                 setNote('Cleared stored key. .env still applies.')
               })
               .catch((e) => setErr(String(e)))
           }}
         >
           Clear stored
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={busy || !key.trim()}
-          onClick={() => {
-            setBusy(true)
-            setErr('')
-            // Save then close, with nothing between: onState() here would
-            // re-render the parent mid-chain and strand onFinish(). The
-            // backend's emitState already pushes the new key to App's
-            // 'state' listener, so the snapshot needs no manual plumbing.
-            // Clearing the field waits until after the close for the same
-            // reason — disabled={!key.trim()} would flip under the promise.
-            SetConfigAPIKey(key.trim())
-              .then(() => onFinish())
-              .then(() => setKey(''))
-              .catch((e) => setErr(String(e)))
-              .finally(() => setBusy(false))
-          }}
-        >
-          Save
         </button>
       </footer>
     </div>
