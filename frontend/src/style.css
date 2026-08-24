@@ -726,6 +726,74 @@ a,
   color: rgba(233, 213, 255, 0.6);
 }
 
+/* Hover states. CSS-only: no listeners, no per-frame work, and gradients do
+   not interpolate, so the animated properties are limited to border, glow,
+   and color — cheap repaints on small elements. Disabled controls (ghosted
+   pads, taken devices, a busy Save) must stay inert under the cursor. */
+.tile,
+.device,
+.ghost,
+.primary,
+.rail-btn,
+.config-launch {
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.tile:not(:disabled):hover {
+  border-color: rgba(176, 38, 255, 0.6);
+  box-shadow: 0 0 14px rgba(176, 38, 255, 0.28);
+}
+
+.tile.ignited:not(:disabled):hover {
+  box-shadow:
+    0 0 0 1px rgba(176, 38, 255, 0.55),
+    0 0 28px rgba(176, 38, 255, 0.65),
+    inset 0 0 24px rgba(255, 46, 200, 0.28);
+}
+
+.device:not(:disabled):hover {
+  border-color: rgba(176, 38, 255, 0.55);
+  box-shadow: 0 0 12px rgba(176, 38, 255, 0.25);
+}
+
+.ghost:not(:disabled):hover,
+.config-launch:not(:disabled):hover {
+  border-color: rgba(255, 46, 200, 0.65);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(255, 46, 200, 0.3);
+}
+
+.primary:not(:disabled):hover {
+  box-shadow: 0 0 26px rgba(176, 38, 255, 0.7);
+}
+
+.rail-btn:not(.active):hover {
+  border-color: rgba(176, 38, 255, 0.5);
+  color: var(--ice);
+  box-shadow: 0 0 10px rgba(176, 38, 255, 0.22);
+}
+
+/* A touch of press feedback on the plain action buttons. */
+.ghost:not(:disabled):active,
+.primary:not(:disabled):active,
+.config-launch:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .device,
+  .ghost,
+  .primary,
+  .rail-btn,
+  .config-launch {
+    transition: none;
+  }
+}
+
 /* Drag-to-move on the config pad grid. */
 .lights-pane .tile[draggable='true'] {
   cursor: grab;
