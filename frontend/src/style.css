@@ -697,6 +697,94 @@ a,
   }
 }
 
+/* Column headers, shared by the pad and device columns so the two read as a
+   matched pair rather than a grid with a list bolted beside it. */
+.device-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(176, 38, 255, 0.18);
+}
+
+.device-head h3 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ice);
+}
+
+.device-head p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(233, 213, 255, 0.55);
+}
+
+.pad-col,
+.device-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* A device is a drag source as well as a button; the grab cursor is the only
+   affordance saying so before the pointer goes down. */
+.device[draggable='true'] {
+  cursor: grab;
+}
+
+.device[draggable='true']:active {
+  cursor: grabbing;
+}
+
+/* Wide window: pads on the left, devices on the right. */
+@media (min-width: 900px) {
+  .lights-pane {
+    display: grid;
+    grid-template-columns: minmax(340px, 1fr) minmax(320px, 0.9fr);
+    grid-template-rows: min-content 1fr min-content;
+    gap: 10px 18px;
+    align-content: start;
+    min-height: 0;
+  }
+
+  /* The intro line and the button row span both columns; the two columns sit
+     in the middle row so they share the remaining height. */
+  .lights-pane > .lede,
+  .lights-pane > footer.actions {
+    grid-column: 1 / -1;
+  }
+
+  .lights-pane > .pad-col {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .lights-pane > .device-col {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .lights-pane .grid {
+    grid-template-rows: repeat(3, 132px);
+  }
+
+  .lights-pane .device-list {
+    min-height: 0;
+    flex: 1;
+  }
+
+  /* Settings panes do not need the full width — long lines of inputs are
+     harder to scan than a comfortable column. */
+  .form-pane {
+    max-width: 860px;
+  }
+}
+
 .form-pane {
   justify-content: flex-start;
 }
@@ -723,8 +811,69 @@ a,
   font-family: "Oxanium", sans-serif;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   outline: 1px solid var(--magenta);
+}
+
+/* Selects match the text inputs, so a channel picker does not read as a
+   different class of control from the CC number beside it. */
+.field select {
+  border-radius: 10px;
+  border: 1px solid rgba(176, 38, 255, 0.28);
+  background: rgba(8, 5, 16, 0.7);
+  color: var(--ice);
+  padding: 8px 10px;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: "Oxanium", sans-serif;
+}
+
+/* Grouping. The MIDI pane was one flat run of inputs with no indication of
+   which control each belonged to; these box the fields per control so the
+   page reads as three sections rather than a wall of numbers. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(176, 38, 255, 0.22);
+  background: rgba(10, 5, 20, 0.4);
+}
+
+.group-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ice);
+}
+
+.group-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(233, 213, 255, 0.6);
+}
+
+/* Related fields sit on one line while there is room, and wrap on a narrow
+   window rather than overflowing. */
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.field-row .field {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.field-row .field.narrow {
+  flex: 0 1 190px;
 }
 
 .key-badge {

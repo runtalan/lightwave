@@ -64,6 +64,8 @@ export function PingMotion():Promise<void>;
 
 export function Quit():Promise<void>;
 
+export function RecallToggle():Promise<main.HUDState>;
+
 export function RemoteCommand(arg1:string):Promise<string>;
 
 export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
@@ -82,11 +84,11 @@ export function SetConfigAPIKey(arg1:string):Promise<void>;
 
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
+export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
+
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 
 export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;
-
-export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 
 export function SetWebEnabled(arg1:boolean):Promise<main.SettingsView>;
 

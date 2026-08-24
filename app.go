@@ -21,13 +21,16 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Window geometry. The HUD is a compact deck; Config is taller because the
-// device list scrolls inside it.
+// Window geometry. The HUD is a compact deck; Config is much larger because
+// the Lights tab puts the pad grid and the device list side by side.
 const (
-	HUDW       = 520
-	HUDH       = 620
-	ConfigW    = 680
-	ConfigH    = 880
+	HUDW = 520
+	HUDH = 620
+	// Config is deliberately much wider than the HUD: the Lights tab lays pads
+	// out as a numpad grid beside the device list, and at 680 the two were
+	// stacked into a single cramped column.
+	ConfigW    = 1080
+	ConfigH    = 900
 	WindowMinW = 420
 	WindowMinH = 480
 )
@@ -126,6 +129,9 @@ type SettingsView struct {
 	MidiNotePlus    int      `json:"midiNotePlus"`
 	MidiNoteMinus   int      `json:"midiNoteMinus"`
 	MidiNoteRecall  int      `json:"midiNoteRecall"`
+	MidiChanCC      int      `json:"midiChanCC"`
+	MidiChanPalette int      `json:"midiChanPalette"`
+	MidiChanRecall  int      `json:"midiChanRecall"`
 	MidiCCMin       int      `json:"midiCCMin"`
 	MidiCCMax       int      `json:"midiCCMax"`
 	IdleHideSeconds int      `json:"idleHideSeconds"`
@@ -1150,6 +1156,9 @@ func (a *App) settingsViewLocked() SettingsView {
 		MidiNotePlus:    a.settings.MidiNotePlus,
 		MidiNoteMinus:   a.settings.MidiNoteMinus,
 		MidiNoteRecall:  a.settings.MidiNoteRecall,
+		MidiChanCC:      a.settings.MidiChanCC,
+		MidiChanPalette: a.settings.MidiChanPalette,
+		MidiChanRecall:  a.settings.MidiChanRecall,
 		MidiCCMin:       a.settings.MidiCCMin,
 		MidiCCMax:       a.settings.MidiCCMax,
 		IdleHideSeconds: a.settings.IdleHideSeconds,
@@ -2212,6 +2221,9 @@ func (a *App) SaveSettings(in SettingsView) error {
 	s.MidiNotePlus = in.MidiNotePlus
 	s.MidiNoteMinus = in.MidiNoteMinus
 	s.MidiNoteRecall = in.MidiNoteRecall
+	s.MidiChanCC = in.MidiChanCC
+	s.MidiChanPalette = in.MidiChanPalette
+	s.MidiChanRecall = in.MidiChanRecall
 	s.MidiCCMin = in.MidiCCMin
 	s.MidiCCMax = in.MidiCCMax
 	s.IdleHideSeconds = in.IdleHideSeconds

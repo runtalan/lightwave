@@ -32,6 +32,7 @@ type Listener struct {
 	learnSeen [128]atomic.Uint32
 	learnVary [128]atomic.Uint32
 
+	chanWanted  atomic.Uint32 // ccChan | (paletteChan << 8) | (recallChan << 16)
 	ccWanted    atomic.Uint32 // cc | (alt << 8)
 	noteWanted  atomic.Uint32 // plus | (minus << 8) | (recall << 16)
 	latestCC    atomic.Uint32
@@ -86,6 +87,7 @@ func (l *Listener) VaryingCCs() []uint8 {
 func (l *Listener) storeWanted(cfg config.MIDI) {
 	l.ccWanted.Store(uint32(cfg.CC) | uint32(cfg.CCAlt)<<8)
 	l.noteWanted.Store(uint32(cfg.NotePlus) | uint32(cfg.NoteMinus)<<8 | uint32(cfg.NoteRecall)<<16)
+	l.chanWanted.Store(uint32(cfg.ChanCC) | uint32(cfg.ChanPalette)<<8 | uint32(cfg.ChanRecall)<<16)
 }
 
 func (l *Listener) Start() error {
@@ -130,8 +132,10 @@ func (l *Listener) Start() error {
 	if cfg.NoteRecall != 0 {
 		recall = fmt.Sprint(cfg.NoteRecall)
 	}
-	log.Printf("midi: listening on %s (CC %d/%d, palette notes 60−/61+ and +%d -%d, recall %s, all channels)",
-		name, cfg.CC, cfg.CCAlt, cfg.NotePlus, cfg.NoteMinus, recall)
+	log.Printf("midi: listening on %s (CC %d/%d ch %s, palette notes 60−/61+ and +%d -%d ch %s, recall %s ch %s)",
+		name, cfg.CC, cfg.CCAlt, chanLabel(cfg.ChanCC),
+		cfg.NotePlus, cfg.NoteMinus, chanLabel(cfg.ChanPalette),
+		recall, chanLabel(cfg.ChanRecall))
 	l.setStatus(true, name)
 	return nil
 }
@@ -147,6 +151,9 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 
 	want := l.noteWanted.Load()
 	plus, minus, recall := uint8(want), uint8(want>>8), uint8(want>>16)
+	chans := l.chanWanted.Load()
+	chCC, chPal, chRec := uint8(chans), uint8(chans>>8), uint8(chans>>16)
+	raw := []byte(msg)
 	// Recall is checked before the palette match: an explicit assignment
 	// should win over the hardcoded 60/61 palette keys.
 	//
@@ -155,13 +162,13 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 	// sweep and never reach the brightness path, which loses the slider
 	// entirely — a far worse failure than a recall key that does nothing. The
 	// brightness CCs are only ever CC messages, so notes are unaffected.
-	if recall != 0 && !l.isBrightnessCC([]byte(msg), recall) {
-		if num, ok := NoteTrigger([]byte(msg), recall); ok {
+	if recall != 0 && channelAllows(raw, chRec) && !l.isBrightnessCC(raw, recall) {
+		if num, ok := NoteTrigger(raw, recall); ok {
 			l.latestNote.Store(midiPresent | uint32(num)<<8 | midiRecall)
 			return
 		}
 	}
-	if delta, num, viaCC, ok := PaletteTrigger([]byte(msg), plus, minus); ok && delta != 0 {
+	if delta, num, viaCC, ok := PaletteTrigger(raw, plus, minus); ok && delta != 0 && channelAllows(raw, chPal) {
 		packed := midiPresent | uint32(num)<<8
 		if viaCC {
 			packed |= midiViaCC
@@ -173,6 +180,9 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 	var ch, cc, val uint8
 	if msg.GetControlChange(&ch, &cc, &val) {
 		if cc == NotePaletteDown || cc == NotePaletteUp {
+			return
+		}
+		if !channelAllows(raw, chCC) {
 			return
 		}
 		wantCC := l.ccWanted.Load()
@@ -263,12 +273,16 @@ func (l *Listener) TakeStatus() (connected bool, port string, changed bool) {
 func (l *Listener) cfgLocked() config.MIDI {
 	w := l.ccWanted.Load()
 	n := l.noteWanted.Load()
+	c := l.chanWanted.Load()
 	return config.MIDI{
-		CC:         uint8(w),
-		CCAlt:      uint8(w >> 8),
-		NotePlus:   uint8(n),
-		NoteMinus:  uint8(n >> 8),
-		NoteRecall: uint8(n >> 16),
+		CC:          uint8(w),
+		CCAlt:       uint8(w >> 8),
+		NotePlus:    uint8(n),
+		NoteMinus:   uint8(n >> 8),
+		NoteRecall:  uint8(n >> 16),
+		ChanCC:      uint8(c),
+		ChanPalette: uint8(c >> 8),
+		ChanRecall:  uint8(c >> 16),
 	}
 }
 
@@ -476,4 +490,34 @@ func (l *Listener) isBrightnessCC(msg []byte, num uint8) bool {
 	}
 	w := l.ccWanted.Load()
 	return num == uint8(w) || num == uint8(w>>8)
+}
+
+// ChannelOf returns the 1-16 MIDI channel of a channel-voice message, or 0 if
+// the message has none (System messages, 0xF0 and up).
+func ChannelOf(msg []byte) uint8 {
+	if len(msg) < 1 {
+		return 0
+	}
+	st := msg[0]
+	if st < 0x80 || st >= 0xF0 {
+		return 0
+	}
+	return st&0x0f + 1
+}
+
+// channelAllows reports whether a message may drive a control bound to `want`.
+// want == 0 means "any channel", which is the default; see config.MIDI.
+func channelAllows(msg []byte, want uint8) bool {
+	if want == 0 {
+		return true
+	}
+	return ChannelOf(msg) == want
+}
+
+// chanLabel renders a channel setting for logs: "any" or the 1-16 number.
+func chanLabel(c uint8) string {
+	if c == 0 {
+		return "any"
+	}
+	return fmt.Sprint(c)
 }

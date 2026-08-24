@@ -118,6 +118,10 @@ export function Quit() {
   return window['go']['main']['App']['Quit']();
 }
 
+export function RecallToggle() {
+  return window['go']['main']['App']['RecallToggle']();
+}
+
 export function RemoteCommand(arg1) {
   return window['go']['main']['App']['RemoteCommand'](arg1);
 }
@@ -154,16 +158,16 @@ export function SetIPCServer(arg1) {
   return window['go']['main']['App']['SetIPCServer'](arg1);
 }
 
+export function SetLaunchAtLogin(arg1) {
+  return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
+}
+
 export function SetWebAssets(arg1) {
   return window['go']['main']['App']['SetWebAssets'](arg1);
 }
 
 export function SetWebConfig(arg1, arg2) {
   return window['go']['main']['App']['SetWebConfig'](arg1, arg2);
-}
-
-export function SetLaunchAtLogin(arg1) {
-  return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
 }
 
 export function SetWebEnabled(arg1) {

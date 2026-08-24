@@ -56,6 +56,9 @@ export function Config({ state, onState }: Props) {
     midiDraft.midiNotePlus !== state.settings.midiNotePlus ||
     midiDraft.midiNoteMinus !== state.settings.midiNoteMinus ||
     midiDraft.midiNoteRecall !== state.settings.midiNoteRecall ||
+    midiDraft.midiChanCC !== state.settings.midiChanCC ||
+    midiDraft.midiChanPalette !== state.settings.midiChanPalette ||
+    midiDraft.midiChanRecall !== state.settings.midiChanRecall ||
     midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
   const dirty = draftDirty || Boolean(state.mapDirty)
 
@@ -229,6 +232,9 @@ function LightsPane({
   const [focus, setFocus] = useState(7)
   const [busy, setBusy] = useState(false)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
+  // Set while a device is being dragged out of the list, so pads can light up
+  // as drop targets for it as well as for a pad-to-pad move.
+  const [dragDevice, setDragDevice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [renaming, setRenaming] = useState<number | null>(null)
 
@@ -309,7 +315,13 @@ function LightsPane({
   return (
     <div className="pane lights-pane">
       <p className="lede">Bind numpad 1–9. A light can live on one pad only. Drag a bound pad onto another to move it — dropping on an occupied pad swaps the two. Click ✎ to rename.</p>
-      <div className="grid" role="grid" aria-label="Numpad slots">
+
+      <section className="pad-col">
+        <header className="device-head">
+          <h3>Pads</h3>
+          <p>Your numpad, laid out the way the keys are.</p>
+        </header>
+        <div className="grid" role="grid" aria-label="Numpad slots">
         {NUMPAD_ORDER.map((n) => {
           const slot = slotByNumber(state, n)
           const mapped = Boolean(slot?.deviceId)
@@ -317,7 +329,9 @@ function LightsPane({
             <button
               key={n}
               type="button"
-              className={`tile ${mapped ? 'ignited' : ''} ${focus === n ? 'focused' : ''} ${dragOver === n && dragFrom !== null && dragFrom !== n ? 'drop-target' : ''}`}
+              className={`tile ${mapped ? 'ignited' : ''} ${focus === n ? 'focused' : ''} ${
+                dragOver === n && (dragDevice !== null || (dragFrom !== null && dragFrom !== n)) ? 'drop-target' : ''
+              }`}
               onClick={() => setFocus(n)}
               draggable={mapped}
               onDragStart={(e) => {
@@ -331,6 +345,14 @@ function LightsPane({
                 setDragOver(null)
               }}
               onDragOver={(e) => {
+                // A pad accepts two kinds of drag: another pad (move/swap) and
+                // a device from the list (bind).
+                if (dragDevice !== null) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'copy'
+                  setDragOver(n)
+                  return
+                }
                 if (dragFrom === null || dragFrom === n) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
@@ -339,9 +361,16 @@ function LightsPane({
               onDragLeave={() => setDragOver((cur) => (cur === n ? null : cur))}
               onDrop={(e) => {
                 e.preventDefault()
+                const deviceId = e.dataTransfer.getData('application/x-lightwave-device') || dragDevice
+                setDragOver(null)
+                if (deviceId) {
+                  setDragDevice(null)
+                  setFocus(n)
+                  void bind(n, deviceId)
+                  return
+                }
                 const from = Number(e.dataTransfer.getData('text/plain')) || dragFrom
                 setDragFrom(null)
-                setDragOver(null)
                 if (from && from !== n) void move(from, n)
               }}
             >
@@ -392,8 +421,15 @@ function LightsPane({
             </button>
           )
         })}
-      </div>
-      <p className={`status ${statusBad ? 'bad' : ''}`}>{statusCopy}</p>
+        </div>
+      </section>
+
+      <section className="device-col">
+        <header className="device-head">
+          <h3>Devices</h3>
+          <p>These are the devices that you can map to the pads. Drag one onto a pad, or click a pad and then a device.</p>
+        </header>
+        <p className={`status ${statusBad ? 'bad' : ''}`}>{statusCopy}</p>
       <div className="device-list">
         {state.bluetoothDenied && (
           <p className="device-empty bad">
@@ -415,6 +451,16 @@ function LightsPane({
               type="button"
               className={`device ${takenHere ? 'current' : ''} ${taken && !takenHere ? 'taken' : ''}`}
               disabled={Boolean(taken) && !takenHere}
+              draggable={!taken || takenHere}
+              onDragStart={(e) => {
+                setDragDevice(d.id)
+                e.dataTransfer.effectAllowed = 'copy'
+                // A distinct MIME type so a pad drop can tell a device drag
+                // from a pad-to-pad move and never confuse the two.
+                e.dataTransfer.setData('application/x-lightwave-device', d.id)
+                e.dataTransfer.setData('text/plain', d.id)
+              }}
+              onDragEnd={() => setDragDevice(null)}
               onClick={() => {
                 if (taken && !takenHere) {
                   setErr(`${d.name} is already on pad ${taken}`)
@@ -432,7 +478,9 @@ function LightsPane({
             </button>
           )
         })}
-      </div>
+        </div>
+      </section>
+
       <footer className="actions">
         <button type="button" className="ghost" onClick={() => Discover().then(onState)}>
           Rescan
@@ -476,69 +524,114 @@ function MidiPane({
   setErr: (s: string) => void
   onFinish: () => Promise<void>
 }) {
+  // Channel is per control because one controller can spread its keys, encoder
+  // and fader across different channels. "Any" is the default and the safer
+  // setting: a firmware remap that moves a control to another channel would
+  // silently break a pinned binding.
+  const chan = (key: 'midiChanCC' | 'midiChanPalette' | 'midiChanRecall', hint: string) => (
+    <label className="field narrow">
+      <span>Channel</span>
+      <select
+        value={draft[key]}
+        onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
+      >
+        <option value={0}>Any{hint ? ` (yours: ${hint})` : ''}</option>
+        {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
+          <option key={n} value={n}>{n}</option>
+        ))}
+      </select>
+    </label>
+  )
+
   return (
     <div className="pane form-pane">
       <p className="lede">
         {state.midiConnected ? `Listening · ${state.midiPort}` : 'No MIDI port — keyboard still drives the HUD.'}
-        {' '}Notes 60 (−) and 61 (+) always cycle palettes. Brightness is CC only.
       </p>
-      <BrightnessSlider value={state.brightness} label="pool dim" />
-      <p className="status">CC 0–127 maps to 1–100% on ignited lights (127 = full). Bottom of the fader is dimmest, not off.</p>
-      <label className="field">
-        <span>Brightness CC</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiCC}
-          onChange={(e) => setDraft({ ...draft, midiCC: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Alternate CC</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiCCAlt}
-          onChange={(e) => setDraft({ ...draft, midiCCAlt: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Color + note</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiNotePlus}
-          onChange={(e) => setDraft({ ...draft, midiNotePlus: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Color − note</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiNoteMinus}
-          onChange={(e) => setDraft({ ...draft, midiNoteMinus: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Recall note</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiNoteRecall}
-          onChange={(e) => setDraft({ ...draft, midiNoteRecall: Number(e.target.value) })}
-        />
-      </label>
-      <p className="status">
-        Recall note: turns everything off, or brings back exactly the lights that were on last —
-        the same press as the Stream Deck status key. 0 leaves it unassigned.
-      </p>
-      <FaderCalibration state={state} setErr={setErr} />
+
+      <section className="group">
+        <h3 className="group-title">Brightness</h3>
+        <p className="group-hint">
+          CC 0–127 maps to 1–100% on ignited lights. The bottom of the fader is dimmest, not off.
+        </p>
+        <BrightnessSlider value={state.brightness} label="pool dim" />
+        <div className="field-row">
+          <label className="field">
+            <span>CC</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiCC}
+              onChange={(e) => setDraft({ ...draft, midiCC: Number(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Alternate CC</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiCCAlt}
+              onChange={(e) => setDraft({ ...draft, midiCCAlt: Number(e.target.value) })}
+            />
+          </label>
+          {chan('midiChanCC', '3')}
+        </div>
+        <FaderCalibration state={state} setErr={setErr} />
+      </section>
+
+      <section className="group">
+        <h3 className="group-title">Palette</h3>
+        <p className="group-hint">
+          Notes 60 (−) and 61 (+) always cycle palettes; these add your own keys on top.
+        </p>
+        <div className="field-row">
+          <label className="field">
+            <span>Colour + note</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiNotePlus}
+              onChange={(e) => setDraft({ ...draft, midiNotePlus: Number(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Colour − note</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiNoteMinus}
+              onChange={(e) => setDraft({ ...draft, midiNoteMinus: Number(e.target.value) })}
+            />
+          </label>
+          {chan('midiChanPalette', '1')}
+        </div>
+      </section>
+
+      <section className="group">
+        <h3 className="group-title">Recall</h3>
+        <p className="group-hint">
+          Turns everything off, or brings back exactly the lights that were on last — the same
+          press as the Stream Deck status key. 0 leaves it unassigned.
+        </p>
+        <div className="field-row">
+          <label className="field">
+            <span>Recall note</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiNoteRecall}
+              onChange={(e) => setDraft({ ...draft, midiNoteRecall: Number(e.target.value) })}
+            />
+          </label>
+          {chan('midiChanRecall', '2')}
+        </div>
+      </section>
+
       <footer className="actions">
         <button
           type="button"
@@ -619,6 +712,7 @@ function HudPane({
 // span the full 0-127 range -- one topping out at 117 mapped to 92%, so the
 // light could never be driven to full. Recording the observed endpoints makes
 // a full throw mean 100% on whatever hardware is plugged in.
+
 function FaderCalibration({
   state,
   setErr,

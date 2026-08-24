@@ -27,6 +27,14 @@ type MIDI struct {
 	// NoteRecall toggles the most recent scene: everything off, or back on
 	// exactly the pads that were lit last. 0 means unassigned.
 	NoteRecall uint8
+	// Channels narrow each control to one MIDI channel. 0 means "any", which
+	// is the default and the safer setting: a controller's firmware can move a
+	// control between channels on a remap, and matching the number alone keeps
+	// the binding working when it does. Pin a channel only to disambiguate two
+	// controls that genuinely share a number.
+	ChanCC      uint8 // brightness CC/fader
+	ChanPalette uint8 // palette +/- notes
+	ChanRecall  uint8 // recall note
 }
 
 type SlotBinding struct {
@@ -137,6 +145,11 @@ type Settings struct {
 	// MidiNoteRecall is the note that toggles the last-lit scene, the same
 	// action as the Stream Deck status key. 0 leaves it unassigned.
 	MidiNoteRecall int `json:"midiNoteRecall"`
+	// Per-control MIDI channel, 1-16. 0 means any channel, which is the
+	// default: see config.MIDI for why that is the safer setting.
+	MidiChanCC      int `json:"midiChanCC"`
+	MidiChanPalette int `json:"midiChanPalette"`
+	MidiChanRecall  int `json:"midiChanRecall"`
 	// MidiCCMin/Max are the calibrated fader endpoints (0 and 127 when the
 	// fader has never been calibrated).
 	MidiCCMin       int    `json:"midiCCMin"`
@@ -168,6 +181,9 @@ type settingsFile struct {
 	MidiNotePlus    *int    `json:"midiNotePlus"`
 	MidiNoteMinus   *int    `json:"midiNoteMinus"`
 	MidiNoteRecall  *int    `json:"midiNoteRecall"`
+	MidiChanCC      *int    `json:"midiChanCC"`
+	MidiChanPalette *int    `json:"midiChanPalette"`
+	MidiChanRecall  *int    `json:"midiChanRecall"`
 	MidiCCMin       *int    `json:"midiCCMin"`
 	MidiCCMax       *int    `json:"midiCCMax"`
 	IdleHideSeconds *int    `json:"idleHideSeconds"`
@@ -203,9 +219,12 @@ func (s Settings) MIDI() MIDI {
 		NoteMinus: clampU8(s.MidiNoteMinus, 60),
 		// Default 0 = unassigned: this is a new binding, and silently claiming
 		// a note could hijack a key the user already uses for something else.
-		NoteRecall: clampU8(s.MidiNoteRecall, 0),
-		CCMin:      clampU8(s.MidiCCMin, 0),
-		CCMax:      clampU8(s.MidiCCMax, 127),
+		NoteRecall:  clampU8(s.MidiNoteRecall, 0),
+		ChanCC:      clampChan(s.MidiChanCC),
+		ChanPalette: clampChan(s.MidiChanPalette),
+		ChanRecall:  clampChan(s.MidiChanRecall),
+		CCMin:       clampU8(s.MidiCCMin, 0),
+		CCMax:       clampU8(s.MidiCCMax, 127),
 	}
 }
 
@@ -259,6 +278,15 @@ func LoadSettings() Settings {
 	if raw.MidiNoteRecall != nil {
 		s.MidiNoteRecall = *raw.MidiNoteRecall
 	}
+	if raw.MidiChanCC != nil {
+		s.MidiChanCC = *raw.MidiChanCC
+	}
+	if raw.MidiChanPalette != nil {
+		s.MidiChanPalette = *raw.MidiChanPalette
+	}
+	if raw.MidiChanRecall != nil {
+		s.MidiChanRecall = *raw.MidiChanRecall
+	}
 	if raw.MidiCCMin != nil {
 		s.MidiCCMin = *raw.MidiCCMin
 	}
@@ -297,6 +325,9 @@ func SaveSettings(s Settings) error {
 	// 0 is the "unassigned" value here, so an out-of-range number falls back
 	// to unassigned rather than to some arbitrary note.
 	s.MidiNoteRecall = int(clampU8(s.MidiNoteRecall, 0))
+	s.MidiChanCC = int(clampChan(s.MidiChanCC))
+	s.MidiChanPalette = int(clampChan(s.MidiChanPalette))
+	s.MidiChanRecall = int(clampChan(s.MidiChanRecall))
 	s.MidiCCMin = int(clampU8(s.MidiCCMin, 0))
 	s.MidiCCMax = int(clampU8(s.MidiCCMax, 127))
 	// A collapsed or inverted range would make every fader move meaningless.
@@ -354,6 +385,16 @@ func findEnvFile() string {
 		return filepath.Join(dir, ".env")
 	}
 	return "project .env, app Resources/.env, or Application Support"
+}
+
+// clampChan normalises a MIDI channel to 1-16, or 0 for "any". Anything out
+// of range becomes "any" rather than an arbitrary channel: a nonsense value
+// should widen the match, never silently narrow it to the wrong one.
+func clampChan(n int) uint8 {
+	if n < 1 || n > 16 {
+		return 0
+	}
+	return uint8(n)
 }
 
 func clampU8(n int, fallback uint8) uint8 {

@@ -75,6 +75,9 @@ export namespace main {
 	    midiNotePlus: number;
 	    midiNoteMinus: number;
 	    midiNoteRecall: number;
+	    midiChanCC: number;
+	    midiChanPalette: number;
+	    midiChanRecall: number;
 	    midiCCMin: number;
 	    midiCCMax: number;
 	    idleHideSeconds: number;
@@ -84,8 +87,8 @@ export namespace main {
 	    envPath: string;
 	    configPath: string;
 	    mappingPath: string;
-	    launchAtLogin: boolean;
 	    webEnabled: boolean;
+	    launchAtLogin: boolean;
 	    webAddr: string;
 	    webRunning: boolean;
 	    webHasToken: boolean;
@@ -102,6 +105,9 @@ export namespace main {
 	        this.midiNotePlus = source["midiNotePlus"];
 	        this.midiNoteMinus = source["midiNoteMinus"];
 	        this.midiNoteRecall = source["midiNoteRecall"];
+	        this.midiChanCC = source["midiChanCC"];
+	        this.midiChanPalette = source["midiChanPalette"];
+	        this.midiChanRecall = source["midiChanRecall"];
 	        this.midiCCMin = source["midiCCMin"];
 	        this.midiCCMax = source["midiCCMax"];
 	        this.idleHideSeconds = source["idleHideSeconds"];
@@ -111,8 +117,8 @@ export namespace main {
 	        this.envPath = source["envPath"];
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
-	        this.launchAtLogin = source["launchAtLogin"];
 	        this.webEnabled = source["webEnabled"];
+	        this.launchAtLogin = source["launchAtLogin"];
 	        this.webAddr = source["webAddr"];
 	        this.webRunning = source["webRunning"];
 	        this.webHasToken = source["webHasToken"];
