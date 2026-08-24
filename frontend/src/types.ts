@@ -28,6 +28,11 @@ export type SettingsView = {
   envPath: string
   configPath: string
   mappingPath: string
+  webEnabled: boolean
+  webAddr: string
+  webRunning: boolean
+  webHasToken: boolean
+  webUrls: string[]
 }
 
 export type HUDState = {
@@ -54,7 +59,7 @@ export type HUDState = {
   settings: SettingsView
 }
 
-export type ConfigTab = 'lights' | 'midi' | 'hud' | 'account'
+export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'account'
 
 export const NUMPAD_ORDER = [7, 8, 9, 4, 5, 6, 1, 2, 3] as const
 
@@ -71,6 +76,11 @@ export function emptySettings(): SettingsView {
     envPath: '',
     configPath: '',
     mappingPath: '',
+    webEnabled: false,
+    webAddr: ':8787',
+    webRunning: false,
+    webHasToken: false,
+    webUrls: [],
   }
 }
 

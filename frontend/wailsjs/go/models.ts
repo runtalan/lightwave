@@ -81,6 +81,11 @@ export namespace main {
 	    envPath: string;
 	    configPath: string;
 	    mappingPath: string;
+	    webEnabled: boolean;
+	    webAddr: string;
+	    webRunning: boolean;
+	    webHasToken: boolean;
+	    webUrls: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsView(source);
@@ -99,6 +104,11 @@ export namespace main {
 	        this.envPath = source["envPath"];
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
+	        this.webEnabled = source["webEnabled"];
+	        this.webAddr = source["webAddr"];
+	        this.webRunning = source["webRunning"];
+	        this.webHasToken = source["webHasToken"];
+	        this.webUrls = source["webUrls"];
 	    }
 	}
 	export class SlotView {

@@ -67,6 +67,55 @@ Lights that can't show more than one color at a time — single-zone bulbs, and 
 
 ---
 
+## Phone control over your network
+
+Lightwave can serve its own HUD to a phone or tablet. It is the *same* interface
+— the same React build the desktop window runs, not a second mobile app — so
+the pads, the dimmer, the palettes and the fades all behave identically.
+
+Turn it on in **Config → Remote**, then open the printed address on your phone.
+
+### It is control-only
+
+A browser can work the lights and nothing else. It cannot quit Lightwave, hide
+or move the window, rescan for devices, edit the pad map, or read or change
+your Govee API key. The allowlist lives in Go, so this holds for a hand-written
+request too, not just for the buttons the phone shows.
+
+The phone always shows the control HUD, whatever the desktop window happens to
+be displaying.
+
+### Only reachable on a private network
+
+Every request is checked against the client's address, and **anything routable
+on the public internet is refused**. Allowed: your LAN (`10.x`, `172.16–31.x`,
+`192.168.x`), VPN ranges including the `100.64/10` block Tailscale hands out,
+IPv6 unique-local (`fc00::/7`), link-local, and loopback.
+
+This is enforced on every request, so even if the server is bound more widely
+than you meant, a public client still cannot touch the lights.
+
+Two further controls:
+
+- **Listen address.** `:8787` listens on every interface. Set it to a specific
+  VPN address — `100.92.4.7:8787` — to bind only that one, so the port is not
+  open on your LAN at all.
+- **Token.** Optional, blank by default. When set, every request must carry it,
+  which is worth doing on a VPN shared with people who should not be reaching
+  your lights. Open the URL with `?token=…` once and the phone stores it, so
+  bookmarking or adding to the home screen keeps working.
+
+The server is **off until you switch it on** and binds nothing before that.
+Starting and stopping take effect immediately — no restart.
+
+### What it costs
+
+Close to nothing. It serves the bundle already embedded in the binary, so the
+assets are not duplicated. Measured heap with the server up and six live
+clients streaming state: **about 170 KB**. Idle, it is lost in GC noise. There
+is no polling — state is pushed over a single event stream, and the phone
+reconnects on its own after a sleep or a network change.
+
 ## Requirements
 
 - **macOS 11 or later** (Apple Silicon or Intel)

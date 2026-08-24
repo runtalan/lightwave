@@ -10,6 +10,8 @@ import {
   SaveSettings,
   ScanLAN,
   SetConfigAPIKey,
+  SetWebEnabled,
+  SetWebConfig,
 } from '../wailsjs/go/main/App'
 import { NUMPAD_ORDER, type ConfigTab, type HUDState, type SettingsView } from './types'
 import { slotByNumber } from './lib'
@@ -29,6 +31,7 @@ const TABS: { id: ConfigTab; label: string }[] = [
   { id: 'lights', label: 'Lights' },
   { id: 'midi', label: 'MIDI' },
   { id: 'hud', label: 'HUD' },
+  { id: 'remote', label: 'Remote' },
   { id: 'account', label: 'Account' },
 ]
 
@@ -82,6 +85,7 @@ export function Config({ state, onState }: Props) {
           {tab === 'lights' && <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} />}
           {tab === 'midi' && <MidiPane state={state} setErr={setErr} setNote={setNote} />}
           {tab === 'hud' && <HudPane state={state} />}
+          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
           {tab === 'account' && <AccountPane state={state} onState={onState} setErr={setErr} setNote={setNote} />}
         </div>
       </div>
@@ -407,6 +411,125 @@ function HudPane({ state }: { state: HUDState }) {
         Hide does not quit; launch again or <code>--toggle</code> to show.
       </p>
       <BrightnessSlider value={state.brightness} label="brightness" />
+    </div>
+  )
+}
+
+// RemotePane controls the phone server. It is off until switched on here, and
+// the pane leads with the reachable URLs because that is the one thing the
+// user needs in order to use the feature at all.
+function RemotePane({
+  state,
+  setErr,
+  setNote,
+}: {
+  state: HUDState
+  setErr: (s: string) => void
+  setNote: (s: string) => void
+}) {
+  const s = state.settings
+  const [addr, setAddr] = useState(s.webAddr)
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setAddr(s.webAddr), [s.webAddr])
+
+  function toggle(on: boolean) {
+    setBusy(true)
+    setErr('')
+    setNote('')
+    SetWebEnabled(on)
+      .then(() => setNote(on ? 'Phone control on.' : 'Phone control off.'))
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="pane form-pane">
+      <div className={`key-badge ${s.webRunning ? 'ok' : 'bad'}`}>
+        {s.webRunning ? 'serving' : 'stopped'}
+      </div>
+      <p className="lede">
+        Serves this same HUD to a phone or tablet, for control only — no config, no pad edits,
+        no API key. Only devices on a private or VPN address can connect; public addresses are
+        always refused.
+      </p>
+
+      <footer className="actions">
+        <button type="button" className={s.webRunning ? 'ghost' : 'primary'} disabled={busy}
+          onClick={() => toggle(!s.webRunning)}>
+          {s.webRunning ? 'Stop server' : 'Start server'}
+        </button>
+      </footer>
+
+      {s.webRunning && (
+        <>
+          <p className="status">Open on your phone:</p>
+          {s.webUrls.length === 0 ? (
+            <p className="status bad">No private address found — connect to your VPN or LAN.</p>
+          ) : (
+            s.webUrls.map((u) => (
+              <p key={u} className="status web-url">
+                {u}
+                {s.webHasToken ? '?token=…' : ''}
+              </p>
+            ))
+          )}
+        </>
+      )}
+
+      <label className="field">
+        <span>Listen address</span>
+        <input
+          type="text"
+          value={addr}
+          placeholder=":8787"
+          onChange={(e) => setAddr(e.target.value)}
+        />
+      </label>
+      <p className="status">
+        <code>:8787</code> listens on every interface. Set a VPN address like{' '}
+        <code>100.92.4.7:8787</code> to bind only that one.
+      </p>
+
+      <label className="field">
+        <span>{s.webHasToken ? 'Replace token' : 'Token (optional)'}</span>
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={s.webHasToken ? '••••••••' : 'blank = rely on the network'}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+      </label>
+      <p className="status">
+        A token adds a second lock, for a VPN shared with people who should not reach the lights.
+        Open the URL with <code>?token=…</code> once and the phone remembers it.
+      </p>
+
+      <footer className="actions">
+        <button type="button" className="ghost" disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            setErr('')
+            SetWebConfig(addr, '')
+              .then(() => { setToken(''); setNote('Cleared token.') })
+              .catch((e) => setErr(String(e)))
+              .finally(() => setBusy(false))
+          }}>
+          Clear token
+        </button>
+        <button type="button" className="primary" disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            setErr('')
+            SetWebConfig(addr, token.trim())
+              .then(() => { setToken(''); setNote('Saved. Server restarted if it was running.') })
+              .catch((e) => setErr(String(e)))
+              .finally(() => setBusy(false))
+          }}>
+          Save
+        </button>
+      </footer>
     </div>
   )
 }

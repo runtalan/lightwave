@@ -806,3 +806,36 @@ a,
     0 0 18px rgba(255, 46, 200, 0.65);
   transform: scale(1.04);
 }
+
+/* Legend entries are buttons so they work by tap as well as by key. Styled to
+   vanish: the kbd chip and its label keep the exact look they had as static
+   markup. */
+.keycap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.keycap:hover kbd {
+  border-color: var(--magenta);
+  box-shadow: 0 0 10px rgba(255, 46, 200, 0.4);
+}
+
+.keycap:active kbd {
+  transform: translateY(1px);
+}
+
+/* Connection URLs must be selectable — the rest of the app sets user-select:
+   none, which would make an address impossible to copy. */
+.web-url {
+  font-family: "Oxanium", sans-serif;
+  color: var(--ice);
+  user-select: text;
+  -webkit-user-select: text;
+  word-break: break-all;
+}

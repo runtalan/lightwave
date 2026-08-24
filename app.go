@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"lightwave/internal/govee"
 	"lightwave/internal/ipc"
 	midilstn "lightwave/internal/midi"
+	"lightwave/internal/web"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -114,17 +116,22 @@ type HUDState struct {
 }
 
 type SettingsView struct {
-	MidiCC          int    `json:"midiCC"`
-	MidiCCAlt       int    `json:"midiCCAlt"`
-	MidiNotePlus    int    `json:"midiNotePlus"`
-	MidiNoteMinus   int    `json:"midiNoteMinus"`
-	IdleHideSeconds int    `json:"idleHideSeconds"`
-	HasEnvKey       bool   `json:"hasEnvKey"`
-	HasConfigKey    bool   `json:"hasConfigKey"`
-	HasAPIKey       bool   `json:"hasApiKey"`
-	EnvPath         string `json:"envPath"`
-	ConfigPath      string `json:"configPath"`
-	MappingPath     string `json:"mappingPath"`
+	MidiCC          int      `json:"midiCC"`
+	MidiCCAlt       int      `json:"midiCCAlt"`
+	MidiNotePlus    int      `json:"midiNotePlus"`
+	MidiNoteMinus   int      `json:"midiNoteMinus"`
+	IdleHideSeconds int      `json:"idleHideSeconds"`
+	HasEnvKey       bool     `json:"hasEnvKey"`
+	HasConfigKey    bool     `json:"hasConfigKey"`
+	HasAPIKey       bool     `json:"hasApiKey"`
+	EnvPath         string   `json:"envPath"`
+	ConfigPath      string   `json:"configPath"`
+	MappingPath     string   `json:"mappingPath"`
+	WebEnabled      bool     `json:"webEnabled"`
+	WebAddr         string   `json:"webAddr"`
+	WebRunning      bool     `json:"webRunning"`
+	WebHasToken     bool     `json:"webHasToken"`
+	WebURLs         []string `json:"webUrls"`
 }
 
 type App struct {
@@ -161,9 +168,13 @@ type App struct {
 	lastRemote   string
 	udp          *govee.UDP
 	ble          *govee.BLE
-	midi         *midilstn.Listener
-	midiCfg      config.MIDI
-	settings     config.Settings
+	// webSrv serves the HUD to phones; webAssets is the same embedded bundle
+	// the desktop window runs, so hosting it costs no extra memory.
+	webSrv    *web.Server
+	webAssets fs.FS
+	midi      *midilstn.Listener
+	midiCfg   config.MIDI
+	settings  config.Settings
 
 	stop            chan struct{}
 	brightKick      chan struct{}
@@ -292,6 +303,12 @@ func (a *App) startup(ctx context.Context) {
 	// instead: the app becoming frontmost with no visible window.
 	go a.dockReopenLoop()
 
+	if a.settingsSnapshot().WebEnabled {
+		if err := a.startWebServer(); err != nil {
+			log.Printf("web: %v", err)
+		}
+	}
+
 	go a.refreshDevices()
 	go a.inactivityLoop()
 	go a.statusPollLoop()
@@ -329,6 +346,16 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.udp != nil {
 		a.udp.Close()
 	}
+	if a.webSrv != nil {
+		_ = a.webSrv.Stop()
+	}
+}
+
+// settingsSnapshot copies the settings under the lock.
+func (a *App) settingsSnapshot() config.Settings {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.settings
 }
 
 // MIDI events land in atomics on the CGO thread and are polled here. 8ms keeps
@@ -989,6 +1016,11 @@ func (a *App) apiKeyLocked() string {
 
 func (a *App) settingsViewLocked() SettingsView {
 	env := config.EnvAPIKey()
+	running := a.webSrv != nil && a.webSrv.Running()
+	var urls []string
+	if running {
+		urls = web.URLs(a.webSrv.Addr())
+	}
 	return SettingsView{
 		MidiCC:          a.settings.MidiCC,
 		MidiCCAlt:       a.settings.MidiCCAlt,
@@ -1001,6 +1033,11 @@ func (a *App) settingsViewLocked() SettingsView {
 		EnvPath:         config.EnvFileHint(),
 		ConfigPath:      config.SettingsPath(),
 		MappingPath:     config.MappingPath(),
+		WebEnabled:      a.settings.WebEnabled,
+		WebAddr:         a.settings.WebAddr,
+		WebHasToken:     a.settings.WebToken != "",
+		WebRunning:      running,
+		WebURLs:         urls,
 	}
 }
 
@@ -1018,11 +1055,20 @@ func (a *App) emit(name string, data ...interface{}) {
 }
 
 func (a *App) emitState() {
-	a.emit("state", a.snapshot())
+	st := a.snapshot()
+	a.emit("state", st)
 	// External controllers (the Stream Deck plugin) subscribe over the IPC
 	// socket; pushing here means their keys track the HUD, the numpad, and
 	// status polling without any extra plumbing at each call site.
 	a.publishRemoteState()
+	// Browsers get the same push. Only "state" is forwarded: the window
+	// events (hud:fade-out and friends) describe the desktop window, and
+	// replaying them would fade a phone screen to black when the desktop HUD
+	// is dismissed.
+	if a.webSrv != nil && a.webSrv.Running() {
+		// Reuse the snapshot already taken above rather than locking again.
+		a.webSrv.Publish("state", webStateFrom(st))
+	}
 }
 
 // SetIPCServer hands the app the socket server so it can answer remote

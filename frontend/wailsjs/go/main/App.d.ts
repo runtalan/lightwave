@@ -83,6 +83,10 @@ export function ToggleDance():Promise<main.HUDState>;
 
 export function ToggleGradient():Promise<main.HUDState>;
 
+export function SetWebEnabled(arg1:boolean):Promise<main.SettingsView>;
+
+export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;
+
 export function ToggleSlot(arg1:number):Promise<void>;
 
 export function ToggleWindow():Promise<void>;

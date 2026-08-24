@@ -115,30 +115,47 @@ export function HUD({ state }: Props) {
         </button>
       </header>
 
-      <ul className="keymap" aria-label="Keyboard shortcuts">
+      {/* The legend doubles as controls. On the desktop this just means a key
+          can also be clicked; on a phone, where there is no keyboard, it is
+          the only way to reach fades, palettes and all-off. Entries that only
+          make sense on the desktop are marked so the web build can drop
+          them. */}
+      <ul className="keymap" aria-label="Shortcuts">
         <li>
-          <kbd className={state.dancing ? 'live' : ''}>*</kbd>
-          <span>color fades</span>
+          <button type="button" className="keycap" onClick={() => void ToggleDance()}>
+            <kbd className={state.dancing ? 'live' : ''}>*</kbd>
+            <span>color fades</span>
+          </button>
         </li>
         <li>
-          <kbd>+</kbd>
-          <span>palette</span>
+          <button type="button" className="keycap" onClick={() => void CycleColor(1)}>
+            <kbd>+</kbd>
+            <span>palette</span>
+          </button>
         </li>
         <li>
-          <kbd className={state.gradient ? 'live' : ''}>-</kbd>
-          <span>{state.gradient ? 'gradient' : 'single'}</span>
+          <button type="button" className="keycap" onClick={() => void ToggleGradient()}>
+            <kbd className={state.gradient ? 'live' : ''}>-</kbd>
+            <span>{state.gradient ? 'gradient' : 'single'}</span>
+          </button>
         </li>
         <li>
-          <kbd>0</kbd>
-          <span>all on/off</span>
+          <button type="button" className="keycap" onClick={() => void ToggleAll()}>
+            <kbd>0</kbd>
+            <span>all on/off</span>
+          </button>
         </li>
-        <li>
-          <kbd>Enter</kbd>
-          <span>hide</span>
+        <li data-desktop-only>
+          <button type="button" className="keycap" onClick={() => void HideHUD()}>
+            <kbd>Enter</kbd>
+            <span>hide</span>
+          </button>
         </li>
-        <li>
-          <kbd>.</kbd>
-          <span>quit</span>
+        <li data-desktop-only>
+          <button type="button" className="keycap" onClick={() => void Quit()}>
+            <kbd>.</kbd>
+            <span>quit</span>
+          </button>
         </li>
       </ul>
 

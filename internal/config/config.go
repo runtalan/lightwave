@@ -127,6 +127,15 @@ type Settings struct {
 	MidiNoteMinus   int    `json:"midiNoteMinus"`
 	IdleHideSeconds int    `json:"idleHideSeconds"`
 	GoveeAPIKey     string `json:"goveeApiKey,omitempty"`
+	// WebEnabled starts the phone control server at launch. Off by default:
+	// nothing binds a port until the user asks for it.
+	WebEnabled bool `json:"webEnabled"`
+	// WebAddr is the listen address, e.g. ":8787" for every interface or
+	// "100.92.4.7:8787" to bind only a VPN address.
+	WebAddr string `json:"webAddr"`
+	// WebToken, when set, is required by every request on top of the
+	// private-network restriction.
+	WebToken string `json:"webToken,omitempty"`
 }
 
 type settingsFile struct {
@@ -136,6 +145,9 @@ type settingsFile struct {
 	MidiNoteMinus   *int    `json:"midiNoteMinus"`
 	IdleHideSeconds *int    `json:"idleHideSeconds"`
 	GoveeAPIKey     *string `json:"goveeApiKey"`
+	WebEnabled      *bool   `json:"webEnabled"`
+	WebAddr         *string `json:"webAddr"`
+	WebToken        *string `json:"webToken"`
 }
 
 func EnvAPIKey() string {
@@ -170,8 +182,14 @@ func DefaultSettings() Settings {
 		MidiNotePlus:    int(uint8Env("MIDI_NOTE_PLUS", 60)),
 		MidiNoteMinus:   int(uint8Env("MIDI_NOTE_MINUS", 61)),
 		IdleHideSeconds: 3,
+		WebAddr:         DefaultWebAddr,
 	}
 }
+
+// DefaultWebAddr binds every interface. That is safe here only because the web
+// server refuses any client that is not on a private or VPN address; set a
+// specific VPN address to narrow it further.
+const DefaultWebAddr = ":8787"
 
 func SettingsPath() string {
 	if dir, err := ConfigDir(); err == nil {
@@ -208,6 +226,15 @@ func LoadSettings() Settings {
 	if raw.GoveeAPIKey != nil {
 		s.GoveeAPIKey = *raw.GoveeAPIKey
 	}
+	if raw.WebEnabled != nil {
+		s.WebEnabled = *raw.WebEnabled
+	}
+	if raw.WebAddr != nil {
+		s.WebAddr = *raw.WebAddr
+	}
+	if raw.WebToken != nil {
+		s.WebToken = *raw.WebToken
+	}
 	return s
 }
 
@@ -222,6 +249,11 @@ func SaveSettings(s Settings) error {
 	if s.IdleHideSeconds > 120 {
 		s.IdleHideSeconds = 120
 	}
+	s.WebAddr = strings.TrimSpace(s.WebAddr)
+	if s.WebAddr == "" {
+		s.WebAddr = DefaultWebAddr
+	}
+	s.WebToken = strings.TrimSpace(s.WebToken)
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
