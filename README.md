@@ -227,26 +227,27 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 
 | Action | What it does |
 |---|---|
-| **Status** | Live display: palette name, its actual colors, brightness, pattern, fade state, and how many lights are on |
-| **Light** | Toggle one light; the key shows its name and lights up when on |
+| **Status** | Live display: what's on, brightness, palette and its colors, pattern, and fade state |
+| **Light** | Toggle one light; the key shows its name and lights up when on. Rename it in Stream Deck if the light's own name is too long for a key |
 | **All Lights** | Everything off — or back on when all are off |
-| **Brightness** | Nudge up or down; on **Stream Deck +**, turn the dial |
-| **Palette** | Cycle color palettes |
-| **Color Fade** | Start or stop the slow fade |
-| **Pattern** | One shared color, or a gradient spread across your lights |
+| **Brightness** | A read-only readout of the current level. Set brightness with the app's slider; on **Stream Deck +**, the dial adjusts it |
+| **Palette** | Step to the next or previous palette. Each key shows the palette you'll land on, with its colors |
+| **Color Fade** | Start or stop the slow fade — the key says which it will do |
+| **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
 
 ### The Status key
 
-A live, animated readout of your lighting, drawn in the Lightwave style — neon waves over a dark grid, with the palette's real colors along the bottom:
+A live, animated readout of your lighting, drawn in the Lightwave style — neon waves over a dark grid:
 
 ![Status key in several states](docs/img/indicator-states.png)
 
-- **Palette name and swatches** — the exact colors currently in play
-- **Pips, top-left** — one per bound light, lit when that light is on
+- **The headline** answers what's on right now. One light lit gets **named**, in the largest type that fits; several are counted as **"5 OF 8 ON"**; nothing lit reads **"ALL OFF"**
+- **Brightness and palette**, on the line below — the percentage dimmed, since it's context rather than the headline, with the palette's name beside it
+- **Swatch strip** — the palette's exact colors, currently in play
+- **Pattern, top-left** — stepped bars in the palette's colors when the gradient is spread across your lights, one solid block when they all share a color
 - **Dot, top-right** — glowing and pulsing while the color fade runs, a hollow ring when idle
-- **Pattern glyph, upper-right** — three stepped bars for a gradient across your lights, one solid block when they all share a color
-- **Fader, along the bottom** — the pool's brightness, with the exact percentage; it dims when every light is off, since the level is then only what the lights will return to
-- **The wave** drifts gently, and speeds up while the fade is running
+- **Fader, along the bottom** — the pool's brightness; it dims when every light is off, since the level is then only what the lights will return to
+- **The wave** drifts gently behind it all, and speeds up while the fade is running
 
 Press it to cycle palettes.
 
