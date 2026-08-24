@@ -5,7 +5,7 @@
     <label for="dir">Direction</label>
     <select id="dir"><option value="next">Next palette</option><option value="prev">Previous palette</option></select>
   </div>
-  <p class="hint">Cycles Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset.</p>
+  <p class="hint">Steps through all 13 palettes. The key shows the palette you will land on, with its colors, so you can see the change before you make it.</p>
   <script>
     const sel = document.getElementById('dir');
     document.addEventListener('pi-ready', (e) => { if (e.detail.direction) sel.value = e.detail.direction; });

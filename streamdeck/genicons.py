@@ -193,6 +193,27 @@ def dance(on):
         return c,a
     return f
 
+def gradient(on):
+    """Pattern icon. `on` = gradient spread across lights: three separated bars
+    each a different hue. Off = one solid block, a single shared colour. The
+    same shapes the Status key uses, so the two read as one language."""
+    def f(nx,ny):
+        c,a = grid_bg(nx,ny,None, 1.0 if on else 0.72)
+        if a<=0: return (0,0,0),0.0
+        if on:
+            for i in range(3):
+                yy = -0.40 + i*0.40
+                band = smooth(0.13,0.09,abs(ny-yy))
+                inb = band * smooth(0.62,0.58,abs(nx))
+                if inb>0:
+                    c = over(c, mix(NEON,MAG,i/2.0), 0.96*inb)
+        else:
+            blk = smooth(0.54,0.50,abs(ny)) * smooth(0.62,0.58,abs(nx))
+            if blk>0:
+                c = over(c, mix(NEON,MAG,(nx+1)/2), 0.96*blk)
+        return c,a
+    return f
+
 def brightness(nx,ny):
     c,a = grid_bg(nx,ny,None,0.8)
     if a<=0: return (0,0,0),0.0
@@ -220,6 +241,8 @@ targets=[("actions/pad-off",pad(False)),("actions/pad-on",pad(True)),("actions/p
  ("actions/palette",palette),("actions/palette-key",palette),
  ("actions/dance",dance(True)),("actions/dance-off",dance(False)),("actions/dance-on",dance(True)),
  ("actions/brightness",brightness),("actions/brightness-key",brightness),
+ ("actions/gradient",gradient(True)),
+ ("actions/gradient-off",gradient(False)),("actions/gradient-on",gradient(True)),
  ("plugin",logo),("category",logo)]
 os.makedirs("actions",exist_ok=True)
 for name,fn in targets:

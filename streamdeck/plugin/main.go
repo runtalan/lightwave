@@ -35,6 +35,7 @@ const (
 	actAllOff     = "com.dinksf.lightwave.alloff"
 	actPalette    = "com.dinksf.lightwave.palette"
 	actDance      = "com.dinksf.lightwave.dance"
+	actGradient   = "com.dinksf.lightwave.gradient"
 	actBrightness = "com.dinksf.lightwave.brightness"
 	actStatus     = "com.dinksf.lightwave.status"
 )
@@ -95,6 +96,14 @@ type instance struct {
 	action   string
 	context  string
 	settings settings
+	// custom is set once the user types their own key title in Stream Deck.
+	// Long lamp names ("ClaudiaBulbH6001-C883") do not wrap onto a 72px key,
+	// so the light name is only a starting point: the plugin seeds it, and
+	// from the first manual edit onward it leaves the title alone.
+	custom bool
+	// seeded guards the one-time write of the light name, so a title the user
+	// deliberately cleared is not re-filled on the next state push.
+	seeded bool
 }
 
 type settings struct {
@@ -127,6 +136,8 @@ func (p *plugin) onEvent(ev sd.Event) {
 	case "didReceiveSettings":
 		p.trackContext(ev)
 		p.refreshOne(ev.Context)
+	case "titleParametersDidChange":
+		p.onTitleChanged(ev)
 	case "keyUp":
 		p.trackContext(ev)
 		p.press(ev)
@@ -139,13 +150,45 @@ func (p *plugin) onEvent(ev sd.Event) {
 	}
 }
 
+// onTitleChanged records whether the title on a pad key is the plugin's own
+// seeded light name or something the user typed. Stream Deck sends this both
+// when the plugin sets a title and when a person edits one, so the comparison
+// against the light name is what distinguishes the two.
+func (p *plugin) onTitleChanged(ev sd.Event) {
+	p.mu.Lock()
+	inst := p.contexts[ev.Context]
+	if inst == nil || inst.action != actPad {
+		p.mu.Unlock()
+		return
+	}
+	seeded, st, have := inst.seeded, p.state, p.haveState
+	p.mu.Unlock()
+	if !seeded || !have {
+		return
+	}
+	want := ""
+	if pad := st.Pad(inst.settings.Pad); pad != nil {
+		want = wrapTitle(pad.Name)
+	}
+	p.mu.Lock()
+	// Anything other than the exact string the plugin wrote is the user's.
+	inst.custom = ev.Payload.Title != want
+	p.mu.Unlock()
+}
+
 func (p *plugin) trackContext(ev sd.Event) {
 	var s settings
 	if len(ev.Payload.Settings) > 0 {
 		_ = json.Unmarshal(ev.Payload.Settings, &s)
 	}
 	p.mu.Lock()
-	p.contexts[ev.Context] = &instance{action: ev.Action, context: ev.Context, settings: s}
+	inst := p.contexts[ev.Context]
+	if inst == nil {
+		inst = &instance{context: ev.Context}
+		p.contexts[ev.Context] = inst
+	}
+	// Keep the title bookkeeping: only action and settings come from the event.
+	inst.action, inst.settings = ev.Action, s
 	p.mu.Unlock()
 }
 
@@ -171,6 +214,8 @@ func (p *plugin) press(ev sd.Event) {
 		cmd = "ALL_TOGGLE"
 	case actDance:
 		cmd = "DANCE"
+	case actGradient:
+		cmd = "GRADIENT"
 	case actPalette:
 		if inst.settings.Direction == "prev" {
 			cmd = "PALETTE -1"
@@ -182,15 +227,10 @@ func (p *plugin) press(ev sd.Event) {
 		// which palette is active, so advancing from it is the natural gesture.
 		cmd = "PALETTE +1"
 	case actBrightness:
-		step := inst.settings.Step
-		if step == 0 {
-			step = 10
-		}
-		if inst.settings.Mode == "down" {
-			cmd = "BRIGHTNESS -" + strconv.Itoa(step)
-		} else {
-			cmd = "BRIGHTNESS +" + strconv.Itoa(step)
-		}
+		// Deliberately inert: brightness belongs to the app's slider, and this
+		// key is only a readout. Dial rotation still adjusts it — see rotate() —
+		// because a dial is a slider rather than a button.
+		return
 	default:
 		return
 	}
@@ -268,30 +308,80 @@ func (p *plugin) render(inst *instance, st lw.State) {
 	switch inst.action {
 	case actPad:
 		pad := st.Pad(inst.settings.Pad)
+		p.mu.Lock()
+		custom := inst.custom
+		// Seed the light's name the first time this key is seen, then leave the
+		// title alone so a shorter name typed in Stream Deck survives.
+		seed := !inst.seeded && !custom
+		if seed && pad != nil && pad.Bound {
+			inst.seeded = true
+		}
+		p.mu.Unlock()
 		if pad == nil || !pad.Bound {
-			p.sd.SetTitle(inst.context, "pad "+strconv.Itoa(inst.settings.Pad)+"\nunbound")
+			// Unbound is worth saying, but not at the cost of a title the user
+			// typed — their label stays, and the dark key state carries it.
+			if !custom {
+				p.sd.SetTitle(inst.context, "pad "+strconv.Itoa(inst.settings.Pad)+"\nunbound")
+			}
 			p.sd.SetState(inst.context, 0)
 			return
 		}
-		label := pad.Name
-		if pad.Link == "" {
-			label += "\n(no link)"
+		if seed {
+			label := wrapTitle(pad.Name)
+			if pad.Link == "" {
+				// Appended after wrapping: wrapTitle re-flows on whitespace and
+				// would otherwise swallow this deliberate line break.
+				label += "\n(no link)"
+			}
+			p.sd.SetTitle(inst.context, label)
 		}
-		p.sd.SetTitle(inst.context, wrapTitle(label))
 		if pad.On {
 			p.sd.SetState(inst.context, 1)
 		} else {
 			p.sd.SetState(inst.context, 0)
 		}
 	case actBrightness:
-		p.sd.SetTitle(inst.context, strconv.Itoa(st.Brightness)+"%")
+		// A read-only gauge: the slider owns the value, this reports it.
+		if img, err := render.Level(st.Brightness, st.AnyOn()); err == nil {
+			p.sd.SetImage(inst.context, img)
+		} else {
+			log.Printf("level render: %v", err)
+		}
 	case actPalette:
-		p.sd.SetTitle(inst.context, wrapTitle(st.Palette))
+		// Show where a press lands, not the palette already showing.
+		nav := render.Nav{Forward: inst.settings.Direction != "prev"}
+		if nav.Forward {
+			nav.Name, nav.Swatches = st.NextPalette, swatches(st.NextSwatches)
+		} else {
+			nav.Name, nav.Swatches = st.PrevPalette, swatches(st.PrevSwatches)
+		}
+		if nav.Name == "" {
+			// Older Lightwave that does not send neighbours: fall back to the
+			// current name rather than painting an empty key.
+			p.sd.SetTitle(inst.context, wrapTitle(st.Palette))
+			break
+		}
+		if img, err := render.NavKey(nav); err == nil {
+			p.sd.SetImage(inst.context, img)
+		} else {
+			log.Printf("nav render: %v", err)
+		}
 	case actDance:
+		// Title names the action, not the state: the key says what it will do.
 		if st.Dancing {
 			p.sd.SetState(inst.context, 1)
+			p.sd.SetTitle(inst.context, "Stop\nFade")
 		} else {
 			p.sd.SetState(inst.context, 0)
+			p.sd.SetTitle(inst.context, "Start\nFade")
+		}
+	case actGradient:
+		if st.Gradient {
+			p.sd.SetState(inst.context, 1)
+			p.sd.SetTitle(inst.context, "Use\nSolid")
+		} else {
+			p.sd.SetState(inst.context, 0)
+			p.sd.SetTitle(inst.context, "Use\nGradient")
 		}
 	case actStatus:
 		p.renderStatus(inst, st)
@@ -348,12 +438,15 @@ func (p *plugin) renderStatus(inst *instance, st lw.State) {
 	phase := p.phase
 	p.mu.Unlock()
 	img, err := render.Indicator(render.Status{
-		Palette:  st.Palette,
-		Swatches: sw,
-		Dancing:  st.Dancing,
-		LightsOn: on,
-		Total:    total,
-		Phase:    phase,
+		Palette:    st.Palette,
+		Swatches:   sw,
+		Dancing:    st.Dancing,
+		Gradient:   st.Gradient,
+		Brightness: st.Brightness,
+		OnNames:    st.OnNames(),
+		LightsOn:   on,
+		Total:      total,
+		Phase:      phase,
 	})
 	if err != nil {
 		log.Printf("indicator render: %v", err)
@@ -400,4 +493,13 @@ func (p *plugin) animate() {
 			p.renderStatus(inst, st)
 		}
 	}
+}
+
+// swatches converts wire colours into the renderer's form.
+func swatches(cs []lw.Color) []render.Swatch {
+	out := make([]render.Swatch, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, render.Swatch{R: c.R, G: c.G, B: c.B})
+	}
+	return out
 }

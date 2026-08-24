@@ -34,7 +34,14 @@ type State struct {
 	Brightness int     `json:"brightness"`
 	Palette    string  `json:"palette"`
 	Dancing    bool    `json:"dancing"`
+	Gradient   bool    `json:"gradient"`
 	Swatches   []Color `json:"swatches"`
+	// Palettes either side of the current one, so the next/previous keys can
+	// show their destination rather than the palette already in play.
+	PrevPalette  string  `json:"prevPalette"`
+	NextPalette  string  `json:"nextPalette"`
+	PrevSwatches []Color `json:"prevSwatches"`
+	NextSwatches []Color `json:"nextSwatches"`
 }
 
 // Color is one palette swatch.
@@ -56,6 +63,18 @@ func (s State) CountOn() (on, total int) {
 		}
 	}
 	return on, total
+}
+
+// OnNames returns the names of the lit lights, in pad order. A controller can
+// then name a single lit lamp instead of just counting it.
+func (s State) OnNames() []string {
+	var out []string
+	for i := range s.Pads {
+		if s.Pads[i].Bound && s.Pads[i].On {
+			out = append(out, s.Pads[i].Name)
+		}
+	}
+	return out
 }
 
 // AnyOn reports whether at least one light is currently lit.

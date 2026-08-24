@@ -203,6 +203,20 @@ func (e *Engine) Cycle(dir int) Palette {
 	return e.Palette()
 }
 
+// Peek returns the palette `dir` steps away without moving the cursor, so a
+// controller can label a key with where it will land rather than where it is.
+func (e *Engine) Peek(dir int) Palette {
+	n := len(Palettes)
+	if n == 0 {
+		return Palette{}
+	}
+	i := (e.Index + dir) % n
+	if i < 0 {
+		i += n
+	}
+	return Palettes[i]
+}
+
 func (e *Engine) Name() string {
 	return e.Palette().Name
 }

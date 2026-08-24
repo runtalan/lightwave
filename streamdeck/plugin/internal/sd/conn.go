@@ -33,6 +33,14 @@ type Payload struct {
 	Ticks    int             `json:"ticks"`
 	Pressed  bool            `json:"pressed"`
 	State    int             `json:"state"`
+	// Title carries what Stream Deck is currently showing on the key, and
+	// TitleParameters.ShowTitle whether the user has the title enabled. Both
+	// arrive with titleParametersDidChange, which is how the plugin learns the
+	// user has typed their own label and stops overwriting it.
+	Title           string `json:"title"`
+	TitleParameters struct {
+		ShowTitle bool `json:"showTitle"`
+	} `json:"titleParameters"`
 }
 
 type Conn struct {

@@ -227,12 +227,13 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 
 | Action | What it does |
 |---|---|
-| **Status** | Live display: palette name, its actual colors, fade state, and how many lights are on |
+| **Status** | Live display: palette name, its actual colors, brightness, pattern, fade state, and how many lights are on |
 | **Light** | Toggle one light; the key shows its name and lights up when on |
 | **All Lights** | Everything off — or back on when all are off |
 | **Brightness** | Nudge up or down; on **Stream Deck +**, turn the dial |
 | **Palette** | Cycle color palettes |
 | **Color Fade** | Start or stop the slow fade |
+| **Pattern** | One shared color, or a gradient spread across your lights |
 
 ### The Status key
 
@@ -243,6 +244,8 @@ A live, animated readout of your lighting, drawn in the Lightwave style — neon
 - **Palette name and swatches** — the exact colors currently in play
 - **Pips, top-left** — one per bound light, lit when that light is on
 - **Dot, top-right** — glowing and pulsing while the color fade runs, a hollow ring when idle
+- **Pattern glyph, upper-right** — three stepped bars for a gradient across your lights, one solid block when they all share a color
+- **Fader, along the bottom** — the pool's brightness, with the exact percentage; it dims when every light is off, since the level is then only what the lights will return to
 - **The wave** drifts gently, and speeds up while the fade is running
 
 Press it to cycle palettes.
