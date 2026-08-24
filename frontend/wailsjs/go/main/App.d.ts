@@ -36,6 +36,8 @@ export function GetDevices():Promise<Array<govee.Device>>;
 
 export function GetPaletteIndex():Promise<number>;
 
+export function GetPlugs():Promise<Array<main.PlugView>>;
+
 export function GetSlots():Promise<Array<main.SlotView>>;
 
 export function GetState():Promise<main.HUDState>;
@@ -88,6 +90,8 @@ export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
 export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 
+export function SetPlugOn(arg1:number,arg2:boolean):Promise<void>;
+
 export function SetTapoCredentials(arg1:string,arg2:string):Promise<void>;
 
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
@@ -105,6 +109,8 @@ export function ToggleAll():Promise<main.HUDState>;
 export function ToggleDance():Promise<main.HUDState>;
 
 export function ToggleGradient():Promise<main.HUDState>;
+
+export function TogglePlug(arg1:number):Promise<void>;
 
 export function ToggleSlot(arg1:number):Promise<void>;
 

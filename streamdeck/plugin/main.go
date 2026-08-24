@@ -159,6 +159,9 @@ type padOption struct {
 	Pad   int    `json:"pad"`
 	Name  string `json:"name"`
 	Bound bool   `json:"bound"`
+	// Plug lets the inspector group plugs under their own heading rather than
+	// mixing them into the numpad layout, which has a fixed shape.
+	Plug bool `json:"plug,omitempty"`
 }
 
 // sendPads hands the Property Inspector the nine pads with whatever Lightwave
@@ -179,7 +182,7 @@ func (p *plugin) sendPads(ev sd.Event) {
 			st, have = fresh, true
 		}
 	}
-	opts := make([]padOption, 0, 9)
+	opts := make([]padOption, 0, 12)
 	for n := 1; n <= 9; n++ {
 		o := padOption{Pad: n, Name: "Pad " + strconv.Itoa(n)}
 		if have {
@@ -188,6 +191,21 @@ func (p *plugin) sendPads(ev sd.Event) {
 			}
 		}
 		opts = append(opts, o)
+	}
+	// Plugs follow the numpad nine. They are only listed when Lightwave
+	// reports them, so the dropdown never offers a pad that cannot be driven.
+	if have {
+		for i := range st.Pads {
+			p := st.Pads[i]
+			if p.Number < 10 {
+				continue
+			}
+			name := strings.TrimSpace(p.Name)
+			if name == "" {
+				name = "Plug " + strconv.Itoa(p.Number)
+			}
+			opts = append(opts, padOption{Pad: p.Number, Name: name, Bound: p.Bound, Plug: true})
+		}
 	}
 	p.sd.SendToPropertyInspector(ev.Context, ev.Action, map[string]any{"pads": opts})
 }
@@ -246,7 +264,9 @@ func (p *plugin) press(ev sd.Event) {
 	var cmd string
 	switch inst.action {
 	case actPad:
-		if inst.settings.Pad < 1 || inst.settings.Pad > 9 {
+		// Pads past nine are plugs; Lightwave rejects an unbound number, so
+		// the plugin only has to refuse one that was never configured.
+		if inst.settings.Pad < 1 {
 			p.sd.ShowAlert(ev.Context)
 			log.Printf("pad action on %s has no pad configured", ev.Context)
 			return

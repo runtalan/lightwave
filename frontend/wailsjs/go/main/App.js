@@ -62,6 +62,10 @@ export function GetPaletteIndex() {
   return window['go']['main']['App']['GetPaletteIndex']();
 }
 
+export function GetPlugs() {
+  return window['go']['main']['App']['GetPlugs']();
+}
+
 export function GetSlots() {
   return window['go']['main']['App']['GetSlots']();
 }
@@ -166,6 +170,10 @@ export function SetLaunchAtLogin(arg1) {
   return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
 }
 
+export function SetPlugOn(arg1, arg2) {
+  return window['go']['main']['App']['SetPlugOn'](arg1, arg2);
+}
+
 export function SetTapoCredentials(arg1, arg2) {
   return window['go']['main']['App']['SetTapoCredentials'](arg1, arg2);
 }
@@ -200,6 +208,10 @@ export function ToggleDance() {
 
 export function ToggleGradient() {
   return window['go']['main']['App']['ToggleGradient']();
+}
+
+export function TogglePlug(arg1) {
+  return window['go']['main']['App']['TogglePlug'](arg1);
 }
 
 export function ToggleSlot(arg1) {

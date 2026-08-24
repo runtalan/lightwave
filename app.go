@@ -106,6 +106,7 @@ type HUDState struct {
 	DeviceCount     int            `json:"deviceCount"`
 	NeedsSetup      bool           `json:"needsSetup"`
 	SetupOpen       bool           `json:"setupOpen"`
+	Plugs           []PlugView     `json:"plugs"`
 	HasAPIKey       bool           `json:"hasApiKey"`
 	DiscoverError   string         `json:"discoverError"`
 	Discovering     bool           `json:"discovering"`
@@ -124,35 +125,35 @@ type HUDState struct {
 }
 
 type SettingsView struct {
-	MidiCC          int      `json:"midiCC"`
-	MidiCCAlt       int      `json:"midiCCAlt"`
-	MidiNotePlus    int      `json:"midiNotePlus"`
-	MidiNoteMinus   int      `json:"midiNoteMinus"`
-	MidiNoteRecall  int      `json:"midiNoteRecall"`
-	MidiChanCC      int      `json:"midiChanCC"`
-	MidiChanPalette int      `json:"midiChanPalette"`
-	MidiChanRecall  int      `json:"midiChanRecall"`
-	MidiCCMin       int      `json:"midiCCMin"`
-	MidiCCMax       int      `json:"midiCCMax"`
-	IdleHideSeconds int      `json:"idleHideSeconds"`
-	HasEnvKey       bool     `json:"hasEnvKey"`
-	HasConfigKey    bool     `json:"hasConfigKey"`
-	HasAPIKey       bool     `json:"hasApiKey"`
+	MidiCC          int  `json:"midiCC"`
+	MidiCCAlt       int  `json:"midiCCAlt"`
+	MidiNotePlus    int  `json:"midiNotePlus"`
+	MidiNoteMinus   int  `json:"midiNoteMinus"`
+	MidiNoteRecall  int  `json:"midiNoteRecall"`
+	MidiChanCC      int  `json:"midiChanCC"`
+	MidiChanPalette int  `json:"midiChanPalette"`
+	MidiChanRecall  int  `json:"midiChanRecall"`
+	MidiCCMin       int  `json:"midiCCMin"`
+	MidiCCMax       int  `json:"midiCCMax"`
+	IdleHideSeconds int  `json:"idleHideSeconds"`
+	HasEnvKey       bool `json:"hasEnvKey"`
+	HasConfigKey    bool `json:"hasConfigKey"`
+	HasAPIKey       bool `json:"hasApiKey"`
 	// Tapo presence only. The account password never crosses to the UI; the
 	// Plugs tab shows whether one is stored and where it came from.
-	TapoEmail      string `json:"tapoEmail"`
-	HasTapoEnv     bool   `json:"hasTapoEnv"`
-	HasTapoConfig  bool   `json:"hasTapoConfig"`
-	HasTapoCreds   bool   `json:"hasTapoCreds"`
-	EnvPath         string   `json:"envPath"`
-	ConfigPath      string   `json:"configPath"`
-	MappingPath     string   `json:"mappingPath"`
-	WebEnabled      bool     `json:"webEnabled"`
-	LaunchAtLogin   bool     `json:"launchAtLogin"`
-	WebAddr         string   `json:"webAddr"`
-	WebRunning      bool     `json:"webRunning"`
-	WebHasToken     bool     `json:"webHasToken"`
-	WebURLs         []string `json:"webUrls"`
+	TapoEmail     string   `json:"tapoEmail"`
+	HasTapoEnv    bool     `json:"hasTapoEnv"`
+	HasTapoConfig bool     `json:"hasTapoConfig"`
+	HasTapoCreds  bool     `json:"hasTapoCreds"`
+	EnvPath       string   `json:"envPath"`
+	ConfigPath    string   `json:"configPath"`
+	MappingPath   string   `json:"mappingPath"`
+	WebEnabled    bool     `json:"webEnabled"`
+	LaunchAtLogin bool     `json:"launchAtLogin"`
+	WebAddr       string   `json:"webAddr"`
+	WebRunning    bool     `json:"webRunning"`
+	WebHasToken   bool     `json:"webHasToken"`
+	WebURLs       []string `json:"webUrls"`
 }
 
 type App struct {
@@ -169,6 +170,7 @@ type App struct {
 	slots      []config.SlotBinding
 	configured bool
 	setupOpen  bool
+	plugs      *plugManager
 	// mapDirty is set by pad edits that live only in memory (AssignSlot,
 	// MoveSlot) and cleared by CommitMappings. Escape uses it to decide
 	// whether leaving config would discard work.
@@ -264,6 +266,7 @@ func NewApp(forceSetup bool) *App {
 	if a.setupOpen {
 		a.sizedMode = 2
 	}
+	a.plugs = newPlugManager()
 	a.pendingBright.Store(80)
 	a.lastSentBright = -1
 	for _, s := range a.slots {
@@ -368,6 +371,10 @@ func (a *App) startup(ctx context.Context) {
 	go a.refreshDevices()
 	go a.inactivityLoop()
 	go a.statusPollLoop()
+	// Plugs poll on their own cadence: a TCP session per query, and a binary
+	// state nobody watches as closely as a dimmer.
+	a.loadPlugsFromConfig()
+	go a.plugPollLoop()
 	go func() {
 		t := time.NewTicker(45 * time.Second)
 		defer t.Stop()
@@ -392,6 +399,9 @@ func (a *App) shutdown(ctx context.Context) {
 	case <-a.stop:
 	default:
 		close(a.stop)
+	}
+	if a.plugs != nil {
+		a.plugs.close()
 	}
 	if a.midi != nil {
 		a.midi.Close()
@@ -1108,18 +1118,21 @@ func (a *App) snapshotLocked() HUDState {
 		ok, port = a.midiOK, a.midiPort
 	}
 	return HUDState{
-		Slots:           views,
-		ActivePool:      pool,
-		Brightness:      clampBrightness(a.brightness),
-		PaletteIndex:    a.engine.Index,
-		PaletteName:     a.engine.Name(),
-		Dancing:         a.dancing,
-		Gradient:        a.gradient,
-		MIDIConnected:   ok,
-		MIDIPort:        port,
-		DeviceCount:     len(a.catalog),
-		NeedsSetup:      a.setupOpen,
-		SetupOpen:       a.setupOpen,
+		Slots:         views,
+		ActivePool:    pool,
+		Brightness:    clampBrightness(a.brightness),
+		PaletteIndex:  a.engine.Index,
+		PaletteName:   a.engine.Name(),
+		Dancing:       a.dancing,
+		Gradient:      a.gradient,
+		MIDIConnected: ok,
+		MIDIPort:      port,
+		DeviceCount:   len(a.catalog),
+		NeedsSetup:    a.setupOpen,
+		SetupOpen:     a.setupOpen,
+		// views() locks only the plug manager, never a.mu, so this is safe
+		// under the snapshot lock.
+		Plugs:           a.plugViewsLocked(),
 		ConfigOpen:      a.setupOpen,
 		MapDirty:        a.mapDirty,
 		HasAPIKey:       a.apiKeyLocked() != "",
@@ -1303,6 +1316,14 @@ func (a *App) recordUserActivity() {
 }
 
 func (a *App) ToggleSlot(n int) error {
+	// Pads past the numpad's nine are plugs. Routing here keeps every caller
+	// — HUD, MIDI, IPC, Stream Deck — on one entry point without any of them
+	// needing to know which kind of device a pad holds. Only a pad that
+	// actually holds a plug routes: an unbound high number is out of range,
+	// and saying so beats blaming a missing account for a typo'd pad.
+	if n >= config.FirstPlugPad && a.plugs != nil && a.plugs.isPlugPad(n) {
+		return a.TogglePlug(n)
+	}
 	if n < 1 || n > 9 {
 		return fmt.Errorf("slot must be 1-9")
 	}
@@ -1393,6 +1414,16 @@ func (a *App) ToggleAll() HUDState {
 	a.mu.Lock()
 	anyLit := len(a.pool) > 0
 	a.mu.Unlock()
+	// A room with only plugs on is not "everything off", so the first press
+	// should darken it rather than turn the lights on as well.
+	if !anyLit && a.plugs != nil {
+		for _, p := range a.plugs.views() {
+			if p.On {
+				anyLit = true
+				break
+			}
+		}
+	}
 	if anyLit {
 		return a.AllOff()
 	}
@@ -1485,9 +1516,31 @@ func (a *App) AllOff() HUDState {
 	for _, ip := range ips {
 		_ = sendTurn(ip, false)
 	}
+	// Plugs are part of "everything off". They never join a.pool — only lights
+	// do — so they are switched here explicitly rather than falling out of the
+	// pool walk above. Recall deliberately does not restore them: a plug has
+	// no scene to come back to.
+	a.allPlugsOff()
 	a.emitState()
 	a.emit("pool:alloff")
 	return a.snapshot()
+}
+
+// allPlugsOff switches every bound plug off, one at a time. Failures are
+// logged rather than returned: one unreachable plug must not make All Off
+// look like it failed when every light did go dark.
+func (a *App) allPlugsOff() {
+	if a.plugs == nil || !a.plugs.configured() {
+		return
+	}
+	for _, p := range a.plugs.views() {
+		if !p.On {
+			continue
+		}
+		if err := a.plugs.setOn(p.Pad, false); err != nil {
+			log.Printf("plug %d off: %v", p.Pad, err)
+		}
+	}
 }
 
 // rememberPoolLocked snapshots the lit pads before they are extinguished, so

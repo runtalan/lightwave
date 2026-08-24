@@ -58,9 +58,44 @@ func (s SlotBinding) Label() string {
 	return s.Name
 }
 
+// PlugBinding is one Tapo plug on a pad. Plugs live outside Slots on purpose:
+// the light paths clamp their iteration at 9 (poolDestsLocked, AllOn), so
+// keeping plugs in a separate list is what stops brightness, gradient and the
+// colour fade from ever trying to drive one.
+//
+// Pad numbering continues past the numpad's nine, so a plug is addressable
+// from the Stream Deck without inventing a second identifier scheme.
+type PlugBinding struct {
+	Pad      int    `json:"pad"`
+	DeviceID string `json:"deviceId"` // MAC, normalised
+	Name     string `json:"name"`
+	Model    string `json:"model"`
+	IP       string `json:"ip"`
+	// Custom is a name the user typed; discovery refreshes Name.
+	Custom string `json:"custom,omitempty"`
+}
+
+// Label is the name to show: the rename when set, else what discovery found.
+func (p PlugBinding) Label() string {
+	if strings.TrimSpace(p.Custom) != "" {
+		return p.Custom
+	}
+	if strings.TrimSpace(p.Name) != "" {
+		return p.Name
+	}
+	return "Plug"
+}
+
+// FirstPlugPad is the lowest pad number a plug can take. 1-9 belong to the
+// numpad lights and must stay untouched.
+const FirstPlugPad = 10
+
 type SlotFile struct {
 	Configured bool          `json:"configured"`
 	Slots      []SlotBinding `json:"slots"`
+	// Plugs is absent in files written before Tapo support, which unmarshals
+	// to nil and reads as "no plugs" — no migration needed.
+	Plugs []PlugBinding `json:"plugs,omitempty"`
 }
 
 type legacyMap struct {
@@ -503,6 +538,7 @@ func LoadSlotFile() SlotFile {
 		var f SlotFile
 		if err := json.Unmarshal(b, &f); err == nil && (f.Configured || len(f.Slots) > 0) {
 			f.Slots = normalizeSlots(f.Slots)
+			f.Plugs = normalizePlugs(f.Plugs)
 			return f
 		}
 		var legacy legacyMap
@@ -561,8 +597,31 @@ func NeedsSetup(f SlotFile) bool {
 	return true
 }
 
+// NormalizePlugs drops unbound entries and anything that strayed below the
+// plug range, so a malformed file cannot put a plug on a light's pad. Exported
+// so callers can sanitise a list before saving it.
+func NormalizePlugs(in []PlugBinding) []PlugBinding { return normalizePlugs(in) }
+
+// normalizePlugs drops unbound entries and anything that strayed below the
+// plug range, so a malformed file cannot put a plug on a light's pad.
+func normalizePlugs(in []PlugBinding) []PlugBinding {
+	out := make([]PlugBinding, 0, len(in))
+	seen := map[int]bool{}
+	for _, p := range in {
+		p.DeviceID = strings.ToUpper(strings.TrimSpace(p.DeviceID))
+		p.IP = strings.TrimSpace(p.IP)
+		if p.Pad < FirstPlugPad || p.DeviceID == "" || seen[p.Pad] {
+			continue
+		}
+		seen[p.Pad] = true
+		out = append(out, p)
+	}
+	return out
+}
+
 func SaveSlotFile(f SlotFile) error {
 	f.Slots = normalizeSlots(f.Slots)
+	f.Plugs = normalizePlugs(f.Plugs)
 	b, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err

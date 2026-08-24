@@ -133,6 +133,30 @@ export namespace main {
 	        this.webUrls = source["webUrls"];
 	    }
 	}
+	export class PlugView {
+	    pad: number;
+	    name: string;
+	    model: string;
+	    ip: string;
+	    bound: boolean;
+	    on: boolean;
+	    online: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlugView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pad = source["pad"];
+	        this.name = source["name"];
+	        this.model = source["model"];
+	        this.ip = source["ip"];
+	        this.bound = source["bound"];
+	        this.on = source["on"];
+	        this.online = source["online"];
+	    }
+	}
 	export class SlotView {
 	    number: number;
 	    deviceId: string;
@@ -168,6 +192,7 @@ export namespace main {
 	    deviceCount: number;
 	    needsSetup: boolean;
 	    setupOpen: boolean;
+	    plugs: PlugView[];
 	    hasApiKey: boolean;
 	    discoverError: string;
 	    discovering: boolean;
@@ -200,6 +225,7 @@ export namespace main {
 	        this.deviceCount = source["deviceCount"];
 	        this.needsSetup = source["needsSetup"];
 	        this.setupOpen = source["setupOpen"];
+	        this.plugs = this.convertValues(source["plugs"], PlugView);
 	        this.hasApiKey = source["hasApiKey"];
 	        this.discoverError = source["discoverError"];
 	        this.discovering = source["discovering"];
@@ -235,6 +261,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 
 }
