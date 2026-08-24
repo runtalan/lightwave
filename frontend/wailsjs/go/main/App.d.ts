@@ -81,6 +81,8 @@ export function StartWindowDrag():Promise<void>;
 
 export function ToggleDance():Promise<main.HUDState>;
 
+export function ToggleGradient():Promise<main.HUDState>;
+
 export function ToggleSlot(arg1:number):Promise<void>;
 
 export function ToggleWindow():Promise<void>;

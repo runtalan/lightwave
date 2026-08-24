@@ -4,6 +4,7 @@ import {
   CycleColor,
   Quit,
   ToggleDance,
+  ToggleGradient,
   HideHUD,
   OpenConfig,
   ToggleSlot,
@@ -80,9 +81,12 @@ export function HUD({ state }: Props) {
         void CycleColor(1)
         return
       }
+      // Minus switches the scene style rather than cycling the palette
+      // backwards; plus still walks the palette and wraps, so every palette
+      // stays reachable.
       if (e.code === 'NumpadSubtract' || e.key === '-') {
         e.preventDefault()
-        void CycleColor(-1)
+        void ToggleGradient()
         return
       }
       if (e.key === ',' || e.key === 'g' || e.key === 'G') {
@@ -117,9 +121,12 @@ export function HUD({ state }: Props) {
           <span>color fades</span>
         </li>
         <li>
-          <kbd>-</kbd>
           <kbd>+</kbd>
           <span>palette</span>
+        </li>
+        <li>
+          <kbd className={state.gradient ? 'live' : ''}>-</kbd>
+          <span>{state.gradient ? 'gradient' : 'single'}</span>
         </li>
         <li>
           <kbd>0</kbd>
@@ -162,7 +169,7 @@ export function HUD({ state }: Props) {
         <span className={state.midiConnected ? 'ok' : 'dim'}>
           {state.midiConnected ? `midi · ${state.midiPort}` : 'midi silent'}
         </span>
-        <span className="dim">+/− color · 1–9 pool</span>
+        <span className="dim">+ color · − {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
       </footer>
     </div>
   )

@@ -32,7 +32,8 @@ The cloud is used for exactly one thing: reading your light *names* during setup
 | **1–9** | Toggle that light on or off |
 | **0** | Toggle every light — all off, or all back on |
 | **Slider / dial** | Dim every lit light together, smoothly |
-| **+ / −** | Cycle color palettes |
+| **+** | Cycle color palettes |
+| **−** | Switch between single-color and gradient scenes |
 | **\*** | Start or stop a slow color fade across the room |
 | **Enter** | Hide the window (it keeps running) |
 | **.** | Quit |
@@ -44,6 +45,17 @@ Lights that are on glow on screen, so the window is a live map of the room. If y
 Eight built-in palettes: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, and Sunset.
 
 When several lights are on, they don't all get the same color — Lightwave spreads related shades across the group, so a room reads as *composed* rather than uniform. Press `*` and those colors drift slowly through the palette, each light offset from the next.
+
+### Single or gradient scenes
+
+Press `−` to switch between the two scene styles:
+
+- **Single** — every light gets one color from the palette.
+- **Gradient** — RGBIC strips get a *multi-color* scene instead: the palette is painted across the strip's length as a smooth ramp, so one strip shows several related shades at once. Each strip starts its ramp at a different point in the palette, so two strips in a room complement rather than mirror each other.
+
+Gradient mode stays inside the palette you picked — it's the same theme, spread out in space rather than collapsed to one color. It also works while the `*` fade is running, in which case the gradient travels along the strip.
+
+Lights that can't show more than one color at a time — single-zone bulbs, and anything on Wi-Fi, since Govee's LAN API has no multi-zone command — fall back to the middle color of the ramp, which is the color they would have shown in single mode. Nothing goes dark, and gradient mode is safe to leave on with a mixed set of lights.
 
 ---
 

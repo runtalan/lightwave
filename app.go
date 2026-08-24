@@ -109,6 +109,7 @@ type HUDState struct {
 	MappingPath   string         `json:"mappingPath"`
 	ConfigOpen    bool           `json:"configOpen"`
 	Dancing       bool           `json:"dancing"`
+	Gradient      bool           `json:"gradient"`
 	Settings      SettingsView   `json:"settings"`
 }
 
@@ -174,6 +175,9 @@ type App struct {
 	hiddenAt        time.Time
 	dancing         bool
 	danceGen        int
+	// gradient selects the scene style: false paints each lamp one colour,
+	// true spreads a themed ramp across each strip's zones.
+	gradient bool
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
 	// report a new power state, and believing a stale reply would toggle the
@@ -394,7 +398,9 @@ func (a *App) drainMIDI() bool {
 		if note == plus {
 			a.CycleColor(1)
 		} else if note == minus {
-			a.CycleColor(-1)
+			// Matches the minus key on the HUD: palette on plus, scene style
+			// on minus.
+			a.ToggleGradient()
 		}
 		activity = true
 	}
@@ -809,15 +815,25 @@ func (a *App) danceLoop(gen int) {
 		}
 		pal := a.engine.Palette()
 		ips := a.poolIPsLocked()
+		grad := a.gradient
 		a.mu.Unlock()
 
 		if len(ips) == 0 {
 			continue
 		}
 		phase := time.Since(start).Seconds() / dancePeriod.Seconds()
+		// One swatch of separation per lamp, expressed as a fraction of the
+		// tour so both styles offset the group identically.
+		lampStep := 1.0 / float64(len(pal.Colors))
 		for i, ip := range ips {
 			// Offsetting each lamp by one swatch keeps the group in adjacent
 			// parts of the palette: a moving gradient, not clones.
+			if grad {
+				// The whole ramp drifts along the palette, so a strip shows a
+				// travelling gradient rather than one drifting colour.
+				_ = govee.SendGradient(ip, pal.GradientAt(phase+float64(i)*lampStep, govee.GradientBands))
+				continue
+			}
 			c := pal.Walk(i, phase)
 			_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
 		}
@@ -940,6 +956,7 @@ func (a *App) snapshotLocked() HUDState {
 		PaletteIndex:  a.engine.Index,
 		PaletteName:   a.engine.Name(),
 		Dancing:       a.dancing,
+		Gradient:      a.gradient,
 		MIDIConnected: ok,
 		MIDIPort:      port,
 		DeviceCount:   len(a.catalog),
@@ -1339,23 +1356,82 @@ func (a *App) brightnessPump() {
 // spread. Skipped while the dance animation owns the colors.
 func (a *App) applyPaletteToPool() {
 	a.mu.Lock()
-	if a.dancing {
-		a.mu.Unlock()
+	dancing := a.dancing
+	a.mu.Unlock()
+	if dancing {
 		return
 	}
+	a.paintScene(false)
+}
+
+// paintScene writes the current palette across the pool in whichever style is
+// selected: one colour per lamp in single mode, or a themed gradient spread
+// across each strip's zones in gradient mode. Each lamp starts its ramp one
+// swatch further along, so a room reads as composed rather than as the same
+// gradient repeated.
+//
+// turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
+// may have been switched off at the wall); repainting lamps that are already
+// lit does not, so a repaint never turns anything back on.
+func (a *App) paintScene(turnOn bool) {
+	a.mu.Lock()
 	ips := a.poolIPsLocked()
-	swatches := a.engine.Distribute(len(ips))
+	grad := a.gradient
+	var swatches []color.RGBK
+	var ramps [][]color.RGBK
+	if grad {
+		pal := a.engine.Palette()
+		ramps = make([][]color.RGBK, len(ips))
+		for i := range ips {
+			ramps[i] = pal.Gradient(i, govee.GradientBands)
+		}
+	} else {
+		swatches = a.engine.Distribute(len(ips))
+	}
 	a.mu.Unlock()
-	if len(swatches) == 0 {
+	if !grad && len(swatches) == 0 {
 		return
 	}
 	for i, ip := range ips {
+		if turnOn {
+			_ = govee.SendTurn(ip, true)
+		}
+		if grad {
+			_ = govee.SendGradient(ip, ramps[i])
+			continue
+		}
 		c := swatches[0]
 		if i < len(swatches) {
 			c = swatches[i]
 		}
 		_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
 	}
+}
+
+// ToggleGradient switches between a single colour per lamp and a multi-colour
+// gradient across each strip, then repaints the pool so the change is visible
+// at once. Bound to the minus key.
+func (a *App) ToggleGradient() HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("gradient toggle recovered: %v", r)
+		}
+	}()
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.gradient = !a.gradient
+	on := a.gradient
+	dancing := a.dancing
+	a.mu.Unlock()
+
+	// While dancing, the animation loop owns the colours and will pick the new
+	// style up on its next tick; repainting here would only fight it.
+	if !dancing {
+		a.paintScene(false)
+	}
+	a.emitState()
+	a.emit("gradient:toggle", on)
+	return a.snapshot()
 }
 
 func (a *App) CycleColor(direction int) HUDState {
@@ -1370,17 +1446,8 @@ func (a *App) CycleColor(direction int) HUDState {
 	a.recordUserActivity()
 	a.mu.Lock()
 	pal := a.engine.Cycle(direction)
-	ips := a.poolIPsLocked()
-	swatches := a.engine.Distribute(len(ips))
 	a.mu.Unlock()
-	for i, ip := range ips {
-		c := swatches[0]
-		if i < len(swatches) {
-			c = swatches[i]
-		}
-		_ = govee.SendTurn(ip, true)
-		_ = govee.SendColor(ip, c.R, c.G, c.B, c.Kelvin)
-	}
+	a.paintScene(true)
 	a.emitState()
 	a.emit("color:cycle", pal.Name)
 	return a.snapshot()

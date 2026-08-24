@@ -43,6 +43,7 @@ export type HUDState = {
   setupOpen: boolean
   configOpen: boolean
   dancing: boolean
+  gradient: boolean
   hasApiKey: boolean
   discoverError: string
   discovering: boolean
@@ -120,6 +121,7 @@ export function emptyState(): HUDState {
     setupOpen: true,
     configOpen: true,
     dancing: false,
+    gradient: false,
     hasApiKey: false,
     discoverError: '',
     discovering: false,

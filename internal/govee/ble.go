@@ -97,11 +97,48 @@ func blePacketColorLegacy(r, g, b int) []byte {
 	return blePacket([]byte{0x33, 0x05, 0x02, byte(r), byte(g), byte(b)})
 }
 
-// blePacketColorSegment drives RGBIC models, which ignore mode 0x02: mode
-// 0x15 sub 0x01 with a two-byte bitmask selecting every segment.
-func blePacketColorSegment(r, g, b int) []byte {
+// bleSegments is how many addressable zones the segment command reaches: the
+// two mask bytes carry 15 usable bits (0x7FFF), one per zone.
+const bleSegments = 15
+
+// allSegments selects every zone — the whole-strip mask.
+const allSegments uint16 = 0x7FFF
+
+// GradientBands is how many colours a strip scene is painted with. Each band
+// becomes one BLE write, so this trades smoothness against radio time: 8 reads
+// as a continuous ramp across a strip while leaving the 900ms dance step ample
+// room, even with several strips sharing the adapter.
+const GradientBands = 8
+
+// blePacketColorSegmentMask drives RGBIC models, which ignore mode 0x02: mode
+// 0x15 sub 0x01, with the trailing two bytes selecting which zones the colour
+// applies to. Addressing subsets is what makes a multi-colour scene possible —
+// one write per band rather than one colour for the whole strip.
+func blePacketColorSegmentMask(r, g, b int, mask uint16) []byte {
 	return blePacket([]byte{0x33, 0x05, 0x15, 0x01, byte(r), byte(g), byte(b),
-		0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x7F})
+		0x00, 0x00, 0x00, 0x00, 0x00, byte(mask), byte(mask >> 8)})
+}
+
+// blePacketColorSegment paints every zone one colour.
+func blePacketColorSegment(r, g, b int) []byte {
+	return blePacketColorSegmentMask(r, g, b, allSegments)
+}
+
+// bleSegmentMasks splits the strip into n contiguous bands and returns one
+// zone-selection mask per band. Every zone lands in exactly one band, so a
+// scene covers the whole strip with no gaps and no zone written twice.
+func bleSegmentMasks(n int) []uint16 {
+	if n <= 0 {
+		return nil
+	}
+	if n > bleSegments {
+		n = bleSegments
+	}
+	out := make([]uint16, n)
+	for zone := 0; zone < bleSegments; zone++ {
+		out[zone*n/bleSegments] |= 1 << uint(zone)
+	}
+	return out
 }
 
 // Discovery helpers.

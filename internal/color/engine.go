@@ -208,3 +208,31 @@ func (p Palette) Walk(offset int, t float64) RGBK {
 	b := p.Colors[((offset+i+1)%n+n)%n]
 	return Lerp(a, b, frac)
 }
+
+// GradientAt samples n colours along a looped tour of the palette beginning at
+// phase t (0..1). It is the multi-colour counterpart to Walk: where Walk gives
+// one lamp one colour, this fills a strip's zones with a themed ramp. The tour
+// is a loop rather than a first-to-last ramp, so the two ends of the strip meet
+// on the same colour instead of showing a seam.
+func (p Palette) GradientAt(t float64, n int) []RGBK {
+	if n <= 0 || len(p.Colors) == 0 {
+		return nil
+	}
+	out := make([]RGBK, n)
+	for i := 0; i < n; i++ {
+		// Walk wraps its phase, so a fraction of the tour per zone keeps the
+		// spread even no matter how many zones are asked for.
+		out[i] = p.Walk(0, t+float64(i)/float64(n))
+	}
+	return out
+}
+
+// Gradient samples n colours starting from swatch `offset`. Giving each strip
+// in the pool a different offset keeps a room composed — related ramps out of
+// the same palette rather than the identical gradient repeated.
+func (p Palette) Gradient(offset, n int) []RGBK {
+	if len(p.Colors) == 0 {
+		return nil
+	}
+	return p.GradientAt(float64(offset)/float64(len(p.Colors)), n)
+}

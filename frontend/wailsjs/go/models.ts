@@ -145,6 +145,7 @@ export namespace main {
 	    mappingPath: string;
 	    configOpen: boolean;
 	    dancing: boolean;
+	    gradient: boolean;
 	    settings: SettingsView;
 	
 	    static createFrom(source: any = {}) {
@@ -172,6 +173,7 @@ export namespace main {
 	        this.mappingPath = source["mappingPath"];
 	        this.configOpen = source["configOpen"];
 	        this.dancing = source["dancing"];
+	        this.gradient = source["gradient"];
 	        this.settings = this.convertValues(source["settings"], SettingsView);
 	    }
 	

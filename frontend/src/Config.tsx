@@ -372,7 +372,7 @@ function MidiPane({
         />
       </label>
       <label className="field">
-        <span>Color − note</span>
+        <span>Gradient toggle note</span>
         <input
           type="number"
           min={0}
