@@ -156,6 +156,14 @@ type Settings struct {
 	MidiCCMax       int    `json:"midiCCMax"`
 	IdleHideSeconds int    `json:"idleHideSeconds"`
 	GoveeAPIKey     string `json:"goveeApiKey,omitempty"`
+	// TapoEmail / TapoPassword are the TP-Link account the plugs were
+	// provisioned with. KLAP hashes them locally and talks only to the plug,
+	// so nothing reaches TP-Link — but this is a full account password at
+	// rest, unlike the scoped and revocable Govee key. Env wins over config,
+	// matching GoveeAPIKey, so a shared machine can keep them out of the
+	// settings file entirely.
+	TapoEmail    string `json:"tapoEmail,omitempty"`
+	TapoPassword string `json:"tapoPassword,omitempty"`
 	// WebEnabled starts the phone control server at launch. Off by default:
 	// nothing binds a port until the user asks for it.
 	WebEnabled bool `json:"webEnabled"`
@@ -188,6 +196,8 @@ type settingsFile struct {
 	MidiCCMax       *int    `json:"midiCCMax"`
 	IdleHideSeconds *int    `json:"idleHideSeconds"`
 	GoveeAPIKey     *string `json:"goveeApiKey"`
+	TapoEmail       *string `json:"tapoEmail"`
+	TapoPassword    *string `json:"tapoPassword"`
 	WebEnabled      *bool   `json:"webEnabled"`
 	WebAddr         *string `json:"webAddr"`
 	WebToken        *string `json:"webToken"`
@@ -197,6 +207,31 @@ type settingsFile struct {
 
 func EnvAPIKey() string {
 	return os.Getenv("GOVEE_API_KEY")
+}
+
+// TapoEnvCredentials reports only what the environment supplies, so callers
+// can tell a stored account from an exported one.
+func TapoEnvCredentials() (email, password string) {
+	return strings.TrimSpace(os.Getenv("TAPO_EMAIL")),
+		strings.TrimSpace(os.Getenv("TAPO_PASSWORD"))
+}
+
+// TapoCredentials returns the plug account, env first. Both halves must be
+// present: a half-configured account only produces handshake failures.
+func TapoCredentials() (email, password string) {
+	email = strings.TrimSpace(os.Getenv("TAPO_EMAIL"))
+	password = strings.TrimSpace(os.Getenv("TAPO_PASSWORD"))
+	if email != "" && password != "" {
+		return email, password
+	}
+	s := LoadSettings()
+	if email == "" {
+		email = strings.TrimSpace(s.TapoEmail)
+	}
+	if password == "" {
+		password = strings.TrimSpace(s.TapoPassword)
+	}
+	return email, password
 }
 
 func GoveeAPIKey() string {
@@ -298,6 +333,12 @@ func LoadSettings() Settings {
 	}
 	if raw.GoveeAPIKey != nil {
 		s.GoveeAPIKey = *raw.GoveeAPIKey
+	}
+	if raw.TapoEmail != nil {
+		s.TapoEmail = *raw.TapoEmail
+	}
+	if raw.TapoPassword != nil {
+		s.TapoPassword = *raw.TapoPassword
 	}
 	if raw.LaunchAtLogin != nil {
 		s.LaunchAtLogin = *raw.LaunchAtLogin

@@ -44,6 +44,8 @@ export function HandleIPC(arg1:string):Promise<void>;
 
 export function HideHUD():Promise<void>;
 
+export function HideWindow():Promise<void>;
+
 export function IsSetupOpen():Promise<boolean>;
 
 export function LiveCC():Promise<number>;
@@ -85,6 +87,8 @@ export function SetConfigAPIKey(arg1:string):Promise<void>;
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
 export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
+
+export function SetTapoCredentials(arg1:string,arg2:string):Promise<void>;
 
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 

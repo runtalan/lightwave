@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EndWindowDrag, HideHUD, PingActivity, PingMotion, Quit, SetBrightness, StartWindowDrag } from '../wailsjs/go/main/App'
+import { EndWindowDrag, HideWindow, PingActivity, PingMotion, Quit, SetBrightness, StartWindowDrag } from '../wailsjs/go/main/App'
 
 declare global {
   interface Window {
@@ -69,7 +69,9 @@ export function TitleBar() {
           title="Minimize"
           aria-label="Minimize"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => void HideHUD()}
+          // HideWindow, not HideHUD: the latter ignores a hide while Config is
+          // open, which left this button dead on every Config tab.
+          onClick={() => void HideWindow()}
         >
           &#8211;
         </button>

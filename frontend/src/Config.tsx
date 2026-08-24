@@ -14,6 +14,7 @@ import {
   SaveSettings,
   ScanLAN,
   SetConfigAPIKey,
+  SetTapoCredentials,
   SetLaunchAtLogin,
   SetWebEnabled,
   SetWebConfig,
@@ -37,6 +38,7 @@ const TABS: { id: ConfigTab; label: string }[] = [
   { id: 'midi', label: 'MIDI' },
   { id: 'hud', label: 'HUD' },
   { id: 'remote', label: 'Remote' },
+  { id: 'plugs', label: 'Plugs' },
   { id: 'account', label: 'Account' },
 ]
 
@@ -74,6 +76,11 @@ export function Config({ state, onState }: Props) {
   // The Account tab's key field lives here so the shared action bar can save
   // it: the bar is outside the pane that owns the input.
   const [apiKey, setApiKey] = useState('')
+  // Tapo credentials live here for the same reason the Govee key does: the
+  // shared action bar saves them, and it sits outside the pane that owns the
+  // inputs.
+  const [tapoEmail, setTapoEmail] = useState('')
+  const [tapoPass, setTapoPass] = useState('')
 
   // Unsaved work is either a settings draft the user edited but did not save,
   // or pad edits that live only in memory until CommitMappings runs.
@@ -89,7 +96,8 @@ export function Config({ state, onState }: Props) {
     midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
   // A typed-but-unsaved API key counts as unsaved work too, so Cancel asks
   // instead of dropping it silently.
-  const dirty = draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== ''
+  const dirty =
+    draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== '' || tapoPass.trim() !== ''
 
   async function discard() {
     setErr('')
@@ -121,6 +129,10 @@ export function Config({ state, onState }: Props) {
       if (tab === 'account' && apiKey.trim()) {
         await SetConfigAPIKey(apiKey.trim())
         setApiKey('')
+      }
+      if (tab === 'plugs' && tapoEmail.trim() && tapoPass.trim()) {
+        await SetTapoCredentials(tapoEmail.trim(), tapoPass.trim())
+        setTapoPass('')
       }
       await persist(true)
     } catch (e) {
@@ -180,7 +192,7 @@ export function Config({ state, onState }: Props) {
     // state; re-bind when any of them move so Cmd-S never flushes a stale
     // draft or a stale key, and Escape always sees the current dirtiness. Capture phase +
     // stopImmediatePropagation keep App's HUD-side Cmd-S from also firing.
-  }, [midiDraft, tab, confirmExit, dirty, apiKey])
+  }, [midiDraft, tab, confirmExit, dirty, apiKey, tapoEmail, tapoPass])
 
   return (
     <div className="panel config">
@@ -221,6 +233,17 @@ export function Config({ state, onState }: Props) {
             <HudPane state={state} setErr={setErr} setNote={setNote} />
           )}
           {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
+          {tab === 'plugs' && (
+            <PlugsPane
+              state={state}
+              setErr={setErr}
+              setNote={setNote}
+              email={tapoEmail}
+              setEmail={setTapoEmail}
+              password={tapoPass}
+              setPassword={setTapoPass}
+            />
+          )}
           {tab === 'account' && (
             <AccountPane
               state={state}
@@ -1066,6 +1089,98 @@ function AccountPane({
               .then(() => {
                 setApiKey('')
                 setNote('Cleared stored key. .env still applies.')
+              })
+              .catch((e) => setErr(String(e)))
+          }}
+        >
+          Clear stored
+        </button>
+      </footer>
+    </div>
+  )
+}
+
+function PlugsPane({
+  state,
+  setErr,
+  setNote,
+  email,
+  setEmail,
+  password,
+  setPassword,
+}: {
+  state: HUDState
+  setErr: (s: string) => void
+  setNote: (s: string) => void
+  email: string
+  setEmail: (v: string) => void
+  password: string
+  setPassword: (v: string) => void
+}) {
+  const s = state.settings
+  const badge = s.hasTapoEnv ? 'account in .env' : s.hasTapoConfig ? 'account in config.json' : 'no account'
+  // Seed the email box from whatever is stored, so an edit starts from the
+  // current value instead of a blank. The password is never sent to the UI,
+  // so its box always starts empty.
+  const shown = email || (s.hasTapoCreds ? s.tapoEmail : '')
+
+  return (
+    <div className="pane form-pane">
+      <div className={`key-badge ${s.hasTapoCreds ? 'ok' : 'bad'}`}>{badge}</div>
+      <p className="lede">
+        Tapo plugs are controlled over your LAN, not the cloud. They authenticate with your
+        TP-Link account, hashed on this machine — nothing is sent to TP-Link.
+      </p>
+      <p className="status">
+        This is a full account password at rest, unlike the Govee key. Put it in .env instead if
+        you would rather keep it out of config.json; .env wins when both are set.
+      </p>
+
+      <label className="field">
+        <span>TP-Link email</span>
+        <input
+          type="email"
+          autoComplete="off"
+          placeholder="you@example.com"
+          value={shown}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+      </label>
+      <label className="field">
+        <span>TP-Link password</span>
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={s.hasTapoCreds ? '••••••••' : 'Tapo app password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </label>
+
+      <section className="group">
+        <h3 className="group-title">Plugs</h3>
+        <p className="group-hint">
+          Discovery and pad binding are not wired up yet. Save an account here first — the
+          handshake needs it before any plug will answer.
+        </p>
+      </section>
+
+      <footer className="actions">
+        <button
+          type="button"
+          className="ghost"
+          disabled={!s.hasTapoConfig}
+          onClick={() => {
+            setErr('')
+            SetTapoCredentials('', '')
+              .then(() => {
+                setEmail('')
+                setPassword('')
+                setNote(
+                  s.hasTapoEnv
+                    ? 'Cleared the stored account. TAPO_* in .env still applies.'
+                    : 'Cleared the stored account.',
+                )
               })
               .catch((e) => setErr(String(e)))
           }}

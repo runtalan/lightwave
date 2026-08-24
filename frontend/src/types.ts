@@ -31,6 +31,10 @@ export type SettingsView = {
   hasEnvKey: boolean
   hasConfigKey: boolean
   hasApiKey: boolean
+  tapoEmail: string
+  hasTapoEnv: boolean
+  hasTapoConfig: boolean
+  hasTapoCreds: boolean
   envPath: string
   configPath: string
   mappingPath: string
@@ -70,7 +74,7 @@ export type HUDState = {
   settings: SettingsView
 }
 
-export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'account'
+export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'plugs' | 'account'
 
 export const NUMPAD_ORDER = [7, 8, 9, 4, 5, 6, 1, 2, 3] as const
 
@@ -90,6 +94,10 @@ export function emptySettings(): SettingsView {
     hasEnvKey: false,
     hasConfigKey: false,
     hasApiKey: false,
+    tapoEmail: '',
+    hasTapoEnv: false,
+    hasTapoConfig: false,
+    hasTapoCreds: false,
     envPath: '',
     configPath: '',
     mappingPath: '',

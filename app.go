@@ -138,6 +138,12 @@ type SettingsView struct {
 	HasEnvKey       bool     `json:"hasEnvKey"`
 	HasConfigKey    bool     `json:"hasConfigKey"`
 	HasAPIKey       bool     `json:"hasApiKey"`
+	// Tapo presence only. The account password never crosses to the UI; the
+	// Plugs tab shows whether one is stored and where it came from.
+	TapoEmail      string `json:"tapoEmail"`
+	HasTapoEnv     bool   `json:"hasTapoEnv"`
+	HasTapoConfig  bool   `json:"hasTapoConfig"`
+	HasTapoCreds   bool   `json:"hasTapoCreds"`
 	EnvPath         string   `json:"envPath"`
 	ConfigPath      string   `json:"configPath"`
 	MappingPath     string   `json:"mappingPath"`
@@ -1145,6 +1151,16 @@ func (a *App) apiKeyLocked() string {
 
 func (a *App) settingsViewLocked() SettingsView {
 	env := config.EnvAPIKey()
+	// Env wins over the settings file, so report which source is in play:
+	// clearing a stored account does nothing while TAPO_* is exported.
+	tapoEnvEmail, tapoEnvPass := config.TapoEnvCredentials()
+	tapoEmail, tapoPass := tapoEnvEmail, tapoEnvPass
+	if tapoEmail == "" {
+		tapoEmail = strings.TrimSpace(a.settings.TapoEmail)
+	}
+	if tapoPass == "" {
+		tapoPass = strings.TrimSpace(a.settings.TapoPassword)
+	}
 	running := a.webSrv != nil && a.webSrv.Running()
 	var urls []string
 	if running {
@@ -1165,6 +1181,10 @@ func (a *App) settingsViewLocked() SettingsView {
 		HasEnvKey:       env != "",
 		HasConfigKey:    a.settings.GoveeAPIKey != "",
 		HasAPIKey:       env != "" || a.settings.GoveeAPIKey != "",
+		TapoEmail:       tapoEmail,
+		HasTapoEnv:      tapoEnvEmail != "" && tapoEnvPass != "",
+		HasTapoConfig:   a.settings.TapoEmail != "" && a.settings.TapoPassword != "",
+		HasTapoCreds:    tapoEmail != "" && tapoPass != "",
 		EnvPath:         config.EnvFileHint(),
 		ConfigPath:      config.SettingsPath(),
 		MappingPath:     config.MappingPath(),
@@ -2242,6 +2262,22 @@ func (a *App) SaveSettings(in SettingsView) error {
 	return nil
 }
 
+// SetTapoCredentials stores the TP-Link plug account. Passing empty strings
+// clears it. Env-supplied credentials still win, which the Plugs tab says.
+func (a *App) SetTapoCredentials(email, password string) error {
+	a.mu.Lock()
+	s := a.settings
+	s.TapoEmail = strings.TrimSpace(email)
+	s.TapoPassword = strings.TrimSpace(password)
+	a.settings = s
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		return err
+	}
+	a.emitState()
+	return nil
+}
+
 func (a *App) SetConfigAPIKey(key string) error {
 	a.mu.Lock()
 	s := a.settings
@@ -2286,27 +2322,36 @@ func (a *App) sizeForMode(setup bool) {
 	// changes. Doing them on every show made each reappearance pay three
 	// synchronous AppKit calls — and snapped a dragged window back to center.
 	mode := 1
+	wantW, wantH := HUDW, HUDH
 	if setup {
-		mode = 2
+		mode, wantW, wantH = 2, ConfigW, ConfigH
 	}
 	a.mu.Lock()
 	same := a.sizedMode == mode
 	a.sizedMode = mode
 	a.mu.Unlock()
-	if same {
-		return
-	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("window size recovered: %v", r)
 		}
 	}()
-	runtime.WindowSetMinSize(ctx, WindowMinW, WindowMinH)
-	if setup {
-		runtime.WindowSetSize(ctx, ConfigW, ConfigH)
-	} else {
-		runtime.WindowSetSize(ctx, HUDW, HUDH)
+
+	// The cached mode says whether the *mode* changed, not whether the window
+	// is actually that size. A window restored by AppKit at another size — or
+	// one whose launch size never matched the mode NewApp assumed — would keep
+	// the stale geometry forever, since every later call short-circuits here.
+	// Measuring is one cheap read and settles it.
+	if same {
+		w, h := runtime.WindowGetSize(ctx)
+		if w == wantW && h == wantH {
+			return
+		}
+		log.Printf("window: %dx%d does not match mode %d (%dx%d); resizing", w, h, mode, wantW, wantH)
 	}
+
+	runtime.WindowSetMinSize(ctx, WindowMinW, WindowMinH)
+	runtime.WindowSetSize(ctx, wantW, wantH)
 	// Re-center after a resize so the window does not drift toward a corner
 	// when it grows.
 	runtime.WindowCenter(ctx)
@@ -2344,12 +2389,27 @@ func (a *App) ShowHUD() {
 	a.noteShow()
 }
 
+// HideHUD minimises the window. Config open (setupOpen) blocks the automatic
+// paths so a half-built pad map is never yanked off screen mid-edit, but the
+// titlebar's minimise button is an explicit request and must work from any
+// screen — see HideWindow.
 func (a *App) HideHUD() {
+	a.hideHUD(false)
+}
+
+// HideWindow is the titlebar minimise: the same fade and hide, but it also
+// applies while Config is open. The window is only minimised, so unsaved pad
+// edits and form drafts are still there when it comes back.
+func (a *App) HideWindow() {
+	a.hideHUD(true)
+}
+
+func (a *App) hideHUD(explicit bool) {
 	if _, ok := a.ctxOK(); !ok {
 		return
 	}
 	a.mu.Lock()
-	if a.hidden || a.hiding || a.setupOpen || a.dragging {
+	if a.hidden || a.hiding || a.dragging || (a.setupOpen && !explicit) {
 		a.mu.Unlock()
 		return
 	}
@@ -2364,7 +2424,7 @@ func (a *App) HideHUD() {
 		a.mu.Lock()
 		// Abort only if ShowHUD / drag / config bumped hideGen. Clicks, keys,
 		// and MIDI must not emit hud:shown here or the shell flickers.
-		if a.hideGen != token || a.setupOpen || a.dragging {
+		if a.hideGen != token || a.dragging || (a.setupOpen && !explicit) {
 			a.hiding = false
 			a.mu.Unlock()
 			a.emit("hud:shown")

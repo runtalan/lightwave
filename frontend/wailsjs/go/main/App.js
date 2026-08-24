@@ -78,6 +78,10 @@ export function HideHUD() {
   return window['go']['main']['App']['HideHUD']();
 }
 
+export function HideWindow() {
+  return window['go']['main']['App']['HideWindow']();
+}
+
 export function IsSetupOpen() {
   return window['go']['main']['App']['IsSetupOpen']();
 }
@@ -160,6 +164,10 @@ export function SetIPCServer(arg1) {
 
 export function SetLaunchAtLogin(arg1) {
   return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
+}
+
+export function SetTapoCredentials(arg1, arg2) {
+  return window['go']['main']['App']['SetTapoCredentials'](arg1, arg2);
 }
 
 export function SetWebAssets(arg1) {

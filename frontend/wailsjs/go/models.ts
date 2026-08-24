@@ -84,6 +84,10 @@ export namespace main {
 	    hasEnvKey: boolean;
 	    hasConfigKey: boolean;
 	    hasApiKey: boolean;
+	    tapoEmail: string;
+	    hasTapoEnv: boolean;
+	    hasTapoConfig: boolean;
+	    hasTapoCreds: boolean;
 	    envPath: string;
 	    configPath: string;
 	    mappingPath: string;
@@ -114,6 +118,10 @@ export namespace main {
 	        this.hasEnvKey = source["hasEnvKey"];
 	        this.hasConfigKey = source["hasConfigKey"];
 	        this.hasApiKey = source["hasApiKey"];
+	        this.tapoEmail = source["tapoEmail"];
+	        this.hasTapoEnv = source["hasTapoEnv"];
+	        this.hasTapoConfig = source["hasTapoConfig"];
+	        this.hasTapoCreds = source["hasTapoCreds"];
 	        this.envPath = source["envPath"];
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
