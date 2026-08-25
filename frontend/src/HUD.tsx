@@ -96,6 +96,7 @@ export function HUD({ state }: Props) {
       }
       if (e.key === ',' || e.key === 'g' || e.key === 'G') {
         e.preventDefault()
+        void import('./Config')
         void OpenConfig()
       }
     }
@@ -118,7 +119,17 @@ export function HUD({ state }: Props) {
             {state.gradient ? 'GRADIENT' : 'SINGLE'}
           </p>
         </div>
-        <button type="button" className="config-launch" onClick={() => void OpenConfig()}>
+        <button
+          type="button"
+          className="config-launch"
+          onPointerEnter={() => {
+            void import('./Config')
+          }}
+          onFocus={() => {
+            void import('./Config')
+          }}
+          onClick={() => void OpenConfig()}
+        >
           Config
         </button>
       </header>

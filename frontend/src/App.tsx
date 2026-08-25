@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
 import { GetState, MarkUIReady, PersistNow } from '../wailsjs/go/main/App'
 import { bindWindowActivity, dragSurfaceProps } from './chrome'
 import { emptyState, normalizeState, type HUDState } from './types'
 import { HUD } from './HUD'
-import { Config } from './Config'
+
+// Config is a large form surface the HUD never needs. Phone clients never
+// open it (webState forces the flags off). Loading it on demand keeps the
+// first paint to the control deck.
+const Config = lazy(() => import('./Config'))
 
 export default function App() {
   const [state, setState] = useState<HUDState>(() => emptyState())
@@ -83,9 +87,13 @@ export default function App() {
 
   return (
     <div className={`hud-shell ${fading && !config ? 'is-fading' : ''}`} {...dragSurfaceProps()}>
-      <div className="scanlines" aria-hidden />
-      <div className="vignette" aria-hidden />
-      {config ? <Config state={state} onState={setState} /> : <HUD state={state} onState={setState} />}
+      {config ? (
+        <Suspense fallback={<div className="panel config" />}>
+          <Config state={state} onState={setState} />
+        </Suspense>
+      ) : (
+        <HUD state={state} onState={setState} />
+      )}
       {!config && saveToast && (
         <p className={`save-toast ${saveToast.startsWith('Save failed') ? 'bad' : ''}`} role="status">
           {saveToast}

@@ -1076,3 +1076,6 @@ function AccountPane({
     </div>
   )
 }
+
+export default Config
+

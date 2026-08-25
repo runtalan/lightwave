@@ -45,7 +45,7 @@ func main() {
 		}
 	}
 
-	app := NewApp(forceSetup)
+	app := NewApp(forceSetup, hidden)
 	// The phone server serves the same embedded bundle the window runs, so
 	// hosting it adds no assets to the process.
 	if dist, err := fs.Sub(assets, "frontend/dist"); err == nil {

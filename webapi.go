@@ -111,6 +111,8 @@ func webStateFrom(st HUDState) HUDState {
 	st.ConfigOpen = false
 	st.FirstRun = false
 	st.Settings = SettingsView{}
+	// Phone HUD never lists the catalog; dropping it shrinks every SSE push.
+	st.Catalog = nil
 	return st
 }
 

@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 /* Fonts ship inside the app binary. Fetching them from Google Fonts made
    first paint wait on a network round trip every cold launch. */
 @font-face {
@@ -18,20 +16,17 @@
   src: url("./assets/fonts/oxanium-latin.woff2") format("woff2");
 }
 
-@theme {
-  --font-display: "Oxanium", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --color-void: #07040f;
-  --color-neon: #b026ff;
-  --color-magenta: #ff2ec8;
-  --color-amber: #ff7a3d;
-}
-
 :root {
   --neon: #b026ff;
   --magenta: #ff2ec8;
   --amber: #ff7a3d;
   --ice: #e9d5ff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
@@ -148,15 +143,18 @@ a,
   transition: opacity 80ms ease-out;
 }
 
-.scanlines,
-.vignette {
+/* Scanlines and vignette are pseudo-elements, not extra DOM nodes: two
+   full-window overlay divs each promoted a compositor layer on every fade. */
+.hud-shell::before,
+.hud-shell::after {
+  content: "";
   pointer-events: none;
   position: absolute;
   inset: 0;
   border-radius: 22px;
 }
 
-.scanlines {
+.hud-shell::before {
   background: repeating-linear-gradient(
     to bottom,
     rgba(255, 255, 255, 0.035) 0px,
@@ -168,7 +166,7 @@ a,
   z-index: 4;
 }
 
-.vignette {
+.hud-shell::after {
   box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.55);
   z-index: 3;
 }
@@ -383,13 +381,21 @@ a,
   outline: none;
 }
 
+/* Glow pulse rather than filter:saturate — a CSS filter on each ignited
+   tile forced a rasterized layer and re-filtered it every frame. */
 @keyframes plasma {
   0%,
   100% {
-    filter: saturate(1);
+    box-shadow:
+      0 0 0 1px rgba(176, 38, 255, 0.45),
+      0 0 22px rgba(176, 38, 255, 0.55),
+      inset 0 0 24px rgba(255, 46, 200, 0.22);
   }
   50% {
-    filter: saturate(1.35) brightness(1.08);
+    box-shadow:
+      0 0 0 1px rgba(176, 38, 255, 0.65),
+      0 0 34px rgba(176, 38, 255, 0.8),
+      inset 0 0 32px rgba(255, 46, 200, 0.34);
   }
 }
 

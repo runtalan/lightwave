@@ -96,21 +96,24 @@ type SlotView struct {
 }
 
 type HUDState struct {
-	Slots           []SlotView     `json:"slots"`
-	ActivePool      []int          `json:"activePool"`
-	Brightness      int            `json:"brightness"`
-	PaletteIndex    int            `json:"paletteIndex"`
-	PaletteName     string         `json:"paletteName"`
-	MIDIConnected   bool           `json:"midiConnected"`
-	MIDIPort        string         `json:"midiPort"`
-	DeviceCount     int            `json:"deviceCount"`
-	NeedsSetup      bool           `json:"needsSetup"`
-	SetupOpen       bool           `json:"setupOpen"`
-	HasAPIKey       bool           `json:"hasApiKey"`
-	DiscoverError   string         `json:"discoverError"`
-	Discovering     bool           `json:"discovering"`
-	FirstRun        bool           `json:"firstRun"`
-	Catalog         []govee.Device `json:"catalog"`
+	Slots         []SlotView `json:"slots"`
+	ActivePool    []int      `json:"activePool"`
+	Brightness    int        `json:"brightness"`
+	PaletteIndex  int        `json:"paletteIndex"`
+	PaletteName   string     `json:"paletteName"`
+	MIDIConnected bool       `json:"midiConnected"`
+	MIDIPort      string     `json:"midiPort"`
+	DeviceCount   int        `json:"deviceCount"`
+	NeedsSetup    bool       `json:"needsSetup"`
+	SetupOpen     bool       `json:"setupOpen"`
+	HasAPIKey     bool       `json:"hasApiKey"`
+	DiscoverError string     `json:"discoverError"`
+	Discovering   bool       `json:"discovering"`
+	FirstRun      bool       `json:"firstRun"`
+	// Omitted from HUD snapshots (and always from phone state): only Config
+	// renders the device list, so copying it on every status poll was wasted
+	// JSON and a React re-render of data the HUD never reads.
+	Catalog         []govee.Device `json:"catalog,omitempty"`
 	Hidden          bool           `json:"hidden"`
 	MappingPath     string         `json:"mappingPath"`
 	ConfigOpen      bool           `json:"configOpen"`
@@ -146,7 +149,7 @@ type SettingsView struct {
 	WebAddr         string   `json:"webAddr"`
 	WebRunning      bool     `json:"webRunning"`
 	WebHasToken     bool     `json:"webHasToken"`
-	WebURLs         []string `json:"webUrls"`
+	WebURLs         []string `json:"webUrls,omitempty"`
 }
 
 type App struct {
@@ -227,7 +230,7 @@ type App struct {
 	slotTouched map[int]time.Time
 }
 
-func NewApp(forceSetup bool) *App {
+func NewApp(forceSetup, startHidden bool) *App {
 	f := config.LoadSlotFile()
 	needs := config.NeedsSetup(f)
 	settings := config.LoadSettings()
@@ -244,6 +247,7 @@ func NewApp(forceSetup bool) *App {
 		settings:     settings,
 		midiCfg:      settings.MIDI(),
 		lastActivity: time.Now(),
+		hidden:       startHidden,
 		stop:         make(chan struct{}),
 		brightKick:   make(chan struct{}, 1),
 		gradient:     settings.Gradient,
@@ -316,7 +320,7 @@ func (a *App) startup(ctx context.Context) {
 	a.udp.OnStatus(a.applyDeviceStatus)
 	if err := a.udp.Start(func(d govee.Device) {
 		a.mergeLAN(d)
-		a.emitState()
+		a.scheduleStateEmit()
 		// A newly discovered device: ask what it is currently doing so the HUD
 		// reflects reality rather than assuming everything is off.
 		if ip := d.IP; ip != "" {
@@ -327,10 +331,10 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.ble.StartTransport()
-	a.ble.OnAdapter(func() { a.emitState() })
+	a.ble.OnAdapter(func() { a.scheduleStateEmit() })
 	if err := a.ble.Start(func(d govee.Device) {
 		a.mergeBLE(d)
-		a.emitState()
+		a.scheduleStateEmit()
 	}); err != nil {
 		log.Printf("govee ble: %v", err)
 	}
@@ -342,11 +346,20 @@ func (a *App) startup(ctx context.Context) {
 		_ = a.midi.Start()
 	}()
 
-	if c, ok := a.ctxOK(); ok {
-		runtime.WindowShow(c)
-		runtime.WindowCenter(c)
+	// --hidden (login agent) must not pop a window: StartHidden already
+	// kept it off screen, and WindowShow here would undo that and pay for
+	// a first paint nobody asked to see.
+	if !a.hidden {
+		if c, ok := a.ctxOK(); ok {
+			runtime.WindowShow(c)
+			runtime.WindowCenter(c)
+		}
+		a.noteShow()
+	} else {
+		a.mu.Lock()
+		a.hiddenAt = time.Now()
+		a.mu.Unlock()
 	}
-	a.noteShow()
 
 	// Clicking the Dock icon while the HUD is hidden must bring it back.
 	// AppKit's reopen event has no Wails hook, so watch for its signature
@@ -416,6 +429,7 @@ func (a *App) settingsSnapshot() config.Settings {
 const (
 	midiPollFast    = 8 * time.Millisecond
 	midiPollSlow    = 60 * time.Millisecond
+	midiPollIdle    = 250 * time.Millisecond
 	midiPollFastFor = 2 * time.Second
 )
 
@@ -437,8 +451,15 @@ func (a *App) midiApplyLoop() {
 		if a.drainMIDI() {
 			lastEvent = time.Now()
 		}
+		a.mu.Lock()
+		midiLive := a.midiOK
+		a.mu.Unlock()
 		next := midiPollFast
-		if time.Since(lastEvent) > midiPollFastFor {
+		if !midiLive {
+			// No controller: nothing can arrive on TakeCC/TakeNote, so the
+			// only event worth catching is a port showing up via TakeStatus.
+			next = midiPollIdle
+		} else if time.Since(lastEvent) > midiPollFastFor {
 			next = midiPollSlow
 		}
 		t.Reset(next)
@@ -1120,7 +1141,7 @@ func (a *App) snapshotLocked() HUDState {
 		DiscoverError:   a.discoverErr,
 		Discovering:     a.discovering,
 		FirstRun:        !a.configured,
-		Catalog:         append([]govee.Device{}, a.catalog...),
+		Catalog:         catalogForView(a.setupOpen, a.catalog),
 		Hidden:          a.hidden,
 		MappingPath:     config.MappingPath(),
 		BleScanning:     a.ble != nil && a.ble.Scanning(),
@@ -1128,6 +1149,15 @@ func (a *App) snapshotLocked() HUDState {
 		BluetoothOff:    a.ble != nil && a.ble.PoweredOff(),
 		Settings:        a.settingsViewLocked(),
 	}
+}
+
+// catalogForView copies the device list only while Config is open. The HUD
+// never renders it, and phone state strips it separately.
+func catalogForView(configOpen bool, catalog []govee.Device) []govee.Device {
+	if !configOpen || len(catalog) == 0 {
+		return nil
+	}
+	return append([]govee.Device{}, catalog...)
 }
 
 func (a *App) apiKey() string {
@@ -1147,8 +1177,18 @@ func (a *App) settingsViewLocked() SettingsView {
 	env := config.EnvAPIKey()
 	running := a.webSrv != nil && a.webSrv.Running()
 	var urls []string
-	if running {
+	// Interface enumeration is wasted work on every HUD status poll: only
+	// the Remote tab displays the URLs.
+	if running && a.setupOpen {
 		urls = web.URLs(a.webSrv.Addr())
+	}
+	launch := a.settings.LaunchAtLogin
+	if a.setupOpen {
+		// Read the agent from disk rather than trusting the saved flag: the
+		// user can remove it in System Settings, and the toggle should show
+		// what is actually installed. HUD never displays this, so skip the
+		// stat while the window is the control deck.
+		launch = config.LoginItemEnabled()
 	}
 	return SettingsView{
 		MidiCC:          a.settings.MidiCC,
@@ -1168,15 +1208,12 @@ func (a *App) settingsViewLocked() SettingsView {
 		EnvPath:         config.EnvFileHint(),
 		ConfigPath:      config.SettingsPath(),
 		MappingPath:     config.MappingPath(),
-		// Read the agent from disk rather than trusting the saved flag: the
-		// user can remove it in System Settings, and the toggle should show
-		// what is actually installed.
-		LaunchAtLogin: config.LoginItemEnabled(),
-		WebEnabled:    a.settings.WebEnabled,
-		WebAddr:       a.settings.WebAddr,
-		WebHasToken:   a.settings.WebToken != "",
-		WebRunning:    running,
-		WebURLs:       urls,
+		LaunchAtLogin:   launch,
+		WebEnabled:      a.settings.WebEnabled,
+		WebAddr:         a.settings.WebAddr,
+		WebHasToken:     a.settings.WebToken != "",
+		WebRunning:      running,
+		WebURLs:         urls,
 	}
 }
 
@@ -2459,10 +2496,10 @@ func (a *App) ToggleWindow() {
 // inactivityLoop no longer hides anything: the HUD stays up until the user
 // dismisses it (Enter, Stream Deck toggle, or --toggle). It only clears a
 // stale window-drag flag if a drag never received its pointerup. The stale
-// threshold is 2s, so a 500ms tick resolves it just as well as the old 120ms
-// one at a quarter of the wakeups.
+// threshold is 2s, so a 1s tick resolves it just as well as the old 120ms
+// one at a fraction of the wakeups.
 func (a *App) inactivityLoop() {
-	t := time.NewTicker(500 * time.Millisecond)
+	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for range t.C {
 		a.mu.Lock()
