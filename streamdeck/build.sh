@@ -30,6 +30,7 @@ if [[ "${1:-}" == "--install" ]]; then
   mkdir -p "$(dirname "$DEST")"
   cp -R "$BUNDLE" "$DEST"
   echo "Installed to $DEST"
+  echo "Profile: $ROOT/Lightwave.streamDeckProfile (double-click to import)"
   open -a "Elgato Stream Deck" 2>/dev/null || true
   echo "Stream Deck relaunched."
 fi

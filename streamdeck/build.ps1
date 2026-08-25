@@ -28,6 +28,12 @@ if ($Install) {
     New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null
     Copy-Item -Recurse $Bundle $Dest
     Write-Host "Installed to $Dest"
+    $Profile = Join-Path $Root "Lightwave.streamDeckProfile"
+    if (Test-Path $Profile) {
+        Copy-Item $Profile (Join-Path $Dest "Lightwave.streamDeckProfile") -Force
+        Write-Host "Profile copied. Double-click to import:"
+        Write-Host "  $Profile"
+    }
     $sd = Join-Path ${env:ProgramFiles} "Elgato\StreamDeck\StreamDeck.exe"
     if (Test-Path $sd) {
         Start-Process $sd

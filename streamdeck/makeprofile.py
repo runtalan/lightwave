@@ -13,10 +13,16 @@ PLUGIN = "com.dinksf.lightwave"
 DEVICE_MODEL = "20GBJ9901"
 COLS, ROWS = 4, 2
 
+def sock_path():
+    # Same path Lightwave and the plugin use: /tmp on macOS, %TEMP% on Windows.
+    if sys.platform == "win32":
+        return os.path.join(os.environ.get("TEMP") or os.environ.get("TMP") or ".", "lightwave.sock")
+    return "/tmp/lightwave.sock"
+
 def lightwave_pads():
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(2); s.connect("/tmp/lightwave.sock")
+        s.settimeout(2); s.connect(sock_path())
         s.sendall(b"STATE\n")
         line = s.recv(65536).decode().strip(); s.close()
         if line.startswith("STATE "):
