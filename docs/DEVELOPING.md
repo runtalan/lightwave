@@ -3,9 +3,9 @@
 Build, architecture, and protocol details. For the user guide see the [README](../README.md).
 
 
-A lightning-fast local control center for a Govee lighting ecosystem. Native Apple Silicon binary via Wails v2 (Go + React). Triggered from an Elgato Stream Deck, driven in real time by a Glorious numpad (QMK/VIA/MIDI).
+A lightning-fast local control center for a Govee lighting ecosystem. Native binary via Wails v2 (Go + React) on macOS and Windows 11. Triggered from an Elgato Stream Deck, driven in real time by a Glorious numpad (QMK/VIA/MIDI).
 
-Cloud REST is used **only** for first-run device discovery. Live control is Govee LAN UDP, with a Bluetooth LE fallback for lamps that have no LAN Control (CoreBluetooth, macOS).
+Cloud REST is used **only** for first-run device discovery. Live control is Govee LAN UDP, with a Bluetooth LE fallback for lamps that have no LAN Control (CoreBluetooth on macOS, WinRT on Windows).
 
 ## Setup
 
@@ -18,6 +18,13 @@ cd /Users/runtalan/LightWave
 ./scripts/dev.sh      # live HUD (prepends $HOME/go/bin even if this shell has not reloaded rc)
 ./scripts/build.sh    # macOS app at build/bin/lightwave.app (ad-hoc signed)
 # or, in a new terminal: wails dev / wails build
+```
+
+On Windows 11 (CGO gcc required — the MinGW Wails documents):
+
+```powershell
+.\scripts\dev.ps1
+.\scripts\build.ps1   # build\bin\lightwave.exe
 ```
 
 **Launch the built app** (do not double-click a half-built bundle — `Contents/MacOS` must contain `lightwave`):
@@ -45,7 +52,7 @@ The HUD **Config** button (also `,` / `G`, or `lightwave --config`) opens a sett
 | **HUD** | Brightness preview. The HUD never hides on its own; press `Enter` to dismiss it. |
 | **Account** | API key present/missing, `.env` path, optional key stored in prefs, cloud + LAN scan. |
 
-Persisted under `~/Library/Application Support/Lightwave/`:
+Persisted under `~/Library/Application Support/Lightwave/` on macOS, or `%APPDATA%\Lightwave\` on Windows:
 
 - `slots.json` — pad mappings
 - `config.json` — MIDI, optional API key
@@ -56,7 +63,7 @@ Persisted under `~/Library/Application Support/Lightwave/`:
 
 Bind a key to the binary with `--toggle`. Single-instance IPC (`/tmp/lightwave.sock`) show/hides the HUD without spawning extra processes. If Lightwave is not running, `--toggle` starts it and shows the HUD.
 
-The HUD never hides on its own. Press `Enter` (or numpad Enter) to dismiss it, or use `--toggle`. Hide uses WindowHide — the process keeps running. Launch again or `--toggle` to show it. Press `.` to quit the process outright.
+The HUD never hides on its own. Press `Enter` (or numpad Enter) to dismiss it, or use `--toggle`. Hide uses WindowHide — the process keeps running. Launch again or `--toggle` to show it. Press `.` to quit the process outright. On Windows, a second launch of `lightwave.exe` while it is already running is how you restore a hidden HUD (same single-instance socket as Stream Deck).
 
 ```bash
 lightwave --toggle
@@ -96,22 +103,22 @@ Lamps without LAN Control (e.g. H6168) are discovered by advertised name
 - Service `00010203-0405-0607-0809-0a0b0c0d1910`, characteristic `…2b11`,
   Write Without Response
 - 20-byte frames, XOR checksum in byte 19; keep-alive `0xAA01` every 2s
-- Addressed by CoreBluetooth UUID (`ble:` prefix in slot storage); a LAN IP
-  always wins over BLE when a lamp has both
-- All CoreBluetooth work runs on a private dispatch queue
-  (`internal/govee/ble_darwin.m`) — never the AppKit main thread
+- Addressed by a platform identifier (`ble:` prefix in slot storage): CoreBluetooth UUID on macOS, Bluetooth address on Windows. A LAN IP always wins over BLE when a lamp has both
+- All CoreBluetooth work runs on a private dispatch queue (`internal/govee/ble_darwin.m`) — never the AppKit main thread. Windows uses WinRT on a worker goroutine for the same reason (WebView2 owns the UI thread)
 
 ## Stream Deck plugin
 
 `streamdeck/` holds a native Stream Deck plugin. It is a protocol adapter, not
 a second copy of the app: Stream Deck events come in over its WebSocket, and
-commands go out to the running Lightwave app over `/tmp/lightwave.sock`. All
+commands go out to the running Lightwave app over the single-instance socket
+(`/tmp/lightwave.sock` on macOS, `%TEMP%\lightwave.sock` on Windows). All
 device logic stays in Lightwave — which is also what makes Bluetooth work, since
-macOS gates CoreBluetooth on the responsible process and the Stream Deck app
-declares no Bluetooth usage string.
+the OS gates BLE on the responsible process and the Stream Deck app does not
+hold that permission.
 
 ```bash
-./streamdeck/build.sh --install   # build universal binary, install, restart Stream Deck
+./streamdeck/build.sh --install   # macOS: universal binary, install, restart Stream Deck
+# Windows: .\streamdeck\build.ps1 -Install
 ```
 
 Actions: **Light** (toggle one pad, key shows the light's name and lights up when
@@ -120,8 +127,8 @@ dial on Stream Deck +). Keys track state pushed from Lightwave, so they stay
 correct when lights are changed from the HUD, the numpad, or the Govee app.
 
 Lightwave must be running; a key press when it is not shows an alert, and the
-plugin reconnects on its own once the app is back. Plugin log:
-`~/Library/Logs/Lightwave/streamdeck-plugin.log`.
+plugin reconnects on its own once the app is back. Plugin log: `~/Library/Logs/Lightwave/streamdeck-plugin.log` on macOS,
+`%APPDATA%\Lightwave\Logs\streamdeck-plugin.log` on Windows.
 
 ### Profile
 
@@ -152,14 +159,18 @@ holds the connection open and streams state on every change.
 ```
 main.go                 CLI, single-instance, Wails window
 app.go                  Bindings, inactivity hide, setup/HUD
-internal/govee/         Cloud REST + LAN UDP + BLE (CoreBluetooth)
-internal/midi/          CoreMIDI listener
+internal/govee/         Cloud REST + LAN UDP + BLE (CoreBluetooth / WinRT)
+internal/midi/          RtMidi listener
 internal/color/         Palette engine
 internal/config/        .env + slots.json
-internal/ipc/           /tmp/lightwave.sock
+internal/ipc/           single-instance socket
 remote.go               IPC command surface for external controllers
 streamdeck/             Stream Deck plugin (Go, native binary)
 frontend/src            HUD + Config
 ```
+
+Windows BLE lives in `internal/govee/ble_windows.go` (WinRT via `tinygo.org/x/bluetooth`) and shares the queue/keep-alive manager in `ble_host.go` with the CoreBluetooth backend. The Windows BLE module is imported only from a `windows` build tag; after changing it, tidy with `GOOS=windows go mod tidy` so macOS `go mod tidy` does not drop it.
+
+Lightwave cannot be cross-compiled from macOS to Windows: MIDI (RtMidi) and Wails need a Windows CGO toolchain. Build on the Windows 11 machine.
 
 Do not commit `.env`.

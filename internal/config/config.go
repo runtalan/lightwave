@@ -168,10 +168,10 @@ type Settings struct {
 	// Gradient is the HUD scene style: false paints every pooled lamp the
 	// same colour; true spreads complementary/adjacent swatches across the pool.
 	Gradient bool `json:"gradient"`
-	// LaunchAtLogin installs a LaunchAgent so macOS starts Lightwave when the
-	// user logs in. The agent passes --hidden, so a login start goes straight
-	// to the background: lights, MIDI, and the Stream Deck socket come up
-	// without a window taking focus on every boot.
+	// LaunchAtLogin starts Lightwave when the user logs in (a LaunchAgent on
+	// macOS, an HKCU Run entry on Windows). The start passes --hidden, so a
+	// login start goes straight to the background: lights, MIDI, and the
+	// Stream Deck socket come up without a window taking focus on every boot.
 	LaunchAtLogin bool `json:"launchAtLogin"`
 }
 
@@ -384,7 +384,7 @@ func findEnvFile() string {
 	if dir, err := ConfigDir(); err == nil {
 		return filepath.Join(dir, ".env")
 	}
-	return "project .env, app Resources/.env, or Application Support"
+	return "project .env or the Lightwave config folder"
 }
 
 // clampChan normalises a MIDI channel to 1-16, or 0 for "any". Anything out

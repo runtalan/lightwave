@@ -64,10 +64,11 @@ export type HUDState = {
   hidden: boolean
   mappingPath: string
   firstRun: boolean
-  bleScanning: boolean
-  bluetoothDenied: boolean
-  bluetoothOff: boolean
-  settings: SettingsView
+	bleScanning: boolean
+	bluetoothDenied: boolean
+	bluetoothOff: boolean
+	platform: string
+	settings: SettingsView
 }
 
 export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'account'
@@ -173,6 +174,7 @@ export function emptyState(): HUDState {
     bleScanning: false,
     bluetoothDenied: false,
     bluetoothOff: false,
+    platform: '',
     settings: emptySettings(),
   }
 }

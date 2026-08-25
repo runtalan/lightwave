@@ -7,17 +7,26 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	sockPath    = "/tmp/lightwave.sock"
 	dialTimeout = 800 * time.Millisecond
 	ioTimeout   = 3 * time.Second
 	retryDelay  = 3 * time.Second
 )
+
+func sockPath() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "lightwave.sock")
+	}
+	return "/tmp/lightwave.sock"
+}
 
 // Pad mirrors one numpad slot.
 type Pad struct {
@@ -108,7 +117,7 @@ func NewClient() *Client { return &Client{} }
 // stalled command from blocking the subscription.
 func (c *Client) Command(cmd string) (State, error) {
 	var st State
-	conn, err := net.DialTimeout("unix", sockPath, dialTimeout)
+	conn, err := net.DialTimeout("unix", sockPath(), dialTimeout)
 	if err != nil {
 		return st, fmt.Errorf("lightwave not running: %w", err)
 	}
@@ -143,7 +152,7 @@ func (c *Client) Subscribe(onState func(State)) {
 }
 
 func (c *Client) subscribeOnce(onState func(State)) error {
-	conn, err := net.DialTimeout("unix", sockPath, dialTimeout)
+	conn, err := net.DialTimeout("unix", sockPath(), dialTimeout)
 	if err != nil {
 		return err
 	}

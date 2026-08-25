@@ -2,14 +2,12 @@
 //
 // It is a protocol adapter, not a second copy of the app: Stream Deck events
 // come in over a WebSocket, and lighting commands go out to the running
-// Lightwave daemon over its Unix socket. All device logic — LAN discovery,
-// the CoreBluetooth bridge, palettes, rate limiting — stays in Lightwave.
+// Lightwave daemon over its local socket. All device logic — LAN discovery,
+// the BLE bridge, palettes, rate limiting — stays in Lightwave.
 //
-// That split is also what makes Bluetooth work at all. macOS gates
-// CoreBluetooth on the *responsible* process, and the Stream Deck app declares
-// no Bluetooth usage string, so a plugin touching CoreBluetooth directly would
-// be denied. Lightwave.app holds that permission, so the plugin borrows it by
-// asking Lightwave to do the work.
+// That split is also what makes Bluetooth work. The OS gates BLE on the
+// responsible process, and the Stream Deck app does not hold that permission,
+// so the plugin asks Lightwave to do the work.
 package main
 
 import (
@@ -18,6 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,11 +74,20 @@ func main() {
 }
 
 func setupLogging() {
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		return
+	var logDir string
+	if runtime.GOOS == "windows" {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return
+		}
+		logDir = filepath.Join(base, "Lightwave", "Logs")
+	} else {
+		dir, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		logDir = filepath.Join(dir, "Library", "Logs", "Lightwave")
 	}
-	logDir := filepath.Join(dir, "Library", "Logs", "Lightwave")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return
 	}

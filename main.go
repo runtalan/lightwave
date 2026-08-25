@@ -15,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -107,6 +108,13 @@ func main() {
 				Message: "Local Govee lighting control center",
 			},
 		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			DisablePinchZoom:     true,
+			Theme:                windows.Dark,
+			BackdropType:         windows.None,
+		},
 	})
 	if err != nil {
 		println("Error:", err.Error())
@@ -128,7 +136,7 @@ Phone control (Config -> Remote): serves the same HUD over HTTP to
 devices on your LAN or VPN. Off by default; public addresses are always
 refused.
 
-Single-instance: a second launch signals /tmp/lightwave.sock and exits.
+Single-instance: a second launch signals the running process and exits.
 
 Env (see .env.example):
   GOVEE_API_KEY     Govee Developer Cloud key (discovery only)

@@ -5,12 +5,22 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
-const SockPath = "/tmp/lightwave.sock"
+// SockPath is the single-instance / Stream Deck socket. macOS keeps the
+// historical /tmp path so existing plugins keep working; Windows 11 speaks
+// AF_UNIX on a filesystem path, so the rest of this file is shared.
+func SockPath() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "lightwave.sock")
+	}
+	return "/tmp/lightwave.sock"
+}
 
 // Replier answers a command. Returning a non-empty string sends that line back
 // to the caller; returning "" keeps the original fire-and-forget behaviour.
@@ -18,27 +28,28 @@ const SockPath = "/tmp/lightwave.sock"
 type Replier func(cmd string) string
 
 type Server struct {
-	ln      net.Listener
-	onCmd   func(string)
-	reply   Replier
-	mu      sync.Mutex
-	closed  bool
-	subs    map[chan string]struct{}
+	ln     net.Listener
+	onCmd  func(string)
+	reply  Replier
+	mu     sync.Mutex
+	closed bool
+	subs   map[chan string]struct{}
 }
 
 func DialOrServe(command string, onCmd func(string)) (primary bool, srv *Server, err error) {
-	if conn, err := net.DialTimeout("unix", SockPath, 400*time.Millisecond); err == nil {
+	path := SockPath()
+	if conn, err := net.DialTimeout("unix", path, 400*time.Millisecond); err == nil {
 		_, _ = conn.Write([]byte(command + "\n"))
 		_ = conn.Close()
 		return false, nil, nil
 	}
-	_ = os.Remove(SockPath)
+	_ = os.Remove(path)
 
-	ln, err := net.Listen("unix", SockPath)
+	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return false, nil, err
 	}
-	_ = os.Chmod(SockPath, 0o600)
+	_ = os.Chmod(path, 0o600)
 
 	s := &Server{ln: ln, onCmd: onCmd, subs: map[chan string]struct{}{}}
 	go s.accept()
@@ -221,5 +232,5 @@ func (s *Server) Close() {
 		close(ch)
 	}
 	_ = s.ln.Close()
-	_ = os.Remove(SockPath)
+	_ = os.Remove(SockPath())
 }

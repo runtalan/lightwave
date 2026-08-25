@@ -9,6 +9,7 @@
   "CategoryIcon": "imgs/category",
   "Icon": "imgs/plugin",
   "CodePath": "bin/lightwave-sd",
+  "CodePathWin": "bin/lightwave-sd.exe",
   "SDKVersion": 2,
   "Software": {
     "MinimumVersion": "6.4"
@@ -17,6 +18,10 @@
     {
       "Platform": "mac",
       "MinimumVersion": "10.15"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
     }
   ],
   "Actions": [

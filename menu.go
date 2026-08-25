@@ -7,7 +7,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 )
 
-// appMenu builds the macOS menu bar.
+// appMenu builds the application menu.
 //
 // Only the App, Edit and Window roles are implemented in Wails v2.15 —
 // FileMenuRole, MinimizeRole and QuitRole are all commented out upstream — and

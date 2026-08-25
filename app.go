@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	stdruntime "runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -123,6 +124,7 @@ type HUDState struct {
 	BleScanning     bool           `json:"bleScanning"`
 	BluetoothDenied bool           `json:"bluetoothDenied"`
 	BluetoothOff    bool           `json:"bluetoothOff"`
+	Platform        string         `json:"platform"`
 	Settings        SettingsView   `json:"settings"`
 }
 
@@ -1148,6 +1150,7 @@ func (a *App) snapshotLocked() HUDState {
 		BleScanning:     a.ble != nil && a.ble.Scanning(),
 		BluetoothDenied: a.ble != nil && a.ble.Unauthorized(),
 		BluetoothOff:    a.ble != nil && a.ble.PoweredOff(),
+		Platform:        stdruntime.GOOS,
 		Settings:        a.settingsViewLocked(),
 	}
 }

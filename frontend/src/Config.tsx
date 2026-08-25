@@ -40,6 +40,20 @@ const TABS: { id: ConfigTab; label: string }[] = [
   { id: 'account', label: 'Account' },
 ]
 
+function bluetoothDeniedCopy(platform: string): string {
+  if (platform === 'windows') {
+    return 'Bluetooth needed to find H6001 — allow Lightwave under Settings → Privacy & security → Bluetooth, then rescan.'
+  }
+  return 'Bluetooth needed to find H6001 — enable Lightwave in System Settings → Privacy & Security → Bluetooth, then rescan.'
+}
+
+function bluetoothDeniedEmpty(platform: string): string {
+  if (platform === 'windows') {
+    return 'Bluetooth needed to find H6001. Allow Lightwave under Settings → Privacy & security → Bluetooth, then Rescan.'
+  }
+  return 'Bluetooth needed to find H6001. Enable Lightwave in System Settings → Privacy & Security → Bluetooth, then tap Rescan.'
+}
+
 export function Config({ state, onState }: Props) {
   const [tab, setTab] = useState<ConfigTab>('lights')
   const [err, setErr] = useState('')
@@ -356,7 +370,7 @@ function LightsPane({
   }
 
   const statusCopy = state.bluetoothDenied
-    ? 'Bluetooth needed to find H6001 — enable Lightwave in System Settings → Privacy & Security → Bluetooth, then rescan.'
+    ? bluetoothDeniedCopy(state.platform)
     : state.bluetoothOff
       ? 'Bluetooth is off. Turn it on to find H6001.'
       : !state.hasApiKey
@@ -493,9 +507,7 @@ function LightsPane({
         <p className={`status ${statusBad ? 'bad' : ''}`}>{statusCopy}</p>
       <div className="device-list">
         {state.bluetoothDenied && (
-          <p className="device-empty bad">
-            Bluetooth needed to find H6001. Enable Lightwave in System Settings → Privacy & Security → Bluetooth, then tap Rescan.
-          </p>
+          <p className="device-empty bad">{bluetoothDeniedEmpty(state.platform)}</p>
         )}
         {state.bleScanning && !state.bluetoothDenied && !state.bluetoothOff && (
           <div className="device scanning" aria-live="polite">
