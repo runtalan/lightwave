@@ -421,14 +421,15 @@ func (a *App) settingsSnapshot() config.Settings {
 	return a.settings
 }
 
-// MIDI events land in atomics on the CGO thread and are polled here. 8ms keeps
-// a knob turn feeling instant, but paying 125 wakeups/sec forever — hidden,
-// idle, or with no MIDI hardware at all — is pure battery drain. After a quiet
-// stretch the poll backs off; the first event after idle waits at most one
-// slow tick (below perception for a key press) and snaps the rate back up.
+// MIDI events land in atomics on the CGO thread and are polled here. CoreMIDI
+// already delivers via callback; this loop only applies the latest atomic.
+// Fast matches scheduleStateEmit (32ms): the HUD cannot show a quicker
+// update, and lamp writes are capped at brightMinInterval (100ms) anyway.
+// After a quiet stretch the poll backs off; a note after idle waits at most
+// one slow tick and snaps the rate back up.
 const (
-	midiPollFast    = 8 * time.Millisecond
-	midiPollSlow    = 60 * time.Millisecond
+	midiPollFast    = 32 * time.Millisecond
+	midiPollSlow    = 100 * time.Millisecond
 	midiPollIdle    = 250 * time.Millisecond
 	midiPollFastFor = 2 * time.Second
 )
