@@ -383,7 +383,7 @@ function LightsPane({
               ? 'Sweeping the account, LAN, and Bluetooth…'
               : (state.catalog ?? []).length === 0
                 ? 'No lights found. Enable LAN control or Bluetooth, then rescan.'
-                : `${state.catalog.length} lights. Select a pad, then a light.`
+                : `${(state.catalog ?? []).length} lights. Select a pad, then a light.`
 
   const statusBad = state.bluetoothDenied || state.bluetoothOff || Boolean(state.discoverError) || !state.hasApiKey
 

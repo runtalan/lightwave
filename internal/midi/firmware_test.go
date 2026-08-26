@@ -38,6 +38,16 @@ func TestGMMKFirmwareLayout(t *testing.T) {
 		t.Errorf("Num+turn: note=%d recall=%v; want 61/false", note, recall)
 	}
 
+	// Direction, not just delivery. This firmware is configured plus=60,
+	// minus=61 — inverting the stock pair — and the configured values must
+	// win, or the knob steps the palette the opposite way from the turn.
+	if d, ok := PaletteDelta(60, 60, 61); !ok || d != 1 {
+		t.Errorf("Num+turn 60 = (%d,%v), want up", d, ok)
+	}
+	if d, ok := PaletteDelta(61, 60, 61); !ok || d != -1 {
+		t.Errorf("Num+turn 61 = (%d,%v), want down", d, ok)
+	}
+
 	// The slider reaches brightness once it has proven it varies, and never
 	// surfaces as a note.
 	l.onMIDI(gomidi.Message{0xB2, 62, 40}, 0)
@@ -135,5 +145,16 @@ func TestChannelOutOfRangeBecomesAny(t *testing.T) {
 		if got := s.MIDI().ChanRecall; int(got) != n {
 			t.Errorf("channel %d normalised to %d", n, got)
 		}
+	}
+}
+
+// Palette bound to the fader's own CC must not swallow brightness — same
+// reasoning as TestRecallOnBrightnessCCDoesNotStealSlider.
+func TestPaletteOnBrightnessCCDoesNotStealSlider(t *testing.T) {
+	l := New(config.MIDI{CC: 62, CCAlt: 7, NotePlus: 62, NoteMinus: 61})
+	l.onMIDI(gomidi.Message{0xB2, 62, 40}, 0)
+	l.onMIDI(gomidi.Message{0xB2, 62, 100}, 0)
+	if cc, _, ok := l.TakeCC(); !ok || cc != 62 {
+		t.Errorf("brightness must still work; got cc=%d ok=%v", cc, ok)
 	}
 }

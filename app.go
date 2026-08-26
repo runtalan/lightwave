@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"os"
 	stdruntime "runtime"
 	"sort"
 	"strings"
@@ -342,6 +343,12 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.midi = midilstn.New(a.midiCfg)
+	// LIGHTWAVE_MIDI_TRACE=1 logs every raw MIDI message before any filtering,
+	// for working out what a remapped control actually emits.
+	if os.Getenv("LIGHTWAVE_MIDI_TRACE") == "1" {
+		a.midi.SetTrace(true)
+		log.Printf("midi: raw trace enabled")
+	}
 	go a.midiApplyLoop()
 	go a.brightnessPump()
 	go func() {
@@ -480,6 +487,9 @@ func (a *App) drainMIDI() bool {
 		return false
 	}
 	activity := false
+	for _, e := range a.midi.DrainTrace() {
+		log.Printf("midi: raw %s ch %d num %d val %d", e.Kind(), e.Channel(), e.Num, e.Val)
+	}
 	if ok, port, changed := a.midi.TakeStatus(); changed {
 		a.mu.Lock()
 		a.midiOK = ok

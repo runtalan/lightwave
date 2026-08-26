@@ -1,6 +1,12 @@
 package midi
 
-import "testing"
+import (
+	"testing"
+
+	"lightwave/internal/config"
+
+	gomidi "gitlab.com/gomidi/midi/v2"
+)
 
 func TestCCToPercentRange(t *testing.T) {
 	if CCToPercent(0) != 1 {
@@ -69,7 +75,7 @@ func TestPortScorePrefersGMMK(t *testing.T) {
 }
 
 func TestPaletteDeltaNotes60And61(t *testing.T) {
-	// Hardcoded: 60 = down (−), 61 = up (+), even if configured plus/minus differ.
+	// 60 = down (−), 61 = up (+) by default, when the config does not claim them.
 	if d, ok := PaletteDelta(60, 48, 49); !ok || d != -1 {
 		t.Fatalf("note 60 = (%d,%v), want down", d, ok)
 	}
@@ -86,8 +92,61 @@ func TestPaletteDeltaNotes60And61(t *testing.T) {
 	if _, ok := PaletteDelta(50, 72, 73); ok {
 		t.Fatal("unrelated note must not step the palette")
 	}
-	// 60/61 win over a swapped plus/minus config (old default was plus=60).
-	if d, ok := PaletteDelta(60, 60, 61); !ok || d != -1 {
-		t.Fatalf("note 60 vs plus=60 = (%d,%v), want down", d, ok)
+	// A config that inverts the stock pair wins: this is the GMMK knob whose
+	// firmware sends 60 the direction the user reads as "up". Before, the
+	// hardcoded switch silently overrode this and the knob ran backwards.
+	if d, ok := PaletteDelta(60, 60, 61); !ok || d != 1 {
+		t.Fatalf("note 60 with plus=60 = (%d,%v), want up", d, ok)
+	}
+	if d, ok := PaletteDelta(61, 60, 61); !ok || d != -1 {
+		t.Fatalf("note 61 with minus=61 = (%d,%v), want down", d, ok)
+	}
+}
+
+func TestTraceOffByDefault(t *testing.T) {
+	l := New(config.MIDI{CC: 62, NotePlus: 61, NoteMinus: 60})
+	l.onMIDI(gomidi.Message{0xB0, 61, 127}, 0)
+	if ev := l.DrainTrace(); len(ev) != 0 {
+		t.Fatalf("trace off recorded %d events, want 0", len(ev))
+	}
+}
+
+func TestTraceRecordsRawMessages(t *testing.T) {
+	l := New(config.MIDI{CC: 62, NotePlus: 61, NoteMinus: 60})
+	l.SetTrace(true)
+	// A relative encoder's two directions, as one CC number with differing
+	// values — the shape that no plus/minus remap can distinguish.
+	l.onMIDI(gomidi.Message{0xB0, 60, 1}, 0)
+	l.onMIDI(gomidi.Message{0xB0, 60, 127}, 0)
+	ev := l.DrainTrace()
+	if len(ev) != 2 {
+		t.Fatalf("got %d events, want 2", len(ev))
+	}
+	if ev[0].Num != 60 || ev[0].Val != 1 || ev[1].Val != 127 {
+		t.Fatalf("events = %+v, want num 60 vals 1 then 127", ev)
+	}
+	if ev[0].Kind() != "CC" || ev[0].Channel() != 1 {
+		t.Fatalf("kind/chan = %s/%d, want CC/1", ev[0].Kind(), ev[0].Channel())
+	}
+	// Draining twice must not repeat events.
+	if again := l.DrainTrace(); len(again) != 0 {
+		t.Fatalf("second drain returned %d events, want 0", len(again))
+	}
+}
+
+func TestTraceRingOverflowKeepsNewest(t *testing.T) {
+	l := New(config.MIDI{CC: 62, NotePlus: 61, NoteMinus: 60})
+	l.SetTrace(true)
+	for i := 0; i < traceRingSize+50; i++ {
+		l.onMIDI(gomidi.Message{0xB0, 62, uint8(i % 128)}, 0)
+	}
+	ev := l.DrainTrace()
+	if len(ev) != traceRingSize {
+		t.Fatalf("got %d events, want %d (ring cap)", len(ev), traceRingSize)
+	}
+	// The newest write must survive the wrap.
+	last := uint8((traceRingSize + 49) % 128)
+	if ev[len(ev)-1].Val != last {
+		t.Fatalf("newest val = %d, want %d", ev[len(ev)-1].Val, last)
 	}
 }

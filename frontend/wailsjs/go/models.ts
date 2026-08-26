@@ -92,7 +92,7 @@ export namespace main {
 	    webAddr: string;
 	    webRunning: boolean;
 	    webHasToken: boolean;
-	    webUrls: string[];
+	    webUrls?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsView(source);
@@ -164,7 +164,7 @@ export namespace main {
 	    discoverError: string;
 	    discovering: boolean;
 	    firstRun: boolean;
-	    catalog: govee.Device[];
+	    catalog?: govee.Device[];
 	    hidden: boolean;
 	    mappingPath: string;
 	    configOpen: boolean;
@@ -174,6 +174,7 @@ export namespace main {
 	    bleScanning: boolean;
 	    bluetoothDenied: boolean;
 	    bluetoothOff: boolean;
+	    platform: string;
 	    settings: SettingsView;
 	
 	    static createFrom(source: any = {}) {
@@ -206,6 +207,7 @@ export namespace main {
 	        this.bleScanning = source["bleScanning"];
 	        this.bluetoothDenied = source["bluetoothDenied"];
 	        this.bluetoothOff = source["bluetoothOff"];
+	        this.platform = source["platform"];
 	        this.settings = this.convertValues(source["settings"], SettingsView);
 	    }
 	

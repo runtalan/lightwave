@@ -38,9 +38,18 @@ type Listener struct {
 	latestCC    atomic.Uint32
 	latestRawCC atomic.Uint32
 	latestNote  atomic.Uint32
-	statusOK    atomic.Uint32 // 0/1
-	statusSeq   atomic.Uint32
-	seenSeq     atomic.Uint32
+
+	// Raw-message trace ring. Written from the CoreMIDI thread (numbers only,
+	// no lock/log/alloc) and drained by DrainTrace on the poll goroutine. Off
+	// unless traceOn is set, so the normal path pays one atomic load.
+	traceOn   atomic.Bool
+	traceSeq  atomic.Uint64
+	traceRing [traceRingSize]atomic.Uint32
+	// traceDrained is touched only by DrainTrace on the poll goroutine.
+	traceDrained uint64
+	statusOK     atomic.Uint32 // 0/1
+	statusSeq    atomic.Uint32
+	seenSeq      atomic.Uint32
 }
 
 func New(cfg config.MIDI) *Listener {
@@ -132,10 +141,10 @@ func (l *Listener) Start() error {
 	if cfg.NoteRecall != 0 {
 		recall = fmt.Sprint(cfg.NoteRecall)
 	}
-	log.Printf("midi: listening on %s (CC %d/%d ch %s, palette notes 60−/61+ and +%d -%d ch %s, recall %s ch %s)",
+	log.Printf("midi: listening on %s (CC %d/%d ch %s, palette +%d -%d (stock %d-/%d+) ch %s, recall %s ch %s)",
 		name, cfg.CC, cfg.CCAlt, chanLabel(cfg.ChanCC),
-		cfg.NotePlus, cfg.NoteMinus, chanLabel(cfg.ChanPalette),
-		recall, chanLabel(cfg.ChanRecall))
+		cfg.NotePlus, cfg.NoteMinus, NotePaletteDown, NotePaletteUp,
+		chanLabel(cfg.ChanPalette), recall, chanLabel(cfg.ChanRecall))
 	l.setStatus(true, name)
 	return nil
 }
@@ -149,13 +158,15 @@ const midiRecall uint32 = 1 << 18
 func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 	defer func() { _ = recover() }()
 
+	l.trace(msg)
+
 	want := l.noteWanted.Load()
 	plus, minus, recall := uint8(want), uint8(want>>8), uint8(want>>16)
 	chans := l.chanWanted.Load()
 	chCC, chPal, chRec := uint8(chans), uint8(chans>>8), uint8(chans>>16)
 	raw := []byte(msg)
 	// Recall is checked before the palette match: an explicit assignment
-	// should win over the hardcoded 60/61 palette keys.
+	// should win over the palette keys.
 	//
 	// It is deliberately not checked ahead of the brightness CCs. A fader
 	// bound to the same number would otherwise fire recall on every step of a
@@ -168,7 +179,10 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 			return
 		}
 	}
-	if delta, num, viaCC, ok := PaletteTrigger(raw, plus, minus); ok && delta != 0 && channelAllows(raw, chPal) {
+	// Same brightness escape as recall above: a palette note sharing the
+	// fader's CC must not swallow the slider.
+	if delta, num, viaCC, ok := PaletteTrigger(raw, plus, minus); ok && delta != 0 &&
+		channelAllows(raw, chPal) && !l.isBrightnessCC(raw, num) {
 		packed := midiPresent | uint32(num)<<8
 		if viaCC {
 			packed |= midiViaCC
@@ -179,7 +193,7 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 
 	var ch, cc, val uint8
 	if msg.GetControlChange(&ch, &cc, &val) {
-		if cc == NotePaletteDown || cc == NotePaletteUp {
+		if l.claimsCCForPalette(cc, plus, minus) {
 			return
 		}
 		if !channelAllows(raw, chCC) {
@@ -222,7 +236,8 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 		return 0, 0, false
 	}
 	cc, val = uint8(v>>8), uint8(v)
-	if cc == NotePaletteDown || cc == NotePaletteUp {
+	want := l.noteWanted.Load()
+	if l.claimsCCForPalette(cc, uint8(want), uint8(want>>8)) {
 		return 0, 0, false
 	}
 	// A control that has only ever reported one value is not a working slider:
@@ -367,29 +382,52 @@ func CCToPercent(value uint8) int {
 	return n
 }
 
-// Notes 60 (−) and 61 (+) always cycle the palette, matching the HUD keys.
+// The stock palette notes: 60 (−) and 61 (+), matching the HUD keys. These are
+// only defaults — the configured plus/minus notes always win, so a firmware
+// remap is fixed by editing the settings rather than by rebuilding.
 // GMMK/Glorious pads often emit these as CC rather than Note On; both fire.
 const (
 	NotePaletteDown uint8 = 60
 	NotePaletteUp   uint8 = 61
 )
 
-// PaletteDelta maps a note/CC number to a palette step. 60/61 are hardcoded;
-// the configured plus/minus notes still fire for any other key.
+// PaletteDelta maps a note/CC number to a palette step. The configured
+// plus/minus notes are authoritative, including when they invert the stock
+// 60/61 assignment; those two are consulted only for numbers the config does
+// not claim.
 func PaletteDelta(note, plus, minus uint8) (int, bool) {
-	switch note {
-	case NotePaletteDown:
-		return -1, true
-	case NotePaletteUp:
-		return 1, true
-	}
 	if note == plus {
 		return 1, true
 	}
 	if note == minus {
 		return -1, true
 	}
+	switch note {
+	case NotePaletteDown:
+		return -1, true
+	case NotePaletteUp:
+		return 1, true
+	}
 	return 0, false
+}
+
+// isPaletteNumber reports whether a CC number is one the palette claims,
+// either by configuration or by the stock 60/61 default.
+func isPaletteNumber(n, plus, minus uint8) bool {
+	return n == plus || n == minus || n == NotePaletteDown || n == NotePaletteUp
+}
+
+// claimsCCForPalette reports whether a CC number should be withheld from
+// brightness because the palette owns it. A number that is also a configured
+// brightness CC is never withheld: the same reasoning as recall — a palette
+// key that does nothing is a far smaller loss than a slider that stops
+// working, and only the fader streams continuous values.
+func (l *Listener) claimsCCForPalette(n, plus, minus uint8) bool {
+	if !isPaletteNumber(n, plus, minus) {
+		return false
+	}
+	w := l.ccWanted.Load()
+	return n != uint8(w) && n != uint8(w>>8)
 }
 
 // PaletteTrigger reads a channel message on any MIDI channel.
@@ -418,7 +456,7 @@ func PaletteTrigger(msg []byte, plus, minus uint8) (delta int, num uint8, viaCC 
 		if v == 0 {
 			return 0, 0, false, false
 		}
-		if n != NotePaletteDown && n != NotePaletteUp {
+		if !isPaletteNumber(n, plus, minus) {
 			return 0, 0, false, false
 		}
 		d, hit := PaletteDelta(n, plus, minus)
@@ -520,4 +558,82 @@ func chanLabel(c uint8) string {
 		return "any"
 	}
 	return fmt.Sprint(c)
+}
+
+// traceRingSize bounds the raw-message trace. A knob click can emit a burst,
+// and a fader streams; this holds enough to read a few gestures without ever
+// growing. Oldest entries are overwritten.
+const traceRingSize = 256
+
+// SetTrace turns raw-message tracing on or off.
+func (l *Listener) SetTrace(on bool) { l.traceOn.Store(on) }
+
+// Tracing reports whether raw-message tracing is on.
+func (l *Listener) Tracing() bool { return l.traceOn.Load() }
+
+// trace records one raw message. Runs on the CoreMIDI thread, so it only
+// stores numbers into a preallocated ring — no lock, no log, no allocation.
+func (l *Listener) trace(msg []byte) {
+	if !l.traceOn.Load() || len(msg) < 3 {
+		return
+	}
+	// Status goes above midiPresent (bit 16), not onto it: a status byte is
+	// 8 bits and would otherwise OR its low bit into the present flag.
+	packed := midiPresent | uint32(msg[0])<<17 | uint32(msg[1]&0x7f)<<8 | uint32(msg[2]&0x7f)
+	i := l.traceSeq.Add(1) - 1
+	l.traceRing[i%traceRingSize].Store(packed)
+}
+
+// TraceEvent is one raw MIDI message as seen before any filtering.
+type TraceEvent struct {
+	Status uint8 // full status byte, including channel nibble
+	Num    uint8 // note or CC number
+	Val    uint8 // velocity or CC value
+}
+
+// Kind names the message type for a human reading the log.
+func (e TraceEvent) Kind() string {
+	switch e.Status >> 4 {
+	case 0x8:
+		return "NoteOff"
+	case 0x9:
+		if e.Val == 0 {
+			return "NoteOff(vel0)"
+		}
+		return "NoteOn"
+	case 0xB:
+		return "CC"
+	}
+	return fmt.Sprintf("0x%X", e.Status>>4)
+}
+
+// Channel is the 1-based MIDI channel.
+func (e TraceEvent) Channel() int { return int(e.Status&0x0f) + 1 }
+
+// DrainTrace returns the raw messages recorded since the last call, oldest
+// first, and clears them. Safe to call with tracing off (returns nil).
+func (l *Listener) DrainTrace() []TraceEvent {
+	end := l.traceSeq.Load()
+	start := l.traceDrained
+	if end == start {
+		return nil
+	}
+	// A burst larger than the ring means the oldest entries are already gone.
+	if end-start > traceRingSize {
+		start = end - traceRingSize
+	}
+	out := make([]TraceEvent, 0, end-start)
+	for i := start; i < end; i++ {
+		v := l.traceRing[i%traceRingSize].Load()
+		if v&midiPresent == 0 {
+			continue
+		}
+		out = append(out, TraceEvent{
+			Status: uint8(v >> 17),
+			Num:    uint8(v >> 8),
+			Val:    uint8(v),
+		})
+	}
+	l.traceDrained = end
+	return out
 }

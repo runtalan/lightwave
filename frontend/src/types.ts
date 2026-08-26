@@ -39,7 +39,7 @@ export type SettingsView = {
   webAddr: string
   webRunning: boolean
   webHasToken: boolean
-  webUrls: string[]
+  webUrls?: string[]
 }
 
 export type HUDState = {
@@ -60,7 +60,7 @@ export type HUDState = {
   hasApiKey: boolean
   discoverError: string
   discovering: boolean
-  catalog: Device[]
+  catalog?: Device[]
   hidden: boolean
   mappingPath: string
   firstRun: boolean
