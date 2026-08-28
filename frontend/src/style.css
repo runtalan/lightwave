@@ -203,6 +203,53 @@ a,
   text-shadow: 0 0 18px rgba(176, 38, 255, 0.55);
 }
 
+/* The palette title doubles as a dropdown. The select wears the h1's type
+   directly (form controls don't inherit font by default), and the arrow sits
+   over the select's right padding so clicking it opens the menu. */
+.palette-pick {
+  position: relative;
+  display: inline-block;
+}
+
+.palette-pick select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0 20px 0 0;
+  max-width: 100%;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-shadow: inherit;
+}
+
+.palette-pick select:focus-visible {
+  outline: 1px solid rgba(176, 38, 255, 0.6);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* The native menu draws on the system's light panel, where the HUD's pale
+   text would vanish. */
+.palette-pick option {
+  color: #1a1024;
+  text-shadow: none;
+}
+
+.palette-arrow {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--magenta);
+  pointer-events: none;
+}
+
 .mode-chip {
   margin: 4px 0 0;
   font-family: "Oxanium", sans-serif;
@@ -594,6 +641,73 @@ a,
   box-shadow: 0 0 10px rgba(176, 38, 255, 0.85);
   cursor: grab;
   margin-top: -4px;
+}
+
+/* Settings sliders. A bare range input inside .field is invisible: the
+   .field input rule paints every input with a background, border and padding,
+   which on WebKit replaces the native slider rendering with a small dark box.
+   These live outside .field for that reason and borrow the fader's track and
+   thumb so a settings slider reads as the same control as the pool dimmer. */
+.setting-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  margin: 2px 0;
+  border: none;
+  padding: 0;
+  border-radius: 99px;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.setting-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, rgba(255, 122, 61, 0.35), rgba(255, 46, 200, 0.45), rgba(176, 38, 255, 0.55));
+  box-shadow: inset 0 0 0 1px rgba(176, 38, 255, 0.28);
+}
+
+.setting-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--magenta);
+  box-shadow: 0 0 10px rgba(176, 38, 255, 0.85);
+  cursor: grab;
+  margin-top: -4px;
+}
+
+.setting-slider:focus {
+  outline: none;
+}
+
+.setting-slider:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(176, 38, 255, 0.45), 0 0 10px rgba(176, 38, 255, 0.85);
+}
+
+/* Label above the slider, reading value at the right. */
+.slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(233, 213, 255, 0.7);
+}
+
+.slider-val {
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ice);
 }
 
 .fill {

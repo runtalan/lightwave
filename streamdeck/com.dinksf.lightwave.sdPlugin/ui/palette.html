@@ -2,10 +2,33 @@
 <html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
 <body>
   <div class="row">
-    <label for="dir">Direction</label>
-    <select id="dir"><option value="next">Next palette</option><option value="prev">Previous palette</option></select>
+    <label for="dir">Palette</label>
+    <!-- Values "next"/"prev" cycle; "set:<name>" jumps straight to that
+         palette. The list mirrors Palettes in internal/color/engine.go — the
+         plugin has no back-channel to ask the app, so keep the two in step
+         when palettes change. -->
+    <select id="dir">
+      <option value="next">Next palette</option>
+      <option value="prev">Previous palette</option>
+      <optgroup label="Jump straight to">
+        <option value="set:Warm Whites">Warm Whites</option>
+        <option value="set:Soft Ambers">Soft Ambers</option>
+        <option value="set:Deep Oranges">Deep Oranges</option>
+        <option value="set:Reds">Reds</option>
+        <option value="set:Purples">Purples</option>
+        <option value="set:Ocean">Ocean</option>
+        <option value="set:Fall Leaves">Fall Leaves</option>
+        <option value="set:Sunset">Sunset</option>
+        <option value="set:Sage">Sage</option>
+        <option value="set:Lavender Mist">Lavender Mist</option>
+        <option value="set:Candlelight">Candlelight</option>
+        <option value="set:Morning Haze">Morning Haze</option>
+        <option value="set:Blush">Blush</option>
+        <option value="set:Ivory">Ivory</option>
+      </optgroup>
+    </select>
   </div>
-  <p class="hint">Steps through all 13 palettes. The key shows the palette you will land on, with its colors, so you can see the change before you make it.</p>
+  <p class="hint">Cycle with Next/Previous — the key shows the palette you will land on, with its colors — or pick one palette for this key to jump straight to it.</p>
   <script>
     const sel = document.getElementById('dir');
     document.addEventListener('pi-ready', (e) => { if (e.detail.direction) sel.value = e.detail.direction; });

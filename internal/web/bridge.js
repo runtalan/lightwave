@@ -46,7 +46,7 @@
   var REMOTE = [
     'GetState', 'GetSlots', 'GetActivePool', 'GetPaletteIndex', 'Dancing',
     'ToggleSlot', 'ToggleAll', 'AllOn', 'AllOff',
-    'SetBrightness', 'CycleColor', 'ToggleDance', 'ToggleGradient',
+    'SetBrightness', 'CycleColor', 'SetPalette', 'ToggleDance', 'ToggleGradient',
   ]
 
   // Everything else resolves locally without touching the network. A phone has

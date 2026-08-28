@@ -3,6 +3,7 @@ import {
   ToggleAll,
   CycleColor,
   Quit,
+  SetPalette,
   ToggleDance,
   ToggleGradient,
   HideHUD,
@@ -114,7 +115,30 @@ export function HUD({ state }: Props) {
       <header className="mast compact no-drag" data-no-drag>
         <div>
           <p className="eyebrow">lightwave</p>
-          <h1>{state.paletteName}</h1>
+          {/* The palette name is a dropdown: +/− still cycle, but every
+              palette is one pick away. Styled as the h1 it replaced, with the
+              arrow overlaying the select's padding so clicking it opens the
+              menu. */}
+          <h1 className="palette-pick">
+            <select
+              aria-label="Palette"
+              value={state.paletteIndex}
+              onChange={(e) => void SetPalette(Number(e.target.value))}
+            >
+              {state.paletteNames.length > 0 ? (
+                state.paletteNames.map((name, i) => (
+                  <option key={name} value={i}>
+                    {name}
+                  </option>
+                ))
+              ) : (
+                <option value={state.paletteIndex}>{state.paletteName}</option>
+              )}
+            </select>
+            <span className="palette-arrow" aria-hidden="true">
+              ▾
+            </span>
+          </h1>
           <p className={`mode-chip ${state.gradient ? 'on' : ''}`}>
             {state.gradient ? 'GRADIENT' : 'SINGLE'}
           </p>

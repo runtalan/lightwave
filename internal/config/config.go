@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -168,6 +169,17 @@ type Settings struct {
 	// Gradient is the HUD scene style: false paints every pooled lamp the
 	// same colour; true spreads complementary/adjacent swatches across the pool.
 	Gradient bool `json:"gradient"`
+	// FadeSeconds is how long Color Fade takes to walk the palette once.
+	// Lower is more obvious motion. The default 60s is a slow drift; the
+	// narrow calm palettes (Sage, Blush, Morning Haze) can look almost
+	// static at that speed, which is what this setting is for.
+	FadeSeconds int `json:"fadeSeconds"`
+	// FadeDrift is how far Color Fade pushes colours from the palette's
+	// centre, as a percent. 100 is the palette as written; below that the
+	// fade converges toward one shade, above it the colours travel further
+	// than the palette's own range. Lets a narrow palette still read as
+	// moving without swapping it for a louder one.
+	FadeDrift int `json:"fadeDrift"`
 	// LaunchAtLogin starts Lightwave when the user logs in (a LaunchAgent on
 	// macOS, an HKCU Run entry on Windows). The start passes --hidden, so a
 	// login start goes straight to the background: lights, MIDI, and the
@@ -192,6 +204,8 @@ type settingsFile struct {
 	WebAddr         *string `json:"webAddr"`
 	WebToken        *string `json:"webToken"`
 	Gradient        *bool   `json:"gradient"`
+	FadeSeconds     *int    `json:"fadeSeconds"`
+	FadeDrift       *int    `json:"fadeDrift"`
 	LaunchAtLogin   *bool   `json:"launchAtLogin"`
 }
 
@@ -237,8 +251,62 @@ func DefaultSettings() Settings {
 		MidiCCMin:       0,
 		MidiCCMax:       127,
 		IdleHideSeconds: 3,
+		FadeSeconds:     DefaultFadeSeconds,
+		FadeDrift:       DefaultFadeDrift,
 		WebAddr:         DefaultWebAddr,
 	}
+}
+
+// Color Fade pacing. The floor is not a taste limit: each tick writes to every
+// pooled lamp over UDP, so a very short tour would flood the network and read
+// as a strobe rather than a fade. The ceiling keeps a mistyped value from
+// looking like the animation is broken.
+const (
+	DefaultFadeSeconds = 60
+	MinFadeSeconds     = 5
+	MaxFadeSeconds     = 600
+
+	// Drift is a percentage of the palette's natural spread. The ceiling is
+	// where clamping starts flattening hues into primaries on most palettes;
+	// the floor holds the fade on one colour, which is a legitimate "off".
+	DefaultFadeDrift = 100
+	MinFadeDrift     = 0
+	MaxFadeDrift     = 300
+)
+
+// FadeDuration is the clamped tour length, ready to use as a period. Zero or
+// missing (an older config.json predating this setting) means the default.
+func (s Settings) FadeDuration() time.Duration {
+	n := s.FadeSeconds
+	if n <= 0 {
+		n = DefaultFadeSeconds
+	}
+	if n < MinFadeSeconds {
+		n = MinFadeSeconds
+	}
+	if n > MaxFadeSeconds {
+		n = MaxFadeSeconds
+	}
+	return time.Duration(n) * time.Second
+}
+
+// DriftAmount is the clamped drift as a multiplier for Palette.Spread. Zero or
+// missing (a config.json predating this setting) means the palette unchanged.
+func (s Settings) DriftAmount() float64 {
+	n := s.FadeDrift
+	if n == 0 && s.FadeSeconds == 0 {
+		// Nothing in this file has ever set fade options: treat drift as
+		// untouched rather than as a deliberate 0, which would freeze the
+		// fade on one colour for anyone upgrading.
+		return 1
+	}
+	if n < MinFadeDrift {
+		n = MinFadeDrift
+	}
+	if n > MaxFadeDrift {
+		n = MaxFadeDrift
+	}
+	return float64(n) / 100
 }
 
 // DefaultWebAddr binds every interface. That is safe here only because the web
@@ -313,6 +381,12 @@ func LoadSettings() Settings {
 	}
 	if raw.Gradient != nil {
 		s.Gradient = *raw.Gradient
+	}
+	if raw.FadeSeconds != nil {
+		s.FadeSeconds = *raw.FadeSeconds
+	}
+	if raw.FadeDrift != nil {
+		s.FadeDrift = *raw.FadeDrift
 	}
 	return s
 }

@@ -166,6 +166,10 @@ export function SetLaunchAtLogin(arg1) {
   return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
 }
 
+export function SetPalette(arg1) {
+  return window['go']['main']['App']['SetPalette'](arg1);
+}
+
 export function SetWebAssets(arg1) {
   return window['go']['main']['App']['SetWebAssets'](arg1);
 }

@@ -88,6 +88,8 @@ export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
 export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 
+export function SetPalette(arg1:number):Promise<main.HUDState>;
+
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 
 export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;

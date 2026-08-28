@@ -76,6 +76,8 @@ export function Config({ state, onState }: Props) {
     state.settings.midiCCMin,
     state.settings.midiCCMax,
     state.settings.idleHideSeconds,
+    state.settings.fadeSeconds,
+    state.settings.fadeDrift,
   ].join(',')
   useEffect(() => {
     setMidiDraft(state.settings)
@@ -100,7 +102,9 @@ export function Config({ state, onState }: Props) {
     midiDraft.midiChanCC !== state.settings.midiChanCC ||
     midiDraft.midiChanPalette !== state.settings.midiChanPalette ||
     midiDraft.midiChanRecall !== state.settings.midiChanRecall ||
-    midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
+    midiDraft.idleHideSeconds !== state.settings.idleHideSeconds ||
+    midiDraft.fadeSeconds !== state.settings.fadeSeconds ||
+    midiDraft.fadeDrift !== state.settings.fadeDrift
   // A typed-but-unsaved API key counts as unsaved work too, so Cancel asks
   // instead of dropping it silently.
   const dirty = draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== ''
@@ -232,7 +236,13 @@ export function Config({ state, onState }: Props) {
             <MidiPane state={state} draft={midiDraft} setDraft={setMidiDraft} setErr={setErr} />
           )}
           {tab === 'hud' && (
-            <HudPane state={state} setErr={setErr} setNote={setNote} />
+            <HudPane
+              state={state}
+              draft={midiDraft}
+              setDraft={setMidiDraft}
+              setErr={setErr}
+              setNote={setNote}
+            />
           )}
           {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
           {tab === 'account' && (
@@ -692,12 +702,43 @@ function MidiPane({
   )
 }
 
+// Seconds alone do not say much about how a fade will feel, so the hint pairs
+// the number with the character of the motion at that speed.
+function fadeLabel(sec: number): string {
+  let feel = 'barely perceptible'
+  if (sec <= 15) feel = 'brisk'
+  else if (sec <= 45) feel = 'visible drift'
+  else if (sec <= 120) feel = 'slow, ambient'
+  return `${sec}s — ${feel}`
+}
+
+// 0 is a real drift value (hold on one colour), so the usual `x || default`
+// idiom would silently override it. Only an absent field falls back.
+function driftOf(s: SettingsView): number {
+  return s.fadeDrift ?? 100
+}
+
+// Drift is a percentage of the palette's own spread, which does not mean much
+// on its own — the hint says what it does to the colours instead.
+function driftLabel(pct: number): string {
+  if (pct === 0) return '0% — held on one colour'
+  if (pct < 60) return `${pct}% — subtle, close shades`
+  if (pct < 95) return `${pct}% — narrowed`
+  if (pct <= 110) return `${pct}% — the palette as written`
+  if (pct <= 180) return `${pct}% — widened`
+  return `${pct}% — well past the palette`
+}
+
 function HudPane({
   state,
+  draft,
+  setDraft,
   setErr,
   setNote,
 }: {
   state: HUDState
+  draft: SettingsView
+  setDraft: (s: SettingsView) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
 }) {
@@ -743,6 +784,54 @@ function HudPane({
             {on ? 'Turn off' : 'Turn on'}
           </button>
         </footer>
+      </section>
+
+      {/* Colour Fade speed. The palettes are deliberately narrow — the calm
+          ones especially — so at the 60s default the drift can be hard to
+          see at all. Rather than widen the palettes, let the tour run
+          faster: the same colours, just reached sooner. */}
+      <section className="group">
+        <h3 className="group-title">Color Fade</h3>
+        <p className="group-hint">
+          How long one trip through the palette takes. Shorter is more obvious motion — the
+          quieter palettes need a faster tour before the drift reads at all.
+        </p>
+        {/* Deliberately not wrapped in .field: that rule styles every input
+            it contains as a text box, which flattens a range input into an
+            invisible rectangle on WebKit. */}
+        <div className="slider-head">
+          <span>Tour length</span>
+          <span className="slider-val">{fadeLabel(draft.fadeSeconds || 60)}</span>
+        </div>
+        <input
+          className="setting-slider"
+          type="range"
+          min={5}
+          max={300}
+          step={5}
+          aria-label="Color Fade tour length in seconds"
+          value={draft.fadeSeconds || 60}
+          onChange={(e) => setDraft({ ...draft, fadeSeconds: Number(e.target.value) })}
+        />
+
+        {/* Speed alone cannot fix a palette that barely moves: the calm ones
+            span a deliberately narrow range, so a faster tour reaches the
+            same few shades sooner. Drift is the control that widens the
+            journey itself. */}
+        <div className="slider-head">
+          <span>Drift range</span>
+          <span className="slider-val">{driftLabel(driftOf(draft))}</span>
+        </div>
+        <input
+          className="setting-slider"
+          type="range"
+          min={0}
+          max={300}
+          step={10}
+          aria-label="Color Fade drift range, percent of the palette's spread"
+          value={driftOf(draft)}
+          onChange={(e) => setDraft({ ...draft, fadeDrift: Number(e.target.value) })}
+        />
       </section>
 
       <section className="group">

@@ -474,6 +474,17 @@ func sendLANColor(ip string, r, g, b, kelvin int) error {
 	)); err == nil {
 		err = e
 	}
+	// A LAN RGBIC lamp latches the per-zone ramp SendGradient wrote: the two
+	// whole-lamp commands above do not clear it, so leaving gradient mode
+	// would keep showing the old bands. Overwrite every zone with this one
+	// colour. Only meaningful on segment-capable models, and only for RGB —
+	// a Kelvin white is not expressible as a segment colour, and the
+	// whole-lamp colorwc above already lit the white diodes.
+	if kelvin <= 0 && SupportsSegments(ModelOf(ip)) {
+		if e := sendPtReal(ip, [][]byte{blePacketColorSegment(r, g, b)}); err == nil {
+			err = e
+		}
+	}
 	return err
 }
 
@@ -556,6 +567,13 @@ func controlConn() (*net.UDPConn, error) {
 
 // testControlSink, when set, captures LAN payloads instead of writing UDP.
 var testControlSink func(ip, payload string)
+
+// SetTestControlSink redirects LAN control writes to f instead of the network.
+// Exported so tests outside this package (the paint path lives in main) can
+// assert on what a scene actually sends. Passing nil restores real UDP.
+func SetTestControlSink(f func(ip, payload string)) {
+	testControlSink = f
+}
 
 func sendControl(ip, payload string) (err error) {
 	defer func() {

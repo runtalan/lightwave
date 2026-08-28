@@ -51,6 +51,9 @@ type State struct {
 	NextPalette  string  `json:"nextPalette"`
 	PrevSwatches []Color `json:"prevSwatches"`
 	NextSwatches []Color `json:"nextSwatches"`
+	// Every palette's colours, keyed by name, for jump-straight-to-palette
+	// keys that target a palette other than the current/prev/next one.
+	PaletteSwatches map[string][]Color `json:"paletteSwatches"`
 }
 
 // Color is one palette swatch.

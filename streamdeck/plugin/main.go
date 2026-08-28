@@ -267,7 +267,12 @@ func (p *plugin) press(ev sd.Event) {
 	case actGradient:
 		cmd = "GRADIENT"
 	case actPalette:
-		if inst.settings.Direction == "prev" {
+		// "set:<name>" jumps straight to one palette; anything else keeps the
+		// original prev/next cycling, so profiles saved before direct select
+		// existed still work.
+		if name, ok := strings.CutPrefix(inst.settings.Direction, "set:"); ok && name != "" {
+			cmd = "PALETTE SET " + name
+		} else if inst.settings.Direction == "prev" {
 			cmd = "PALETTE -1"
 		} else {
 			cmd = "PALETTE +1"
@@ -400,6 +405,22 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			log.Printf("level render: %v", err)
 		}
 	case actPalette:
+		if name, ok := strings.CutPrefix(inst.settings.Direction, "set:"); ok && name != "" {
+			// A fixed jump target: show that palette itself, not a direction.
+			sw, known := st.PaletteSwatches[name]
+			if !known {
+				// Older Lightwave that does not send the full catalog: fall
+				// back to the name rather than painting an empty key.
+				p.sd.SetTitle(inst.context, wrapTitle(name))
+				break
+			}
+			if img, err := render.PaletteKey(name, swatches(sw)); err == nil {
+				p.sd.SetImage(inst.context, img)
+			} else {
+				log.Printf("palette render: %v", err)
+			}
+			break
+		}
 		// Show where a press lands, not the palette already showing.
 		nav := render.Nav{Forward: inst.settings.Direction != "prev"}
 		if nav.Forward {

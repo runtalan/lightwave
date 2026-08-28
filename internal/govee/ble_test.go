@@ -2,6 +2,7 @@ package govee
 
 import (
 	"bytes"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -518,6 +519,64 @@ func TestApplyPoolBrightnessZeroIsDimNotOff(t *testing.T) {
 		}
 		if strings.Contains(p, `"value":0`) {
 			t.Fatalf("fader sent brightness 0: %s", p)
+		}
+	}
+}
+
+// Leaving gradient mode must clear the per-zone ramp on a LAN RGBIC lamp.
+// The whole-lamp colorwc/color commands do not reset zones that SendGradient
+// painted, so without a trailing all-segments write the strip keeps showing
+// the old bands and the single/gradient toggle looks broken.
+func TestSendColorLANRGBICClearsSegments(t *testing.T) {
+	var payloads []string
+	testControlSink = func(_, payload string) {
+		payloads = append(payloads, payload)
+	}
+	t.Cleanup(func() { testControlSink = nil })
+
+	const ip = "192.0.2.77"
+	Remember(ip, "H6072")
+
+	if err := SendColor(ip, 10, 20, 30, 0); err != nil {
+		t.Fatalf("SendColor: %v", err)
+	}
+	var seg string
+	for _, p := range payloads {
+		if strings.Contains(p, `"cmd":"ptReal"`) {
+			seg = p
+		}
+	}
+	if seg == "" {
+		t.Fatalf("no ptReal segment write; payloads = %v", payloads)
+	}
+	// The frame must address every zone with the requested colour.
+	want := base64.StdEncoding.EncodeToString(blePacketColorSegment(10, 20, 30))
+	if !strings.Contains(seg, want) {
+		t.Fatalf("segment frame = %s, want all-zone packet %s", seg, want)
+	}
+
+	// A Kelvin white has no segment representation: colorwc already lit the
+	// white diodes, and a segment write would fight it with an RGB colour.
+	payloads = nil
+	if err := SendColor(ip, 255, 255, 255, 4000); err != nil {
+		t.Fatalf("SendColor kelvin: %v", err)
+	}
+	for _, p := range payloads {
+		if strings.Contains(p, `"cmd":"ptReal"`) {
+			t.Fatalf("kelvin write must not send segments: %s", p)
+		}
+	}
+
+	// Classic single-zone bulbs must never receive 0x15 segment packets.
+	const bulb = "192.0.2.78"
+	Remember(bulb, "H6001")
+	payloads = nil
+	if err := SendColor(bulb, 1, 2, 3, 0); err != nil {
+		t.Fatalf("SendColor bulb: %v", err)
+	}
+	for _, p := range payloads {
+		if strings.Contains(p, `"cmd":"ptReal"`) {
+			t.Fatalf("classic bulb must not get segments: %s", p)
 		}
 	}
 }

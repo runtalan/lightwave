@@ -5,6 +5,8 @@ import (
 	"log"
 	"strconv"
 	"strings"
+
+	"lightwave/internal/color"
 )
 
 // RemoteCommand executes a command sent over the IPC socket by an external
@@ -29,6 +31,7 @@ import (
 //	GRADIENT           -> toggle single-colour vs gradient scenes
 //	PALETTE <+1|-1>    -> cycle palettes; the reply also names the palettes
 //	                      either side, so a key can show where it will land
+//	PALETTE SET <name|index> -> jump straight to one palette
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
 	defer func() {
@@ -123,6 +126,24 @@ func (a *App) RemoteCommand(cmd string) string {
 		return a.remoteState()
 
 	case "PALETTE":
+		if strings.EqualFold(arg, "SET") {
+			// Direct select, by index or by name. Names win over indexes in
+			// saved controller settings because they survive palette insertions;
+			// the rest of the line is the name so spaces need no quoting.
+			rest := strings.Join(fields[2:], " ")
+			if rest == "" {
+				return "ERR PALETTE SET needs a palette name or index"
+			}
+			idx, err := strconv.Atoi(rest)
+			if err != nil {
+				var ok bool
+				if idx, ok = color.IndexOf(rest); !ok {
+					return "ERR unknown palette " + strconv.Quote(rest)
+				}
+			}
+			a.SetPalette(idx)
+			return a.remoteState()
+		}
 		// Still cycles both ways: PALETTE -1 is a published wire verb the Stream
 		// Deck plugin binds to its own key. HUD +/− now match this.
 		dir := 1
@@ -146,9 +167,14 @@ type RemoteState struct {
 	Pads       []RemotePad   `json:"pads"`
 	Brightness int           `json:"brightness"`
 	Palette    string        `json:"palette"`
+	Palettes   []string      `json:"palettes"`
 	Dancing    bool          `json:"dancing"`
 	Gradient   bool          `json:"gradient"`
 	Swatches   []RemoteColor `json:"swatches"`
+	// Every palette's colours, keyed by name, so a controller with a
+	// jump-straight-to-palette key can draw the palette it targets rather
+	// than only the one currently playing or its immediate neighbours.
+	PaletteSwatches map[string][]RemoteColor `json:"paletteSwatches"`
 	// The palettes one step either side of the current one. A controller with
 	// a next/previous key can then label each with where it will land instead
 	// of repeating the name of the palette already showing.
@@ -179,12 +205,21 @@ func (a *App) remoteState() string {
 	pal := a.engine.Palette()
 	prevPal, nextPal := a.engine.Peek(-1), a.engine.Peek(1)
 	st := RemoteState{
-		Pads:       make([]RemotePad, 0, 9),
-		Brightness: a.brightness,
-		Palette:    pal.Name,
-		Dancing:    a.dancing,
-		Gradient:   a.gradient,
-		Swatches:   make([]RemoteColor, 0, len(pal.Colors)),
+		Pads:            make([]RemotePad, 0, 9),
+		Brightness:      a.brightness,
+		Palette:         pal.Name,
+		Palettes:        paletteNames,
+		Dancing:         a.dancing,
+		Gradient:        a.gradient,
+		Swatches:        make([]RemoteColor, 0, len(pal.Colors)),
+		PaletteSwatches: make(map[string][]RemoteColor, len(color.Palettes)),
+	}
+	for _, p := range color.Palettes {
+		cs := make([]RemoteColor, 0, len(p.Colors))
+		for _, c := range p.Colors {
+			cs = append(cs, RemoteColor{R: c.R, G: c.G, B: c.B})
+		}
+		st.PaletteSwatches[p.Name] = cs
 	}
 	for _, c := range pal.Colors {
 		st.Swatches = append(st.Swatches, RemoteColor{R: c.R, G: c.G, B: c.B})

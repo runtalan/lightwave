@@ -89,6 +89,14 @@ func (a *App) webCall(method string, args []json.RawMessage) (any, error) {
 		}
 		a.CycleColor(n)
 		return a.webState(), nil
+
+	case "SetPalette":
+		n, err := intArg(0)
+		if err != nil {
+			return nil, err
+		}
+		a.SetPalette(n)
+		return a.webState(), nil
 	}
 	return nil, fmt.Errorf("%s is not available remotely", method)
 }

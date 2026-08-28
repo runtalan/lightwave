@@ -62,12 +62,11 @@ const (
 	commandSettle = 3 * time.Second
 
 	// danceStep is the interval between colour updates during the fade
-	// animation, and dancePeriod is how long one full tour of the palette
-	// takes. The step is deliberately slower than the brightness rate limit:
+	// animation. It is deliberately slower than the brightness rate limit:
 	// each tick writes to every pooled lamp, and the effect should drift
-	// rather than strobe.
-	danceStep   = 900 * time.Millisecond
-	dancePeriod = 60 * time.Second
+	// rather than strobe. How long a full tour of the palette takes is the
+	// user's to set — see config.Settings.FadeDuration.
+	danceStep = 900 * time.Millisecond
 )
 
 // sendPoolBrightness is a seam so tests can observe the LAN write rate.
@@ -103,6 +102,7 @@ type HUDState struct {
 	Brightness    int        `json:"brightness"`
 	PaletteIndex  int        `json:"paletteIndex"`
 	PaletteName   string     `json:"paletteName"`
+	PaletteNames  []string   `json:"paletteNames"`
 	MIDIConnected bool       `json:"midiConnected"`
 	MIDIPort      string     `json:"midiPort"`
 	DeviceCount   int        `json:"deviceCount"`
@@ -141,6 +141,8 @@ type SettingsView struct {
 	MidiCCMin       int      `json:"midiCCMin"`
 	MidiCCMax       int      `json:"midiCCMax"`
 	IdleHideSeconds int      `json:"idleHideSeconds"`
+	FadeSeconds     int      `json:"fadeSeconds"`
+	FadeDrift       int      `json:"fadeDrift"`
 	HasEnvKey       bool     `json:"hasEnvKey"`
 	HasConfigKey    bool     `json:"hasConfigKey"`
 	HasAPIKey       bool     `json:"hasApiKey"`
@@ -500,7 +502,7 @@ func (a *App) drainMIDI() bool {
 	}
 	if _, val, ok := a.midi.TakeCC(); ok {
 		// Brightness only. Never ShowHUD/HideHUD/ToggleWindow from MIDI.
-		a.applyBrightness(midilstn.CCToPercent(val), false)
+		a.applyBrightness(midilstn.CCToPercent(val))
 		activity = true
 	}
 	if note, viaCC, recall, ok := a.midi.TakeNote(); ok {
@@ -979,7 +981,13 @@ func (a *App) danceLoop(gen int) {
 	}()
 	t := time.NewTicker(danceStep)
 	defer t.Stop()
-	start := time.Now()
+	// Phase accumulates per tick rather than being derived from elapsed time
+	// over a fixed period. The tour length is a live setting, and dividing
+	// total elapsed time by a period the user just changed would jump the
+	// colours; advancing by each tick's share keeps the fade continuous
+	// across a speed change.
+	phase := 0.0
+	last := time.Now()
 	for {
 		select {
 		case <-a.stop:
@@ -997,12 +1005,23 @@ func (a *App) danceLoop(gen int) {
 		pal := a.engine.Palette()
 		dests := a.poolDestsLocked()
 		grad := a.gradient
+		period := a.settings.FadeDuration()
+		// Widen (or narrow) the palette before walking it. Done here rather
+		// than in paintScene: drift is a property of the animation, and the
+		// static scenes should keep showing the palette as written.
+		pal = pal.Spread(a.settings.DriftAmount())
 		a.mu.Unlock()
+
+		now := time.Now()
+		elapsed := now.Sub(last)
+		last = now
+		if period > 0 {
+			phase += elapsed.Seconds() / period.Seconds()
+		}
 
 		if len(dests) == 0 {
 			continue
 		}
-		phase := time.Since(start).Seconds() / dancePeriod.Seconds()
 		for i, d := range dests {
 			if grad && govee.SupportsSegments(d.Model) {
 				lampStep := 1.0 / float64(len(pal.Colors))
@@ -1141,6 +1160,7 @@ func (a *App) snapshotLocked() HUDState {
 		Brightness:      clampBrightness(a.brightness),
 		PaletteIndex:    a.engine.Index,
 		PaletteName:     a.engine.Name(),
+		PaletteNames:    paletteNames,
 		Dancing:         a.dancing,
 		Gradient:        a.gradient,
 		MIDIConnected:   ok,
@@ -1216,6 +1236,8 @@ func (a *App) settingsViewLocked() SettingsView {
 		MidiCCMin:       a.settings.MidiCCMin,
 		MidiCCMax:       a.settings.MidiCCMax,
 		IdleHideSeconds: a.settings.IdleHideSeconds,
+		FadeSeconds:     a.settings.FadeSeconds,
+		FadeDrift:       a.settings.FadeDrift,
 		HasEnvKey:       env != "",
 		HasConfigKey:    a.settings.GoveeAPIKey != "",
 		HasAPIKey:       env != "" || a.settings.GoveeAPIKey != "",
@@ -1610,10 +1632,10 @@ func normalizeReportedBrightness(v int) int {
 }
 
 func (a *App) SetBrightness(percent int) {
-	a.applyBrightness(percent, true)
+	a.applyBrightness(percent)
 }
 
-func (a *App) applyBrightness(percent int, emitNow bool) {
+func (a *App) applyBrightness(percent int) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("brightness recovered: %v", r)
@@ -1628,10 +1650,6 @@ func (a *App) applyBrightness(percent int, emitNow bool) {
 	select {
 	case a.brightKick <- struct{}{}:
 	default:
-	}
-	if emitNow {
-		a.emitState()
-		return
 	}
 	a.scheduleStateEmit()
 }
@@ -1741,14 +1759,26 @@ func (a *App) paintScene(turnOn bool) {
 		if grad {
 			c.Kelvin = 0
 		}
-		next[i] = c
 		if turnOn {
 			_ = govee.SendTurn(d.IP, true)
 		}
 		if grad && govee.SupportsSegments(d.Model) {
-			_ = govee.SendGradient(d.IP, pal.Gradient(i, govee.GradientBands))
+			ramp := pal.Gradient(i, govee.GradientBands)
+			_ = govee.SendGradient(d.IP, ramp)
+			// Record what the lamp was actually told, not the single-mode
+			// swatch it never received. Caching the wrong colour makes the
+			// next paint mis-judge its starting point: on a Kelvin palette
+			// the equality check below would see a stale Kelvin and lerp
+			// from a temperature the lamp is not showing, so the white
+			// diodes never come back and the pool stays dim.
+			if len(ramp) > 0 {
+				next[i] = ramp[len(ramp)/2]
+			} else {
+				next[i] = c
+			}
 			continue
 		}
+		next[i] = c
 		from, ok := prev[d.IP]
 		if !ok || (from.R == c.R && from.G == c.G && from.B == c.B && from.Kelvin == c.Kelvin) {
 			_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
@@ -1759,6 +1789,13 @@ func (a *App) paintScene(turnOn bool) {
 			k := mix.Kelvin
 			if grad {
 				k = 0
+			}
+			// Lerp only blends Kelvin when both ends carry one, so a ramp
+			// that starts from an RGB-only colour would end RGB-only too and
+			// leave a white-capable lamp dim. The last step is the target:
+			// send it exactly, temperature included.
+			if s == steps {
+				k = c.Kelvin
 			}
 			_ = govee.SendColor(d.IP, mix.R, mix.G, mix.B, k)
 			if s < steps {
@@ -1820,6 +1857,31 @@ func (a *App) CycleColor(direction int) HUDState {
 	a.recordUserActivity()
 	a.mu.Lock()
 	pal := a.engine.Cycle(direction)
+	a.mu.Unlock()
+	a.paintScene(true)
+	a.emitState()
+	a.emit("color:cycle", pal.Name)
+	return a.snapshot()
+}
+
+// The palette table is fixed at compile time, so snapshots can share one list
+// instead of rebuilding it on every state push.
+var paletteNames = color.Names()
+
+// SetPalette jumps straight to palette index i, for the HUD dropdown and the
+// Stream Deck's direct-select keys. Out-of-range indexes wrap, matching how
+// Cycle treats the table as a ring.
+func (a *App) SetPalette(index int) HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("palette select recovered: %v", r)
+		}
+	}()
+	a.recordUserActivity()
+	a.mu.Lock()
+	n := len(color.Palettes)
+	a.engine.Index = ((index % n) + n) % n
+	pal := a.engine.Palette()
 	a.mu.Unlock()
 	a.paintScene(true)
 	a.emitState()
@@ -2278,6 +2340,24 @@ func (a *App) SaveSettings(in SettingsView) error {
 	s.MidiCCMin = in.MidiCCMin
 	s.MidiCCMax = in.MidiCCMax
 	s.IdleHideSeconds = in.IdleHideSeconds
+	// Clamp on the way in so a hand-edited config.json or an out-of-range
+	// value from the form cannot strobe the lamps.
+	s.FadeSeconds = in.FadeSeconds
+	if s.FadeSeconds != 0 {
+		if s.FadeSeconds < config.MinFadeSeconds {
+			s.FadeSeconds = config.MinFadeSeconds
+		}
+		if s.FadeSeconds > config.MaxFadeSeconds {
+			s.FadeSeconds = config.MaxFadeSeconds
+		}
+	}
+	s.FadeDrift = in.FadeDrift
+	if s.FadeDrift < config.MinFadeDrift {
+		s.FadeDrift = config.MinFadeDrift
+	}
+	if s.FadeDrift > config.MaxFadeDrift {
+		s.FadeDrift = config.MaxFadeDrift
+	}
 	a.mu.Unlock()
 	if err := config.SaveSettings(s); err != nil {
 		return err

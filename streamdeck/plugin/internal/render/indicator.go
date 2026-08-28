@@ -450,6 +450,32 @@ func NavKey(n Nav) (string, error) {
 	return encode(img)
 }
 
+// PaletteKey renders a jump-straight-to-palette key: just the name and its
+// swatches, with no arrow or NEXT/PREV kicker since the key doesn't cycle.
+func PaletteKey(name string, swatches []Swatch) (string, error) {
+	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
+	grid(img)
+	drawNavName(img, name)
+
+	if len(swatches) > 0 {
+		const top, h = 116, 16
+		w := float64(Size-16) / float64(len(swatches))
+		for i, s := range swatches {
+			c := color.RGBA{uint8(s.R), uint8(s.G), uint8(s.B), 255}
+			for x := 8 + int(float64(i)*w); x < 8+int(float64(i+1)*w) && x < Size-8; x++ {
+				for y := top; y < top+h; y++ {
+					img.Set(x, y, c)
+				}
+			}
+		}
+		for x := 8; x < Size-8; x++ {
+			img.Set(x, top, blend(img.RGBAAt(x, top), color.RGBA{255, 255, 255, 255}, 0.18))
+		}
+	}
+	border(img)
+	return encode(img)
+}
+
 // drawArrow paints a chevron pointing the way the key cycles: ">" for next,
 // "<" for previous. The strokes lie at dx = h-|dy| for ">", mirrored for "<".
 func drawArrow(img *image.RGBA, forward bool) {

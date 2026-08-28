@@ -84,7 +84,7 @@
       "UUID": "com.dinksf.lightwave.palette",
       "Name": "Palette",
       "Icon": "imgs/actions/palette",
-      "Tooltip": "Step to the next or previous palette. The key shows which palette you will land on.",
+      "Tooltip": "Step to the next or previous palette (the key shows where you will land), or jump straight to a chosen one.",
       "Controllers": [
         "Keypad"
       ],

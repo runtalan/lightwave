@@ -81,6 +81,8 @@ export namespace main {
 	    midiCCMin: number;
 	    midiCCMax: number;
 	    idleHideSeconds: number;
+	    fadeSeconds: number;
+	    fadeDrift: number;
 	    hasEnvKey: boolean;
 	    hasConfigKey: boolean;
 	    hasApiKey: boolean;
@@ -111,6 +113,8 @@ export namespace main {
 	        this.midiCCMin = source["midiCCMin"];
 	        this.midiCCMax = source["midiCCMax"];
 	        this.idleHideSeconds = source["idleHideSeconds"];
+	        this.fadeSeconds = source["fadeSeconds"];
+	        this.fadeDrift = source["fadeDrift"];
 	        this.hasEnvKey = source["hasEnvKey"];
 	        this.hasConfigKey = source["hasConfigKey"];
 	        this.hasApiKey = source["hasApiKey"];
@@ -155,6 +159,7 @@ export namespace main {
 	    brightness: number;
 	    paletteIndex: number;
 	    paletteName: string;
+	    paletteNames: string[];
 	    midiConnected: boolean;
 	    midiPort: string;
 	    deviceCount: number;
@@ -188,6 +193,7 @@ export namespace main {
 	        this.brightness = source["brightness"];
 	        this.paletteIndex = source["paletteIndex"];
 	        this.paletteName = source["paletteName"];
+	        this.paletteNames = source["paletteNames"];
 	        this.midiConnected = source["midiConnected"];
 	        this.midiPort = source["midiPort"];
 	        this.deviceCount = source["deviceCount"];

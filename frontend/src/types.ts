@@ -28,6 +28,8 @@ export type SettingsView = {
   midiCCMin: number
   midiCCMax: number
   idleHideSeconds: number
+  fadeSeconds: number
+  fadeDrift: number
   hasEnvKey: boolean
   hasConfigKey: boolean
   hasApiKey: boolean
@@ -48,6 +50,7 @@ export type HUDState = {
   brightness: number
   paletteIndex: number
   paletteName: string
+  paletteNames: string[]
   midiConnected: boolean
   midiPort: string
   deviceCount: number
@@ -88,6 +91,8 @@ export function emptySettings(): SettingsView {
     midiCCMin: 0,
     midiCCMax: 127,
     idleHideSeconds: 10,
+    fadeSeconds: 60,
+    fadeDrift: 100,
     hasEnvKey: false,
     hasConfigKey: false,
     hasApiKey: false,
@@ -130,6 +135,7 @@ export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDSt
     slots: Array.isArray(raw.slots) && raw.slots.length > 0 ? raw.slots : base.slots,
     catalog: Array.isArray(raw.catalog) ? raw.catalog : [],
     activePool: Array.isArray(raw.activePool) ? raw.activePool : [],
+    paletteNames: Array.isArray(raw.paletteNames) ? raw.paletteNames : base.paletteNames,
     brightness: clampNum(raw.brightness, base.brightness, 0, 100),
     needsSetup: Boolean(raw.needsSetup),
     setupOpen: Boolean(raw.setupOpen),
@@ -155,6 +161,7 @@ export function emptyState(): HUDState {
     brightness: 80,
     paletteIndex: 0,
     paletteName: 'Warm Whites',
+    paletteNames: [],
     midiConnected: false,
     midiPort: '',
     deviceCount: 0,

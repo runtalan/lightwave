@@ -19,17 +19,28 @@ def sock_path():
         return os.path.join(os.environ.get("TEMP") or os.environ.get("TMP") or ".", "lightwave.sock")
     return "/tmp/lightwave.sock"
 
-def lightwave_pads():
+# Fallback when the app is not running to ask; mirrors Palettes in
+# internal/color/engine.go, in cycle order.
+PALETTES = [
+    "Warm Whites", "Soft Ambers", "Deep Oranges", "Reds", "Purples",
+    "Ocean", "Fall Leaves", "Sunset", "Sage", "Lavender Mist",
+    "Candlelight", "Morning Haze", "Blush", "Ivory",
+]
+
+def lightwave_state():
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(2); s.connect(sock_path())
         s.sendall(b"STATE\n")
         line = s.recv(65536).decode().strip(); s.close()
         if line.startswith("STATE "):
-            return [p for p in json.loads(line[6:])["pads"] if p.get("bound")]
+            return json.loads(line[6:])
     except Exception:
         pass
-    return []
+    return {}
+
+def lightwave_pads():
+    return [p for p in lightwave_state().get("pads", []) if p.get("bound")]
 
 def action(uuid_suffix, name, settings=None, states=1):
     return {
@@ -80,24 +91,39 @@ def build(dest_dir, out_file, personal=False):
     p2["2,1"] = action("brightness", "Brightness")
     p2["3,1"] = action("alloff", "All Lights", states=2)
 
-    id1, id2 = str(uuid.uuid4()).upper(), str(uuid.uuid4()).upper()
+    # Pages 3+: one key per palette, jumping straight to it. The live app is
+    # asked for the list so a personal profile always matches the build it
+    # talks to; the baked-in list covers the generic profile.
+    palettes = lightwave_state().get("palettes") or PALETTES
+    palette_pages = []
+    per_page = COLS * ROWS
+    for start in range(0, len(palettes), per_page):
+        pg = {}
+        for i, name in enumerate(palettes[start:start + per_page]):
+            pg[f"{i % COLS},{i // COLS}"] = action(
+                "palette", name, {"direction": f"set:{name}"})
+        palette_pages.append(pg)
+
     prof_id = str(uuid.uuid4()).upper()
     root = os.path.join(dest_dir, f"{prof_id}.sdProfile")
     if os.path.exists(root):
         shutil.rmtree(root)
-    for pid, data in ((id1, p1), (id2, p2)):
+    pages = [(str(uuid.uuid4()).upper(), data)
+             for data in [p1, p2, *palette_pages]]
+    for pid, data in pages:
         d = os.path.join(root, "Profiles", pid)
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "manifest.json"), "w") as f:
             json.dump(page(data), f, indent=2)
 
+    id1 = pages[0][0]
     manifest = {
         # UUID empty so the profile imports against whichever Neo is attached
         # rather than being pinned to one serial number.
         "Device": {"Model": DEVICE_MODEL, "UUID": ""},
         "Name": "Lightwave",
         "Pages": {"Current": id1.lower(), "Default": id1.lower(),
-                  "Pages": [id1.lower(), id2.lower()]},
+                  "Pages": [pid.lower() for pid, _ in pages]},
         "Version": "3.0",
     }
     with open(os.path.join(root, "manifest.json"), "w") as f:
@@ -118,6 +144,10 @@ def build(dest_dir, out_file, personal=False):
     print(f"  page 1: {', '.join(n for n in names[:4])} + Status, All Lights, Pattern, Color Fade")
     if rest:
         print(f"  page 2: {', '.join(n for n in names[4:8])} + Palette -/+, Brightness, All Lights")
+    for i, pg in enumerate(palette_pages):
+        start = i * per_page
+        chunk = palettes[start:start + per_page]
+        print(f"  page {i + 3}: palettes — {', '.join(chunk)}")
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))

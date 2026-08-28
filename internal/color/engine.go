@@ -1,5 +1,7 @@
 package color
 
+import "strings"
+
 type RGBK struct {
 	R      int `json:"r"`
 	G      int `json:"g"`
@@ -12,6 +14,10 @@ type Palette struct {
 	Colors []RGBK
 }
 
+// Adding or renaming a palette? The Stream Deck property inspector
+// (streamdeck/com.dinksf.lightwave.sdPlugin/ui/palette.html) and the profile
+// generator (streamdeck/makeprofile.py) carry this list by name — keep them
+// in step.
 var Palettes = []Palette{
 	{
 		Name: "Warm Whites",
@@ -180,6 +186,41 @@ var Palettes = []Palette{
 			{R: 218, G: 172, B: 172},
 		},
 	},
+	{
+		// Bright-but-not-blinding white with a faint yellow cast: whiter than
+		// Warm Whites, far warmer than the 5000K+ that reads as hospital.
+		// Kelvin on every swatch so white-capable bulbs render it as true
+		// tunable white instead of an RGB approximation.
+		Name: "Ivory",
+		Colors: []RGBK{
+			{R: 255, G: 246, B: 221, Kelvin: 3900},
+			{R: 255, G: 241, B: 208, Kelvin: 3750},
+			{R: 255, G: 235, B: 193, Kelvin: 3550},
+			{R: 250, G: 227, B: 178, Kelvin: 3400},
+			{R: 255, G: 239, B: 201, Kelvin: 3650},
+		},
+	},
+}
+
+// Names lists every palette in cycle order, for UIs that offer direct
+// selection (the HUD dropdown, the Stream Deck property inspector).
+func Names() []string {
+	out := make([]string, len(Palettes))
+	for i, p := range Palettes {
+		out[i] = p.Name
+	}
+	return out
+}
+
+// IndexOf resolves a palette name case-insensitively, so wire commands and
+// saved controller settings survive cosmetic renames of casing.
+func IndexOf(name string) (int, bool) {
+	for i, p := range Palettes {
+		if strings.EqualFold(p.Name, name) {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 type Engine struct {
@@ -329,6 +370,85 @@ func (p Palette) Walk(offset int, t float64) RGBK {
 	a := p.Colors[((offset+i)%n+n)%n]
 	b := p.Colors[((offset+i+1)%n+n)%n]
 	return Lerp(a, b, frac)
+}
+
+// Spread scales how far a palette's swatches sit from their common centre.
+//
+// This is the "drift" control: a palette is a fixed set of colours, so a fade
+// through it can only ever be as wide as the palette itself — and the calm
+// palettes are deliberately narrow, which is why their drift can be hard to
+// see at all. Scaling around the mean changes that without replacing the
+// palette: the hues stay recognisably the same, they simply travel further.
+//
+//	amount < 1  pulls swatches toward the mean; at 0 every swatch is the
+//	            same colour and the fade holds still.
+//	amount = 1  returns the palette unchanged.
+//	amount > 1  pushes swatches apart, past the range the palette author
+//	            chose, for a bigger colour journey.
+//
+// Channels are clamped to 0..255, so a large amount saturates rather than
+// wrapping to a wrong hue. Kelvin is scaled the same way, but only when a
+// swatch carries one: Lerp treats 0 as "unset", and inventing a temperature
+// for an RGB-only swatch would light the white diodes on a lamp the palette
+// meant to keep in colour.
+func (p Palette) Spread(amount float64) Palette {
+	if len(p.Colors) == 0 || amount == 1 {
+		return p
+	}
+	if amount < 0 {
+		amount = 0
+	}
+	var sr, sg, sb float64
+	kn := 0
+	sk := 0.0
+	for _, c := range p.Colors {
+		sr += float64(c.R)
+		sg += float64(c.G)
+		sb += float64(c.B)
+		if c.Kelvin > 0 {
+			sk += float64(c.Kelvin)
+			kn++
+		}
+	}
+	n := float64(len(p.Colors))
+	mr, mg, mb := sr/n, sg/n, sb/n
+	mk := 0.0
+	if kn > 0 {
+		mk = sk / float64(kn)
+	}
+
+	out := Palette{Name: p.Name, Colors: make([]RGBK, len(p.Colors))}
+	for i, c := range p.Colors {
+		out.Colors[i] = RGBK{
+			R: clamp255(mr + (float64(c.R)-mr)*amount),
+			G: clamp255(mg + (float64(c.G)-mg)*amount),
+			B: clamp255(mb + (float64(c.B)-mb)*amount),
+		}
+		if c.Kelvin > 0 {
+			k := int(mk + (float64(c.Kelvin)-mk)*amount + 0.5)
+			// Keep the result a plausible white rather than letting a wide
+			// spread push it to an value no lamp can render.
+			if k < 1000 {
+				k = 1000
+			}
+			if k > 10000 {
+				k = 10000
+			}
+			out.Colors[i].Kelvin = k
+		}
+	}
+	return out
+}
+
+func clamp255(v float64) int {
+	i := int(v + 0.5)
+	if i < 0 {
+		return 0
+	}
+	if i > 255 {
+		return 255
+	}
+	return i
 }
 
 // GradientAt samples n colours along a looped tour of the palette beginning at
