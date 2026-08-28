@@ -23,9 +23,12 @@ import (
 //	ALL_OFF            -> everything off, pool cleared
 //	ALL_ON             -> every bound light on at the slider level
 //	ALL_TOGGLE         -> all off if anything is lit, else all on
+//	RECALL_TOGGLE      -> all off if anything is lit, else re-light exactly the
+//	                      pads that were on last time
 //	DANCE              -> toggle the colour animation
 //	GRADIENT           -> toggle single-colour vs gradient scenes
-//	PALETTE <+1|-1>    -> cycle palettes
+//	PALETTE <+1|-1>    -> cycle palettes; the reply also names the palettes
+//	                      either side, so a key can show where it will land
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
 	defer func() {
@@ -107,6 +110,10 @@ func (a *App) RemoteCommand(cmd string) string {
 		a.ToggleAll()
 		return a.remoteState()
 
+	case "RECALL_TOGGLE":
+		a.RecallToggle()
+		return a.remoteState()
+
 	case "DANCE":
 		a.ToggleDance()
 		return a.remoteState()
@@ -142,6 +149,13 @@ type RemoteState struct {
 	Dancing    bool          `json:"dancing"`
 	Gradient   bool          `json:"gradient"`
 	Swatches   []RemoteColor `json:"swatches"`
+	// The palettes one step either side of the current one. A controller with
+	// a next/previous key can then label each with where it will land instead
+	// of repeating the name of the palette already showing.
+	PrevPalette  string        `json:"prevPalette"`
+	NextPalette  string        `json:"nextPalette"`
+	PrevSwatches []RemoteColor `json:"prevSwatches"`
+	NextSwatches []RemoteColor `json:"nextSwatches"`
 }
 
 // RemoteColor is one palette colour, so a controller can draw the palette
@@ -163,6 +177,7 @@ type RemotePad struct {
 func (a *App) remoteState() string {
 	a.mu.Lock()
 	pal := a.engine.Palette()
+	prevPal, nextPal := a.engine.Peek(-1), a.engine.Peek(1)
 	st := RemoteState{
 		Pads:       make([]RemotePad, 0, 9),
 		Brightness: a.brightness,
@@ -173,6 +188,13 @@ func (a *App) remoteState() string {
 	}
 	for _, c := range pal.Colors {
 		st.Swatches = append(st.Swatches, RemoteColor{R: c.R, G: c.G, B: c.B})
+	}
+	st.PrevPalette, st.NextPalette = prevPal.Name, nextPal.Name
+	for _, c := range prevPal.Colors {
+		st.PrevSwatches = append(st.PrevSwatches, RemoteColor{R: c.R, G: c.G, B: c.B})
+	}
+	for _, c := range nextPal.Colors {
+		st.NextSwatches = append(st.NextSwatches, RemoteColor{R: c.R, G: c.G, B: c.B})
 	}
 	for i := 1; i <= 9 && i <= len(a.slots); i++ {
 		s := a.slots[i-1]

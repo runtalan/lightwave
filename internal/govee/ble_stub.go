@@ -1,9 +1,9 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
 package govee
 
-// BLE control is only implemented for macOS (CoreBluetooth). Other platforms
-// get a no-op manager so the app wires up identically everywhere.
+// BLE control is only implemented for macOS (CoreBluetooth) and Windows
+// (WinRT). Other platforms get a no-op manager so the app wires up identically.
 type BLE struct{}
 
 func NewBLE() *BLE                      { return &BLE{} }

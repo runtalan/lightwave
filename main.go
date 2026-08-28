@@ -15,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -25,8 +26,15 @@ func main() {
 
 	cmd := "SHOW"
 	forceSetup := false
+	hidden := false
 	for _, arg := range os.Args[1:] {
 		switch strings.TrimSpace(arg) {
+		case "--hidden":
+			// Start in the background: lights, MIDI, and the Stream Deck
+			// socket come up, but no window takes focus. This is how the
+			// login agent starts Lightwave.
+			hidden = true
+			cmd = "NONE"
 		case "--toggle":
 			cmd = "TOGGLE"
 		case "--setup", "--config":
@@ -38,7 +46,7 @@ func main() {
 		}
 	}
 
-	app := NewApp(forceSetup)
+	app := NewApp(forceSetup, hidden)
 	// The phone server serves the same embedded bundle the window runs, so
 	// hosting it adds no assets to the process.
 	if dist, err := fs.Sub(assets, "frontend/dist"); err == nil {
@@ -72,6 +80,7 @@ func main() {
 		Height:            height,
 		MinWidth:          WindowMinW,
 		MinHeight:         WindowMinH,
+		StartHidden:       hidden,
 		Frameless:         true,
 		AlwaysOnTop:       true,
 		DisableResize:     true,
@@ -85,6 +94,7 @@ func main() {
 			app.MarkUIReady()
 		},
 		OnShutdown: app.shutdown,
+		Menu:       appMenu(app),
 		Bind: []interface{}{
 			app,
 		},
@@ -98,6 +108,13 @@ func main() {
 				Message: "Local Govee lighting control center",
 			},
 		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			DisablePinchZoom:     true,
+			Theme:                windows.Dark,
+			BackdropType:         windows.None,
+		},
 	})
 	if err != nil {
 		println("Error:", err.Error())
@@ -109,6 +126,7 @@ func printHelp() {
 
 Usage:
   lightwave            Start (or focus) the HUD
+  lightwave --hidden   Start in the background, no window (login agent)
   lightwave --toggle   Show/hide the HUD (Stream Deck)
   lightwave --setup    Open Config (Lights tab)
   lightwave --config   Same as --setup
@@ -118,7 +136,7 @@ Phone control (Config -> Remote): serves the same HUD over HTTP to
 devices on your LAN or VPN. Off by default; public addresses are always
 refused.
 
-Single-instance: a second launch signals /tmp/lightwave.sock and exits.
+Single-instance: a second launch signals the running process and exits.
 
 Env (see .env.example):
   GOVEE_API_KEY     Govee Developer Cloud key (discovery only)

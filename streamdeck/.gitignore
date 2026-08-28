@@ -1,5 +1,8 @@
 .build-arm64
 .build-amd64
-# Contain the user's own light names (e.g. generated with --mine).
+# Personal profiles: these carry the user's own light names, and
+# Lightwave-Current is a snapshot of a real deck (custom key order, built-in
+# Elgato nav actions, device serial). The publishable one is
+# Lightwave.streamDeckProfile, generated without --mine.
 Lightwave-MyLights.streamDeckProfile
 Lightwave-Current.streamDeckProfile

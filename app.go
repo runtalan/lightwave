@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"os"
+	stdruntime "runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,13 +23,16 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Window geometry. The HUD is a compact deck; Config is taller because the
-// device list scrolls inside it.
+// Window geometry. The HUD is a compact deck; Config is much larger because
+// the Lights tab puts the pad grid and the device list side by side.
 const (
-	HUDW       = 520
-	HUDH       = 620
-	ConfigW    = 680
-	ConfigH    = 880
+	HUDW = 520
+	HUDH = 620
+	// Config is deliberately much wider than the HUD: the Lights tab lays pads
+	// out as a numpad grid beside the device list, and at 680 the two were
+	// stacked into a single cramped column.
+	ConfigW    = 1080
+	ConfigH    = 900
 	WindowMinW = 420
 	WindowMinH = 480
 )
@@ -92,29 +98,34 @@ type SlotView struct {
 }
 
 type HUDState struct {
-	Slots           []SlotView     `json:"slots"`
-	ActivePool      []int          `json:"activePool"`
-	Brightness      int            `json:"brightness"`
-	PaletteIndex    int            `json:"paletteIndex"`
-	PaletteName     string         `json:"paletteName"`
-	MIDIConnected   bool           `json:"midiConnected"`
-	MIDIPort        string         `json:"midiPort"`
-	DeviceCount     int            `json:"deviceCount"`
-	NeedsSetup      bool           `json:"needsSetup"`
-	SetupOpen       bool           `json:"setupOpen"`
-	HasAPIKey       bool           `json:"hasApiKey"`
-	DiscoverError   string         `json:"discoverError"`
-	Discovering     bool           `json:"discovering"`
-	FirstRun        bool           `json:"firstRun"`
-	Catalog         []govee.Device `json:"catalog"`
+	Slots         []SlotView `json:"slots"`
+	ActivePool    []int      `json:"activePool"`
+	Brightness    int        `json:"brightness"`
+	PaletteIndex  int        `json:"paletteIndex"`
+	PaletteName   string     `json:"paletteName"`
+	MIDIConnected bool       `json:"midiConnected"`
+	MIDIPort      string     `json:"midiPort"`
+	DeviceCount   int        `json:"deviceCount"`
+	NeedsSetup    bool       `json:"needsSetup"`
+	SetupOpen     bool       `json:"setupOpen"`
+	HasAPIKey     bool       `json:"hasApiKey"`
+	DiscoverError string     `json:"discoverError"`
+	Discovering   bool       `json:"discovering"`
+	FirstRun      bool       `json:"firstRun"`
+	// Omitted from HUD snapshots (and always from phone state): only Config
+	// renders the device list, so copying it on every status poll was wasted
+	// JSON and a React re-render of data the HUD never reads.
+	Catalog         []govee.Device `json:"catalog,omitempty"`
 	Hidden          bool           `json:"hidden"`
 	MappingPath     string         `json:"mappingPath"`
 	ConfigOpen      bool           `json:"configOpen"`
+	MapDirty        bool           `json:"mapDirty"`
 	Dancing         bool           `json:"dancing"`
 	Gradient        bool           `json:"gradient"`
 	BleScanning     bool           `json:"bleScanning"`
 	BluetoothDenied bool           `json:"bluetoothDenied"`
 	BluetoothOff    bool           `json:"bluetoothOff"`
+	Platform        string         `json:"platform"`
 	Settings        SettingsView   `json:"settings"`
 }
 
@@ -123,6 +134,12 @@ type SettingsView struct {
 	MidiCCAlt       int      `json:"midiCCAlt"`
 	MidiNotePlus    int      `json:"midiNotePlus"`
 	MidiNoteMinus   int      `json:"midiNoteMinus"`
+	MidiNoteRecall  int      `json:"midiNoteRecall"`
+	MidiChanCC      int      `json:"midiChanCC"`
+	MidiChanPalette int      `json:"midiChanPalette"`
+	MidiChanRecall  int      `json:"midiChanRecall"`
+	MidiCCMin       int      `json:"midiCCMin"`
+	MidiCCMax       int      `json:"midiCCMax"`
 	IdleHideSeconds int      `json:"idleHideSeconds"`
 	HasEnvKey       bool     `json:"hasEnvKey"`
 	HasConfigKey    bool     `json:"hasConfigKey"`
@@ -131,10 +148,11 @@ type SettingsView struct {
 	ConfigPath      string   `json:"configPath"`
 	MappingPath     string   `json:"mappingPath"`
 	WebEnabled      bool     `json:"webEnabled"`
+	LaunchAtLogin   bool     `json:"launchAtLogin"`
 	WebAddr         string   `json:"webAddr"`
 	WebRunning      bool     `json:"webRunning"`
 	WebHasToken     bool     `json:"webHasToken"`
-	WebURLs         []string `json:"webUrls"`
+	WebURLs         []string `json:"webUrls,omitempty"`
 }
 
 type App struct {
@@ -147,12 +165,20 @@ type App struct {
 	// returns and later ShowHUD/emit calls then kill the process on load.
 	ctxVal atomic.Value // context.Context
 
-	mu           sync.Mutex
-	slots        []config.SlotBinding
-	configured   bool
-	setupOpen    bool
-	forceSetup   bool
-	pool         map[int]bool
+	mu         sync.Mutex
+	slots      []config.SlotBinding
+	configured bool
+	setupOpen  bool
+	// mapDirty is set by pad edits that live only in memory (AssignSlot,
+	// MoveSlot) and cleared by CommitMappings. Escape uses it to decide
+	// whether leaving config would discard work.
+	mapDirty   bool
+	forceSetup bool
+	pool       map[int]bool
+	// lastPool is the set of pads that were lit the last time the pool went
+	// empty, so a controller can bring back exactly that scene rather than
+	// every bound light. Survives until something is lit again.
+	lastPool     map[int]bool
 	brightness   int
 	engine       color.Engine
 	catalog      []govee.Device
@@ -207,7 +233,7 @@ type App struct {
 	slotTouched map[int]time.Time
 }
 
-func NewApp(forceSetup bool) *App {
+func NewApp(forceSetup, startHidden bool) *App {
 	f := config.LoadSlotFile()
 	needs := config.NeedsSetup(f)
 	settings := config.LoadSettings()
@@ -224,6 +250,7 @@ func NewApp(forceSetup bool) *App {
 		settings:     settings,
 		midiCfg:      settings.MIDI(),
 		lastActivity: time.Now(),
+		hidden:       startHidden,
 		stop:         make(chan struct{}),
 		brightKick:   make(chan struct{}, 1),
 		gradient:     settings.Gradient,
@@ -296,7 +323,7 @@ func (a *App) startup(ctx context.Context) {
 	a.udp.OnStatus(a.applyDeviceStatus)
 	if err := a.udp.Start(func(d govee.Device) {
 		a.mergeLAN(d)
-		a.emitState()
+		a.scheduleStateEmit()
 		// A newly discovered device: ask what it is currently doing so the HUD
 		// reflects reality rather than assuming everything is off.
 		if ip := d.IP; ip != "" {
@@ -307,26 +334,41 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.ble.StartTransport()
-	a.ble.OnAdapter(func() { a.emitState() })
+	a.ble.OnAdapter(func() { a.scheduleStateEmit() })
 	if err := a.ble.Start(func(d govee.Device) {
 		a.mergeBLE(d)
-		a.emitState()
+		a.scheduleStateEmit()
 	}); err != nil {
 		log.Printf("govee ble: %v", err)
 	}
 
 	a.midi = midilstn.New(a.midiCfg)
+	// LIGHTWAVE_MIDI_TRACE=1 logs every raw MIDI message before any filtering,
+	// for working out what a remapped control actually emits.
+	if os.Getenv("LIGHTWAVE_MIDI_TRACE") == "1" {
+		a.midi.SetTrace(true)
+		log.Printf("midi: raw trace enabled")
+	}
 	go a.midiApplyLoop()
 	go a.brightnessPump()
 	go func() {
 		_ = a.midi.Start()
 	}()
 
-	if c, ok := a.ctxOK(); ok {
-		runtime.WindowShow(c)
-		runtime.WindowCenter(c)
+	// --hidden (login agent) must not pop a window: StartHidden already
+	// kept it off screen, and WindowShow here would undo that and pay for
+	// a first paint nobody asked to see.
+	if !a.hidden {
+		if c, ok := a.ctxOK(); ok {
+			runtime.WindowShow(c)
+			runtime.WindowCenter(c)
+		}
+		a.noteShow()
+	} else {
+		a.mu.Lock()
+		a.hiddenAt = time.Now()
+		a.mu.Unlock()
 	}
-	a.noteShow()
 
 	// Clicking the Dock icon while the HUD is hidden must bring it back.
 	// AppKit's reopen event has no Wails hook, so watch for its signature
@@ -388,14 +430,16 @@ func (a *App) settingsSnapshot() config.Settings {
 	return a.settings
 }
 
-// MIDI events land in atomics on the CGO thread and are polled here. 8ms keeps
-// a knob turn feeling instant, but paying 125 wakeups/sec forever — hidden,
-// idle, or with no MIDI hardware at all — is pure battery drain. After a quiet
-// stretch the poll backs off; the first event after idle waits at most one
-// slow tick (below perception for a key press) and snaps the rate back up.
+// MIDI events land in atomics on the CGO thread and are polled here. CoreMIDI
+// already delivers via callback; this loop only applies the latest atomic.
+// Fast matches scheduleStateEmit (32ms): the HUD cannot show a quicker
+// update, and lamp writes are capped at brightMinInterval (100ms) anyway.
+// After a quiet stretch the poll backs off; a note after idle waits at most
+// one slow tick and snaps the rate back up.
 const (
-	midiPollFast    = 8 * time.Millisecond
-	midiPollSlow    = 60 * time.Millisecond
+	midiPollFast    = 32 * time.Millisecond
+	midiPollSlow    = 100 * time.Millisecond
+	midiPollIdle    = 250 * time.Millisecond
 	midiPollFastFor = 2 * time.Second
 )
 
@@ -417,8 +461,15 @@ func (a *App) midiApplyLoop() {
 		if a.drainMIDI() {
 			lastEvent = time.Now()
 		}
+		a.mu.Lock()
+		midiLive := a.midiOK
+		a.mu.Unlock()
 		next := midiPollFast
-		if time.Since(lastEvent) > midiPollFastFor {
+		if !midiLive {
+			// No controller: nothing can arrive on TakeCC/TakeNote, so the
+			// only event worth catching is a port showing up via TakeStatus.
+			next = midiPollIdle
+		} else if time.Since(lastEvent) > midiPollFastFor {
 			next = midiPollSlow
 		}
 		t.Reset(next)
@@ -436,6 +487,9 @@ func (a *App) drainMIDI() bool {
 		return false
 	}
 	activity := false
+	for _, e := range a.midi.DrainTrace() {
+		log.Printf("midi: raw %s ch %d num %d val %d", e.Kind(), e.Channel(), e.Num, e.Val)
+	}
 	if ok, port, changed := a.midi.TakeStatus(); changed {
 		a.mu.Lock()
 		a.midiOK = ok
@@ -449,15 +503,20 @@ func (a *App) drainMIDI() bool {
 		a.applyBrightness(midilstn.CCToPercent(val), false)
 		activity = true
 	}
-	if note, viaCC, ok := a.midi.TakeNote(); ok {
+	if note, viaCC, recall, ok := a.midi.TakeNote(); ok {
 		a.mu.Lock()
 		plus, minus := a.midiCfg.NotePlus, a.midiCfg.NoteMinus
 		a.mu.Unlock()
-		if dir, hit := midilstn.PaletteDelta(note, plus, minus); hit {
-			kind := "note"
-			if viaCC {
-				kind = "cc"
-			}
+		kind := "note"
+		if viaCC {
+			kind = "cc"
+		}
+		if recall {
+			// The listener already matched this against the configured recall
+			// key, so it wins outright — including when it is 60 or 61.
+			log.Printf("midi: %s %d → RecallToggle", kind, note)
+			a.RecallToggle()
+		} else if dir, hit := midilstn.PaletteDelta(note, plus, minus); hit {
 			log.Printf("midi: %s %d → CycleColor(%d)", kind, note, dir)
 			a.CycleColor(dir)
 		}
@@ -1090,18 +1149,29 @@ func (a *App) snapshotLocked() HUDState {
 		NeedsSetup:      a.setupOpen,
 		SetupOpen:       a.setupOpen,
 		ConfigOpen:      a.setupOpen,
+		MapDirty:        a.mapDirty,
 		HasAPIKey:       a.apiKeyLocked() != "",
 		DiscoverError:   a.discoverErr,
 		Discovering:     a.discovering,
 		FirstRun:        !a.configured,
-		Catalog:         append([]govee.Device{}, a.catalog...),
+		Catalog:         catalogForView(a.setupOpen, a.catalog),
 		Hidden:          a.hidden,
 		MappingPath:     config.MappingPath(),
 		BleScanning:     a.ble != nil && a.ble.Scanning(),
 		BluetoothDenied: a.ble != nil && a.ble.Unauthorized(),
 		BluetoothOff:    a.ble != nil && a.ble.PoweredOff(),
+		Platform:        stdruntime.GOOS,
 		Settings:        a.settingsViewLocked(),
 	}
+}
+
+// catalogForView copies the device list only while Config is open. The HUD
+// never renders it, and phone state strips it separately.
+func catalogForView(configOpen bool, catalog []govee.Device) []govee.Device {
+	if !configOpen || len(catalog) == 0 {
+		return nil
+	}
+	return append([]govee.Device{}, catalog...)
 }
 
 func (a *App) apiKey() string {
@@ -1121,14 +1191,30 @@ func (a *App) settingsViewLocked() SettingsView {
 	env := config.EnvAPIKey()
 	running := a.webSrv != nil && a.webSrv.Running()
 	var urls []string
-	if running {
+	// Interface enumeration is wasted work on every HUD status poll: only
+	// the Remote tab displays the URLs.
+	if running && a.setupOpen {
 		urls = web.URLs(a.webSrv.Addr())
+	}
+	launch := a.settings.LaunchAtLogin
+	if a.setupOpen {
+		// Read the agent from disk rather than trusting the saved flag: the
+		// user can remove it in System Settings, and the toggle should show
+		// what is actually installed. HUD never displays this, so skip the
+		// stat while the window is the control deck.
+		launch = config.LoginItemEnabled()
 	}
 	return SettingsView{
 		MidiCC:          a.settings.MidiCC,
 		MidiCCAlt:       a.settings.MidiCCAlt,
 		MidiNotePlus:    a.settings.MidiNotePlus,
 		MidiNoteMinus:   a.settings.MidiNoteMinus,
+		MidiNoteRecall:  a.settings.MidiNoteRecall,
+		MidiChanCC:      a.settings.MidiChanCC,
+		MidiChanPalette: a.settings.MidiChanPalette,
+		MidiChanRecall:  a.settings.MidiChanRecall,
+		MidiCCMin:       a.settings.MidiCCMin,
+		MidiCCMax:       a.settings.MidiCCMax,
 		IdleHideSeconds: a.settings.IdleHideSeconds,
 		HasEnvKey:       env != "",
 		HasConfigKey:    a.settings.GoveeAPIKey != "",
@@ -1136,6 +1222,7 @@ func (a *App) settingsViewLocked() SettingsView {
 		EnvPath:         config.EnvFileHint(),
 		ConfigPath:      config.SettingsPath(),
 		MappingPath:     config.MappingPath(),
+		LaunchAtLogin:   launch,
 		WebEnabled:      a.settings.WebEnabled,
 		WebAddr:         a.settings.WebAddr,
 		WebHasToken:     a.settings.WebToken != "",
@@ -1265,6 +1352,9 @@ func (a *App) ToggleSlot(n int) error {
 		a.pool = map[int]bool{}
 	}
 	if a.pool[n] {
+		// Snapshot first: if this is the last lit pad, the scene about to go
+		// dark is what a recall should bring back.
+		a.rememberPoolLocked()
 		delete(a.pool, n)
 	} else {
 		a.pool[n] = true
@@ -1416,6 +1506,7 @@ func (a *App) AllOff() HUDState {
 	for n := range a.pool {
 		a.slotTouched[n] = now
 	}
+	a.rememberPoolLocked()
 	a.pool = map[int]bool{}
 	// Keep the pump's idea of what was last sent in step with reality, so the
 	// next slider move re-issues turn:on instead of assuming the lights are lit.
@@ -1427,6 +1518,63 @@ func (a *App) AllOff() HUDState {
 	}
 	a.emitState()
 	a.emit("pool:alloff")
+	return a.snapshot()
+}
+
+// rememberPoolLocked snapshots the lit pads before they are extinguished, so
+// RECALL_TOGGLE can restore the same scene. Called while a.mu is held, and
+// only when something is actually lit: turning off an already-dark room must
+// not overwrite the memory with an empty set.
+func (a *App) rememberPoolLocked() {
+	if len(a.pool) == 0 {
+		return
+	}
+	last := make(map[int]bool, len(a.pool))
+	for n := range a.pool {
+		last[n] = true
+	}
+	a.lastPool = last
+}
+
+// RecallToggle turns off whatever is lit, or — when the room is dark — brings
+// back exactly the pads that were on last time, rather than every bound light.
+// This is the Stream Deck status key's press action.
+func (a *App) RecallToggle() HUDState {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("recall toggle recovered: %v", r)
+		}
+	}()
+	a.mu.Lock()
+	lit := len(a.pool) > 0
+	want := make([]int, 0, len(a.lastPool))
+	for n := range a.lastPool {
+		want = append(want, n)
+	}
+	a.mu.Unlock()
+
+	if lit {
+		return a.AllOff()
+	}
+	if len(want) == 0 {
+		// Nothing remembered — a first run, or the app restarted. Falling back
+		// to every light is friendlier than a key that does nothing.
+		return a.AllOn()
+	}
+	sort.Ints(want)
+	for _, n := range want {
+		// ToggleSlot is the only ignite path; guard it so a pad that somehow
+		// came on in between is not flipped straight back off.
+		a.mu.Lock()
+		on := a.pool[n]
+		a.mu.Unlock()
+		if on {
+			continue
+		}
+		if err := a.ToggleSlot(n); err != nil {
+			log.Printf("recall pad %d: %v", n, err)
+		}
+	}
 	return a.snapshot()
 }
 
@@ -1834,6 +1982,7 @@ func (a *App) MoveSlot(from, to int) (HUDState, error) {
 	if toLit && a.slots[from-1].DeviceID != "" {
 		a.pool[from] = true
 	}
+	a.mapDirty = true
 	st := a.snapshotLocked()
 	a.mu.Unlock()
 	a.emitState()
@@ -1936,6 +2085,7 @@ func (a *App) AssignSlot(slot int, deviceID string) (HUDState, error) {
 	}
 	a.slots[slot-1] = bind
 	delete(a.pool, slot)
+	a.mapDirty = true
 	st := a.snapshotLocked()
 	a.mu.Unlock()
 	a.emitState()
@@ -1943,6 +2093,28 @@ func (a *App) AssignSlot(slot int, deviceID string) (HUDState, error) {
 }
 
 func (a *App) CancelSetup() error {
+	return a.CloseConfig()
+}
+
+// DiscardConfig leaves config without saving: in-memory pad edits (AssignSlot,
+// MoveSlot) are thrown away by reloading the map from disk, so Escape cannot
+// silently keep a binding the user chose not to save. Settings are not touched
+// here -- the frontend simply drops its draft.
+func (a *App) DiscardConfig() error {
+	saved := config.LoadSlotFile()
+	a.mu.Lock()
+	if saved.Configured {
+		a.slots = append([]config.SlotBinding(nil), saved.Slots...)
+		a.configured = true
+	}
+	a.mapDirty = false
+	// A pad whose binding just vanished must not stay lit in the pool.
+	for n := range a.pool {
+		if n < 1 || n > len(a.slots) || a.slots[n-1].DeviceID == "" {
+			delete(a.pool, n)
+		}
+	}
+	a.mu.Unlock()
 	return a.CloseConfig()
 }
 
@@ -2022,7 +2194,13 @@ func (a *App) CommitMappings() error {
 	a.mu.Lock()
 	slots := append([]config.SlotBinding(nil), a.slots...)
 	a.mu.Unlock()
-	return a.SaveMappings(slots)
+	if err := a.SaveMappings(slots); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.mapDirty = false
+	a.mu.Unlock()
+	return nil
 }
 
 // PersistNow writes the pad map and current config (gradient, MIDI, scene)
@@ -2045,6 +2223,47 @@ func (a *App) PersistNow() error {
 	return config.SaveSettings(s)
 }
 
+// LiveCC reports the raw value the fader is currently sending, for the
+// calibration UI. Returns -1 when no CC has arrived yet.
+func (a *App) LiveCC() int {
+	a.mu.Lock()
+	l := a.midi
+	a.mu.Unlock()
+	if l == nil {
+		return -1
+	}
+	_, val, ok := l.PeekRawCC()
+	if !ok {
+		return -1
+	}
+	return int(val)
+}
+
+// SaveCCCalibration stores the fader's measured endpoints and applies them
+// immediately, so a full throw means 100% on this controller.
+func (a *App) SaveCCCalibration(min, max int) error {
+	if min < 0 || max > 127 || max <= min {
+		return fmt.Errorf("bad calibration range %d-%d", min, max)
+	}
+	a.mu.Lock()
+	s := a.settings
+	s.MidiCCMin = min
+	s.MidiCCMax = max
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.settings = s
+	a.midiCfg = s.MIDI()
+	if a.midi != nil {
+		a.midi.Update(a.midiCfg)
+	}
+	a.mu.Unlock()
+	a.emitState()
+	return nil
+}
+
 func (a *App) SaveSettings(in SettingsView) error {
 	a.mu.Lock()
 	s := a.settings
@@ -2052,6 +2271,12 @@ func (a *App) SaveSettings(in SettingsView) error {
 	s.MidiCCAlt = in.MidiCCAlt
 	s.MidiNotePlus = in.MidiNotePlus
 	s.MidiNoteMinus = in.MidiNoteMinus
+	s.MidiNoteRecall = in.MidiNoteRecall
+	s.MidiChanCC = in.MidiChanCC
+	s.MidiChanPalette = in.MidiChanPalette
+	s.MidiChanRecall = in.MidiChanRecall
+	s.MidiCCMin = in.MidiCCMin
+	s.MidiCCMax = in.MidiCCMax
 	s.IdleHideSeconds = in.IdleHideSeconds
 	a.mu.Unlock()
 	if err := config.SaveSettings(s); err != nil {
@@ -2112,27 +2337,36 @@ func (a *App) sizeForMode(setup bool) {
 	// changes. Doing them on every show made each reappearance pay three
 	// synchronous AppKit calls — and snapped a dragged window back to center.
 	mode := 1
+	wantW, wantH := HUDW, HUDH
 	if setup {
-		mode = 2
+		mode, wantW, wantH = 2, ConfigW, ConfigH
 	}
 	a.mu.Lock()
 	same := a.sizedMode == mode
 	a.sizedMode = mode
 	a.mu.Unlock()
-	if same {
-		return
-	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("window size recovered: %v", r)
 		}
 	}()
-	runtime.WindowSetMinSize(ctx, WindowMinW, WindowMinH)
-	if setup {
-		runtime.WindowSetSize(ctx, ConfigW, ConfigH)
-	} else {
-		runtime.WindowSetSize(ctx, HUDW, HUDH)
+
+	// The cached mode says whether the *mode* changed, not whether the window
+	// is actually that size. A window restored by AppKit at another size — or
+	// one whose launch size never matched the mode NewApp assumed — would keep
+	// the stale geometry forever, since every later call short-circuits here.
+	// Measuring is one cheap read and settles it.
+	if same {
+		w, h := runtime.WindowGetSize(ctx)
+		if w == wantW && h == wantH {
+			return
+		}
+		log.Printf("window: %dx%d does not match mode %d (%dx%d); resizing", w, h, mode, wantW, wantH)
 	}
+
+	runtime.WindowSetMinSize(ctx, WindowMinW, WindowMinH)
+	runtime.WindowSetSize(ctx, wantW, wantH)
 	// Re-center after a resize so the window does not drift toward a corner
 	// when it grows.
 	runtime.WindowCenter(ctx)
@@ -2170,12 +2404,27 @@ func (a *App) ShowHUD() {
 	a.noteShow()
 }
 
+// HideHUD minimises the window. Config open (setupOpen) blocks the automatic
+// paths so a half-built pad map is never yanked off screen mid-edit, but the
+// titlebar's minimise button is an explicit request and must work from any
+// screen — see HideWindow.
 func (a *App) HideHUD() {
+	a.hideHUD(false)
+}
+
+// HideWindow is the titlebar minimise: the same fade and hide, but it also
+// applies while Config is open. The window is only minimised, so unsaved pad
+// edits and form drafts are still there when it comes back.
+func (a *App) HideWindow() {
+	a.hideHUD(true)
+}
+
+func (a *App) hideHUD(explicit bool) {
 	if _, ok := a.ctxOK(); !ok {
 		return
 	}
 	a.mu.Lock()
-	if a.hidden || a.hiding || a.setupOpen || a.dragging {
+	if a.hidden || a.hiding || a.dragging || (a.setupOpen && !explicit) {
 		a.mu.Unlock()
 		return
 	}
@@ -2190,7 +2439,7 @@ func (a *App) HideHUD() {
 		a.mu.Lock()
 		// Abort only if ShowHUD / drag / config bumped hideGen. Clicks, keys,
 		// and MIDI must not emit hud:shown here or the shell flickers.
-		if a.hideGen != token || a.setupOpen || a.dragging {
+		if a.hideGen != token || a.dragging || (a.setupOpen && !explicit) {
 			a.hiding = false
 			a.mu.Unlock()
 			a.emit("hud:shown")
@@ -2261,10 +2510,10 @@ func (a *App) ToggleWindow() {
 // inactivityLoop no longer hides anything: the HUD stays up until the user
 // dismisses it (Enter, Stream Deck toggle, or --toggle). It only clears a
 // stale window-drag flag if a drag never received its pointerup. The stale
-// threshold is 2s, so a 500ms tick resolves it just as well as the old 120ms
-// one at a quarter of the wakeups.
+// threshold is 2s, so a 1s tick resolves it just as well as the old 120ms
+// one at a fraction of the wakeups.
 func (a *App) inactivityLoop() {
-	t := time.NewTicker(500 * time.Millisecond)
+	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for range t.C {
 		a.mu.Lock()

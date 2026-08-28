@@ -74,6 +74,12 @@ export namespace main {
 	    midiCCAlt: number;
 	    midiNotePlus: number;
 	    midiNoteMinus: number;
+	    midiNoteRecall: number;
+	    midiChanCC: number;
+	    midiChanPalette: number;
+	    midiChanRecall: number;
+	    midiCCMin: number;
+	    midiCCMax: number;
 	    idleHideSeconds: number;
 	    hasEnvKey: boolean;
 	    hasConfigKey: boolean;
@@ -82,10 +88,11 @@ export namespace main {
 	    configPath: string;
 	    mappingPath: string;
 	    webEnabled: boolean;
+	    launchAtLogin: boolean;
 	    webAddr: string;
 	    webRunning: boolean;
 	    webHasToken: boolean;
-	    webUrls: string[];
+	    webUrls?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsView(source);
@@ -97,6 +104,12 @@ export namespace main {
 	        this.midiCCAlt = source["midiCCAlt"];
 	        this.midiNotePlus = source["midiNotePlus"];
 	        this.midiNoteMinus = source["midiNoteMinus"];
+	        this.midiNoteRecall = source["midiNoteRecall"];
+	        this.midiChanCC = source["midiChanCC"];
+	        this.midiChanPalette = source["midiChanPalette"];
+	        this.midiChanRecall = source["midiChanRecall"];
+	        this.midiCCMin = source["midiCCMin"];
+	        this.midiCCMax = source["midiCCMax"];
 	        this.idleHideSeconds = source["idleHideSeconds"];
 	        this.hasEnvKey = source["hasEnvKey"];
 	        this.hasConfigKey = source["hasConfigKey"];
@@ -105,6 +118,7 @@ export namespace main {
 	        this.configPath = source["configPath"];
 	        this.mappingPath = source["mappingPath"];
 	        this.webEnabled = source["webEnabled"];
+	        this.launchAtLogin = source["launchAtLogin"];
 	        this.webAddr = source["webAddr"];
 	        this.webRunning = source["webRunning"];
 	        this.webHasToken = source["webHasToken"];
@@ -150,15 +164,17 @@ export namespace main {
 	    discoverError: string;
 	    discovering: boolean;
 	    firstRun: boolean;
-	    catalog: govee.Device[];
+	    catalog?: govee.Device[];
 	    hidden: boolean;
 	    mappingPath: string;
 	    configOpen: boolean;
+	    mapDirty: boolean;
 	    dancing: boolean;
 	    gradient: boolean;
 	    bleScanning: boolean;
 	    bluetoothDenied: boolean;
 	    bluetoothOff: boolean;
+	    platform: string;
 	    settings: SettingsView;
 	
 	    static createFrom(source: any = {}) {
@@ -185,11 +201,13 @@ export namespace main {
 	        this.hidden = source["hidden"];
 	        this.mappingPath = source["mappingPath"];
 	        this.configOpen = source["configOpen"];
+	        this.mapDirty = source["mapDirty"];
 	        this.dancing = source["dancing"];
 	        this.gradient = source["gradient"];
 	        this.bleScanning = source["bleScanning"];
 	        this.bluetoothDenied = source["bluetoothDenied"];
 	        this.bluetoothOff = source["bluetoothOff"];
+	        this.platform = source["platform"];
 	        this.settings = this.convertValues(source["settings"], SettingsView);
 	    }
 	

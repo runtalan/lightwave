@@ -2,7 +2,7 @@
 
 **Instant, local control of your Govee lights — from a keypad, a dial, or a Stream Deck.**
 
-Lightwave is a small macOS app that talks to Govee lights **directly on your own network and over Bluetooth**. No cloud round-trip when you turn a light on, no lag, and it keeps working when your internet is down. Turn a knob and the room responds immediately.
+Lightwave is a small desktop app for **macOS and Windows 11** that talks to Govee lights **directly on your own network and over Bluetooth**. No cloud round-trip when you turn a light on, no lag, and it keeps working when your internet is down. Turn a knob and the room responds immediately.
 
 ![The Lightwave HUD](docs/img/hud.png)
 
@@ -118,7 +118,7 @@ reconnects on its own after a sleep or a network change.
 
 ## Requirements
 
-- **macOS 11 or later** (Apple Silicon or Intel)
+- **macOS 11 or later** (Apple Silicon or Intel), or **Windows 11**
 - **Govee lights** — see [compatibility](#which-lights-work) below
 - **A Govee API key** (free) for reading light names — [get one here](https://developer.govee.com/reference/apply-you-govee-api-key)
 - Optionally: a MIDI keypad, a USB dial, or a Stream Deck
@@ -143,9 +143,9 @@ The list is a guide, not a wall: some models support LAN control without appeari
 
 Lights with no LAN support are driven over Bluetooth LE instead. Lightwave finds any Govee light advertising nearby and controls power, brightness, and color. This covers many strips and bulbs Govee never exposed to LAN control, including **H617A** and similar RGBIC strips.
 
-Bluetooth is slightly slower than Wi-Fi and needs the light in range of your Mac. When a light supports both, **Wi-Fi always wins**.
+Bluetooth is slightly slower than Wi-Fi and needs the light in range of the computer running Lightwave. When a light supports both, **Wi-Fi always wins**.
 
-> **First launch:** macOS will ask for Bluetooth permission. Lightwave can't find Bluetooth lights without it.
+> **First launch:** the OS will ask for Bluetooth permission. Lightwave can't find Bluetooth lights without it.
 
 ### Which is my light using?
 
@@ -189,7 +189,7 @@ If auto-learn picks the wrong control, set it explicitly in **Config → MIDI**:
 | Color + note | Button that cycles palettes |
 | Gradient toggle note | Button that switches single / gradient scenes |
 
-To find your controller's numbers, use a free MIDI monitor ([MIDI Monitor](https://www.snoize.com/midimonitor/) on macOS), turn the knob, and read the **CC number** it reports.
+To find your controller's numbers, use a free MIDI monitor ([MIDI Monitor](https://www.snoize.com/midimonitor/) on macOS, or any USB MIDI monitor on Windows), turn the knob, and read the **CC number** it reports.
 
 ### Known-good controllers
 
@@ -227,30 +227,35 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 
 | Action | What it does |
 |---|---|
-| **Status** | Live display: palette name, its actual colors, fade state, and how many lights are on |
-| **Light** | Toggle one light; the key shows its name and lights up when on |
+| **Status** | Live display: what's on, brightness, palette and its colors, pattern, and fade state |
+| **Light** | Toggle one light; the key shows its name and lights up when on. Rename it in Stream Deck if the light's own name is too long for a key |
 | **All Lights** | Everything off — or back on when all are off |
-| **Brightness** | Nudge up or down; on **Stream Deck +**, turn the dial |
-| **Palette** | Cycle color palettes |
-| **Color Fade** | Start or stop the slow fade |
+| **Brightness** | A read-only readout of the current level. Set brightness with the app's slider; on **Stream Deck +**, the dial adjusts it |
+| **Palette** | Step to the next or previous palette. Each key shows the palette you'll land on, with its colors |
+| **Color Fade** | Start or stop the slow fade — the key says which it will do |
+| **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
 
 ### The Status key
 
-A live, animated readout of your lighting, drawn in the Lightwave style — neon waves over a dark grid, with the palette's real colors along the bottom:
+A live, animated readout of your lighting, drawn in the Lightwave style — neon waves over a dark grid:
 
 ![Status key in several states](docs/img/indicator-states.png)
 
-- **Palette name and swatches** — the exact colors currently in play
-- **Pips, top-left** — one per bound light, lit when that light is on
+- **The headline** answers what's on right now. One light lit gets **named**, in the largest type that fits; several are counted as **"5 OF 8 ON"**; nothing lit reads **"ALL OFF"**
+- **Brightness and palette**, on the line below — the percentage dimmed, since it's context rather than the headline, with the palette's name beside it
+- **Swatch strip** — the palette's exact colors, currently in play
+- **Pattern, top-left** — stepped bars in the palette's colors when the gradient is spread across your lights, one solid block when they all share a color
 - **Dot, top-right** — glowing and pulsing while the color fade runs, a hollow ring when idle
-- **The wave** drifts gently, and speeds up while the fade is running
+- **Fader, along the bottom** — the pool's brightness; it dims when every light is off, since the level is then only what the lights will return to
+- **The wave** drifts gently behind it all, and speeds up while the fade is running
 
 Press it to cycle palettes.
 
 ### Install
 
 ```bash
-./streamdeck/build.sh --install
+./streamdeck/build.sh --install          # macOS
+# Windows:  .\streamdeck\build.ps1 -Install
 ```
 
 Then open Stream Deck and drag **Lightwave** actions onto your keys. A ready-made two-page layout is included — open `streamdeck/Lightwave.streamDeckProfile` to import it, then set which light each key controls.
@@ -275,11 +280,11 @@ Dim with the knob and the on-screen slider moves. Toggle a light on the deck and
 
 ## Troubleshooting
 
-**No lights found.** Enable LAN Control in the Govee app, confirm your Mac is on the same network as the lights, then **Scan LAN + BLE**. If your lights are on a guest network or separate VLAN, move them to the same subnet as your Mac — network isolation blocks local discovery.
+**No lights found.** Enable LAN Control in the Govee app, confirm this computer is on the same network as the lights, then **Scan LAN + BLE**. If your lights are on a guest network or separate VLAN, move them to the same subnet — network isolation blocks local discovery.
 
 **A light shows "no link."** It's known from your Govee account but hasn't answered locally. Check that it's powered on and in Bluetooth range, or enable LAN Control.
 
-**Bluetooth lights don't appear.** Confirm macOS Bluetooth permission was granted (**System Settings → Privacy & Security → Bluetooth**). Bluetooth range is much shorter than Wi-Fi.
+**Bluetooth lights don't appear.** Grant Bluetooth permission (**System Settings → Privacy & Security → Bluetooth** on macOS; **Settings → Privacy & security → Bluetooth** on Windows). Bluetooth range is much shorter than Wi-Fi.
 
 **Names show as model numbers** (like "H6072"). Add your Govee API key in the **Account** tab and rescan. Lights not registered in your Govee account have no name to fetch — rename them yourself with the **✎** button.
 
@@ -300,8 +305,15 @@ Lightwave runs entirely on your machine. Light commands go directly to your ligh
 Go, Node, and [Wails](https://github.com/wailsapp/wails) required:
 
 ```bash
-./scripts/build.sh              # the app
-./streamdeck/build.sh --install # the Stream Deck plugin
+./scripts/build.sh              # macOS app
+./streamdeck/build.sh --install # Stream Deck plugin
+```
+
+On Windows 11 (from PowerShell, with a CGO-capable gcc on PATH as [Wails documents](https://wails.io/docs/gettingstarted/installation)):
+
+```powershell
+.\scripts\build.ps1
+.\streamdeck\build.ps1 -Install
 ```
 
 Architecture, the local protocols, and development notes are in [docs/DEVELOPING.md](docs/DEVELOPING.md).

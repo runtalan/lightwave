@@ -141,8 +141,22 @@ def pad(on):
         c,a = grid_bg(nx,ny,None, 1.0 if on else 0.72)
         if a<=0: return (0,0,0),0.0
         if on:
-            sc,sa = spark(nx*1.5, ny*1.5)
-            if sa>0: c = over(c, sc, sa)
+            # A lit key has to read as lit from across a room, so the on state
+            # is not just the same star in a brighter ink: the whole plate is
+            # washed with light that falls off from the core, the star is drawn
+            # heavier, and its centre burns to white. Against the hollow
+            # outline of the off state that is unmistakable at a glance.
+            d = math.hypot(nx, ny)
+            # Wash the whole plate first, so even the corners sit brighter than
+            # any part of the off state.
+            c = over(c, mix(NEON, MAG, (nx+1)/2), 0.30)
+            c = over(c, mix(NEON, MAG, (nx+1)/2), 0.55*smooth(1.35, 0.0, d))
+            c = over(c, mix(MAG, (255,255,255), 0.45), 0.45*smooth(0.66, 0.0, d))
+            sc,sa = spark(nx*1.28, ny*1.28)
+            if sa>0:
+                c = over(c, mix(sc,(255,255,255),0.5), min(1.0, sa*1.35))
+            # Hot centre, so the eye lands on a point of light.
+            c = over(c, (255,255,255), 0.95*smooth(0.16,0.0,d))
         else:
             # Unlit: the same silhouette as the lit spark, drawn hollow, so the
             # two states read as one object switching rather than two shapes.
@@ -193,6 +207,27 @@ def dance(on):
         return c,a
     return f
 
+def gradient(on):
+    """Pattern icon. `on` = gradient spread across lights: three separated bars
+    each a different hue. Off = one solid block, a single shared colour. The
+    same shapes the Status key uses, so the two read as one language."""
+    def f(nx,ny):
+        c,a = grid_bg(nx,ny,None, 1.0 if on else 0.72)
+        if a<=0: return (0,0,0),0.0
+        if on:
+            for i in range(3):
+                yy = -0.40 + i*0.40
+                band = smooth(0.13,0.09,abs(ny-yy))
+                inb = band * smooth(0.62,0.58,abs(nx))
+                if inb>0:
+                    c = over(c, mix(NEON,MAG,i/2.0), 0.96*inb)
+        else:
+            blk = smooth(0.54,0.50,abs(ny)) * smooth(0.62,0.58,abs(nx))
+            if blk>0:
+                c = over(c, mix(NEON,MAG,(nx+1)/2), 0.96*blk)
+        return c,a
+    return f
+
 def brightness(nx,ny):
     c,a = grid_bg(nx,ny,None,0.8)
     if a<=0: return (0,0,0),0.0
@@ -220,6 +255,8 @@ targets=[("actions/pad-off",pad(False)),("actions/pad-on",pad(True)),("actions/p
  ("actions/palette",palette),("actions/palette-key",palette),
  ("actions/dance",dance(True)),("actions/dance-off",dance(False)),("actions/dance-on",dance(True)),
  ("actions/brightness",brightness),("actions/brightness-key",brightness),
+ ("actions/gradient",gradient(True)),
+ ("actions/gradient-off",gradient(False)),("actions/gradient-on",gradient(True)),
  ("plugin",logo),("category",logo)]
 os.makedirs("actions",exist_ok=True)
 for name,fn in targets:

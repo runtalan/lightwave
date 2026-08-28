@@ -21,6 +21,12 @@ export type SettingsView = {
   midiCCAlt: number
   midiNotePlus: number
   midiNoteMinus: number
+  midiNoteRecall: number
+  midiChanCC: number
+  midiChanPalette: number
+  midiChanRecall: number
+  midiCCMin: number
+  midiCCMax: number
   idleHideSeconds: number
   hasEnvKey: boolean
   hasConfigKey: boolean
@@ -28,11 +34,12 @@ export type SettingsView = {
   envPath: string
   configPath: string
   mappingPath: string
+  launchAtLogin: boolean
   webEnabled: boolean
   webAddr: string
   webRunning: boolean
   webHasToken: boolean
-  webUrls: string[]
+  webUrls?: string[]
 }
 
 export type HUDState = {
@@ -47,19 +54,21 @@ export type HUDState = {
   needsSetup: boolean
   setupOpen: boolean
   configOpen: boolean
+  mapDirty: boolean
   dancing: boolean
   gradient: boolean
   hasApiKey: boolean
   discoverError: string
   discovering: boolean
-  catalog: Device[]
+  catalog?: Device[]
   hidden: boolean
   mappingPath: string
   firstRun: boolean
-  bleScanning: boolean
-  bluetoothDenied: boolean
-  bluetoothOff: boolean
-  settings: SettingsView
+	bleScanning: boolean
+	bluetoothDenied: boolean
+	bluetoothOff: boolean
+	platform: string
+	settings: SettingsView
 }
 
 export type ConfigTab = 'lights' | 'midi' | 'hud' | 'remote' | 'account'
@@ -72,6 +81,12 @@ export function emptySettings(): SettingsView {
     midiCCAlt: 1,
     midiNotePlus: 61,
     midiNoteMinus: 60,
+    midiNoteRecall: 0,
+    midiChanCC: 0,
+    midiChanPalette: 0,
+    midiChanRecall: 0,
+    midiCCMin: 0,
+    midiCCMax: 127,
     idleHideSeconds: 10,
     hasEnvKey: false,
     hasConfigKey: false,
@@ -79,6 +94,7 @@ export function emptySettings(): SettingsView {
     envPath: '',
     configPath: '',
     mappingPath: '',
+    launchAtLogin: false,
     webEnabled: false,
     webAddr: ':8787',
     webRunning: false,
@@ -118,6 +134,7 @@ export function normalizeState(raw: Partial<HUDState> | null | undefined): HUDSt
     needsSetup: Boolean(raw.needsSetup),
     setupOpen: Boolean(raw.setupOpen),
     configOpen: Boolean(raw.configOpen),
+    mapDirty: Boolean(raw.mapDirty),
     hidden: Boolean(raw.hidden),
     settings,
   }
@@ -144,6 +161,7 @@ export function emptyState(): HUDState {
     needsSetup: false,
     setupOpen: false,
     configOpen: false,
+    mapDirty: false,
     dancing: false,
     gradient: false,
     hasApiKey: false,
@@ -156,6 +174,7 @@ export function emptyState(): HUDState {
     bleScanning: false,
     bluetoothDenied: false,
     bluetoothOff: false,
+    platform: '',
     settings: emptySettings(),
   }
 }

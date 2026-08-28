@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  LiveCC,
+  SaveCCCalibration,
+  DiscardConfig,
   MoveSlot,
   RenameSlot,
   AssignSlot,
@@ -11,6 +14,7 @@ import {
   SaveSettings,
   ScanLAN,
   SetConfigAPIKey,
+  SetLaunchAtLogin,
   SetWebEnabled,
   SetWebConfig,
 } from '../wailsjs/go/main/App'
@@ -36,12 +40,109 @@ const TABS: { id: ConfigTab; label: string }[] = [
   { id: 'account', label: 'Account' },
 ]
 
+function bluetoothDeniedCopy(platform: string): string {
+  if (platform === 'windows') {
+    return 'Bluetooth needed to find H6001 — allow Lightwave under Settings → Privacy & security → Bluetooth, then rescan.'
+  }
+  return 'Bluetooth needed to find H6001 — enable Lightwave in System Settings → Privacy & Security → Bluetooth, then rescan.'
+}
+
+function bluetoothDeniedEmpty(platform: string): string {
+  if (platform === 'windows') {
+    return 'Bluetooth needed to find H6001. Allow Lightwave under Settings → Privacy & security → Bluetooth, then Rescan.'
+  }
+  return 'Bluetooth needed to find H6001. Enable Lightwave in System Settings → Privacy & Security → Bluetooth, then tap Rescan.'
+}
+
 export function Config({ state, onState }: Props) {
   const [tab, setTab] = useState<ConfigTab>('lights')
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
   const [midiDraft, setMidiDraft] = useState<SettingsView>(state.settings)
-  useEffect(() => setMidiDraft(state.settings), [state.settings])
+  // Re-seed the draft from the backend only when a saved value actually
+  // changes. normalizeState rebuilds settings on every push and emitState
+  // fires on every status poll, so depending on the object itself reset the
+  // form roughly once a second — a typed note number never survived long
+  // enough to be saved.
+  const savedMidiKey = [
+    state.settings.midiCC,
+    state.settings.midiCCAlt,
+    state.settings.midiNotePlus,
+    state.settings.midiNoteMinus,
+    state.settings.midiNoteRecall,
+    state.settings.midiChanCC,
+    state.settings.midiChanPalette,
+    state.settings.midiChanRecall,
+    state.settings.midiCCMin,
+    state.settings.midiCCMax,
+    state.settings.idleHideSeconds,
+  ].join(',')
+  useEffect(() => {
+    setMidiDraft(state.settings)
+    // state.settings is intentionally omitted: it is a fresh object on every
+    // push, and savedMidiKey already captures every field this form edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedMidiKey])
+  const [confirmExit, setConfirmExit] = useState(false)
+  const [saving, setSaving] = useState(false)
+  // The Account tab's key field lives here so the shared action bar can save
+  // it: the bar is outside the pane that owns the input.
+  const [apiKey, setApiKey] = useState('')
+
+  // Unsaved work is either a settings draft the user edited but did not save,
+  // or pad edits that live only in memory until CommitMappings runs.
+  const draftDirty =
+    midiDraft.midiCC !== state.settings.midiCC ||
+    midiDraft.midiCCAlt !== state.settings.midiCCAlt ||
+    midiDraft.midiNotePlus !== state.settings.midiNotePlus ||
+    midiDraft.midiNoteMinus !== state.settings.midiNoteMinus ||
+    midiDraft.midiNoteRecall !== state.settings.midiNoteRecall ||
+    midiDraft.midiChanCC !== state.settings.midiChanCC ||
+    midiDraft.midiChanPalette !== state.settings.midiChanPalette ||
+    midiDraft.midiChanRecall !== state.settings.midiChanRecall ||
+    midiDraft.idleHideSeconds !== state.settings.idleHideSeconds
+  // A typed-but-unsaved API key counts as unsaved work too, so Cancel asks
+  // instead of dropping it silently.
+  const dirty = draftDirty || Boolean(state.mapDirty) || apiKey.trim() !== ''
+
+  async function discard() {
+    setErr('')
+    try {
+      await DiscardConfig()
+    } catch (e) {
+      setErr(String(e))
+      setConfirmExit(false)
+    }
+  }
+
+  // Escape leaves without saving. With unsaved work it asks first, so a
+  // stray keypress cannot throw away a half-built pad map.
+  function requestExit() {
+    if (dirty) {
+      setConfirmExit(true)
+      return
+    }
+    void discard()
+  }
+
+  // One Save for every tab. The Account key is the only per-pane value the
+  // shared bar has to flush itself; persist() already covers the MIDI draft
+  // and, on the Lights tab, the pad map.
+  async function saveAll() {
+    setSaving(true)
+    setErr('')
+    try {
+      if (tab === 'account' && apiKey.trim()) {
+        await SetConfigAPIKey(apiKey.trim())
+        setApiKey('')
+      }
+      await persist(true)
+    } catch (e) {
+      setErr(String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function persist(close: boolean) {
     setErr('')
@@ -68,12 +169,32 @@ export function Config({ state, onState }: Props) {
       if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault()
         e.stopImmediatePropagation()
-        void persist(false)
+        // Save and go back to the HUD: Cmd-S is "commit and done", not
+        // "commit and stay". saveAll is the Save button's own path, so the
+        // Account key is flushed here too.
+        void saveAll()
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        // While the prompt is up, Escape dismisses it rather than exiting:
+        // the answer to "discard?" should never be given by the same key
+        // that asked the question.
+        if (confirmExit) {
+          setConfirmExit(false)
+          return
+        }
+        requestExit()
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  })
+    // saveAll()/requestExit() close over midiDraft, tab, apiKey and the dirty
+    // state; re-bind when any of them move so Cmd-S never flushes a stale
+    // draft or a stale key, and Escape always sees the current dirtiness. Capture phase +
+    // stopImmediatePropagation keep App's HUD-side Cmd-S from also firing.
+  }, [midiDraft, tab, confirmExit, dirty, apiKey])
 
   return (
     <div className="panel config">
@@ -83,11 +204,6 @@ export function Config({ state, onState }: Props) {
           <p className="eyebrow">{state.firstRun ? 'first ignition' : 'control deck'}</p>
           <h1>Config</h1>
         </div>
-        {tab !== 'lights' && (
-          <button type="button" className="ghost" onClick={() => void persist(true)}>
-            Back
-          </button>
-        )}
       </header>
 
       <div className="config-shell">
@@ -110,25 +226,68 @@ export function Config({ state, onState }: Props) {
 
         <div className="config-body">
           {tab === 'lights' && (
-            <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} onFinish={() => persist(true)} />
+            <LightsPane state={state} onState={onState} setErr={setErr} setNote={setNote} />
           )}
           {tab === 'midi' && (
-            <MidiPane
+            <MidiPane state={state} draft={midiDraft} setDraft={setMidiDraft} setErr={setErr} />
+          )}
+          {tab === 'hud' && (
+            <HudPane state={state} setErr={setErr} setNote={setNote} />
+          )}
+          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
+          {tab === 'account' && (
+            <AccountPane
               state={state}
-              draft={midiDraft}
-              setDraft={setMidiDraft}
+              onState={onState}
               setErr={setErr}
               setNote={setNote}
+              apiKey={apiKey}
+              setApiKey={setApiKey}
             />
           )}
-          {tab === 'hud' && <HudPane state={state} />}
-          {tab === 'remote' && <RemotePane state={state} setErr={setErr} setNote={setNote} />}
-          {tab === 'account' && <AccountPane state={state} onState={onState} setErr={setErr} setNote={setNote} />}
         </div>
       </div>
 
+      {/* One action bar for every tab, outside .config-body so it cannot
+          scroll away or shift with the length of the pane above it. */}
+      <footer className="config-actions">
+        <button type="button" className="ghost" onClick={requestExit}>
+          Cancel
+        </button>
+        <button type="button" className="primary" disabled={saving} onClick={() => void saveAll()}>
+          Save
+        </button>
+      </footer>
+
       {(err || note) && (
         <p className={`status ${err ? 'bad' : ''}`}>{err || note}</p>
+      )}
+
+      {confirmExit && (
+        <div className="confirm-veil" role="dialog" aria-modal="true" aria-labelledby="confirm-exit-q">
+          <div className="confirm-box">
+            <p id="confirm-exit-q">Would you like to exit without saving your changes?</p>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                autoFocus
+                onClick={() => {
+                  setConfirmExit(false)
+                  void saveAll()
+                }}
+              >
+                Save and exit
+              </button>
+              <button type="button" className="ghost" onClick={() => void discard()}>
+                Discard
+              </button>
+              <button type="button" className="ghost" onClick={() => setConfirmExit(false)}>
+                Keep editing
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -139,17 +298,18 @@ function LightsPane({
   onState,
   setErr,
   setNote,
-  onFinish,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
-  onFinish: () => Promise<void>
 }) {
   const [focus, setFocus] = useState(7)
   const [busy, setBusy] = useState(false)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
+  // Set while a device is being dragged out of the list, so pads can light up
+  // as drop targets for it as well as for a pad-to-pad move.
+  const [dragDevice, setDragDevice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [renaming, setRenaming] = useState<number | null>(null)
 
@@ -210,7 +370,7 @@ function LightsPane({
   }
 
   const statusCopy = state.bluetoothDenied
-    ? 'Bluetooth needed to find H6001 — enable Lightwave in System Settings → Privacy & Security → Bluetooth, then rescan.'
+    ? bluetoothDeniedCopy(state.platform)
     : state.bluetoothOff
       ? 'Bluetooth is off. Turn it on to find H6001.'
       : !state.hasApiKey
@@ -223,14 +383,20 @@ function LightsPane({
               ? 'Sweeping the account, LAN, and Bluetooth…'
               : (state.catalog ?? []).length === 0
                 ? 'No lights found. Enable LAN control or Bluetooth, then rescan.'
-                : `${state.catalog.length} lights. Select a pad, then a light.`
+                : `${(state.catalog ?? []).length} lights. Select a pad, then a light.`
 
   const statusBad = state.bluetoothDenied || state.bluetoothOff || Boolean(state.discoverError) || !state.hasApiKey
 
   return (
     <div className="pane lights-pane">
       <p className="lede">Bind numpad 1–9. A light can live on one pad only. Drag a bound pad onto another to move it — dropping on an occupied pad swaps the two. Click ✎ to rename.</p>
-      <div className="grid" role="grid" aria-label="Numpad slots">
+
+      <section className="pad-col">
+        <header className="device-head">
+          <h3>Pads</h3>
+          <p>Your numpad, laid out the way the keys are.</p>
+        </header>
+        <div className="grid" role="grid" aria-label="Numpad slots">
         {NUMPAD_ORDER.map((n) => {
           const slot = slotByNumber(state, n)
           const mapped = Boolean(slot?.deviceId)
@@ -238,7 +404,9 @@ function LightsPane({
             <button
               key={n}
               type="button"
-              className={`tile ${mapped ? 'ignited' : ''} ${focus === n ? 'focused' : ''} ${dragOver === n && dragFrom !== null && dragFrom !== n ? 'drop-target' : ''}`}
+              className={`tile ${mapped ? 'ignited' : ''} ${focus === n ? 'focused' : ''} ${
+                dragOver === n && (dragDevice !== null || (dragFrom !== null && dragFrom !== n)) ? 'drop-target' : ''
+              }`}
               onClick={() => setFocus(n)}
               draggable={mapped}
               onDragStart={(e) => {
@@ -252,6 +420,14 @@ function LightsPane({
                 setDragOver(null)
               }}
               onDragOver={(e) => {
+                // A pad accepts two kinds of drag: another pad (move/swap) and
+                // a device from the list (bind).
+                if (dragDevice !== null) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'copy'
+                  setDragOver(n)
+                  return
+                }
                 if (dragFrom === null || dragFrom === n) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
@@ -260,9 +436,16 @@ function LightsPane({
               onDragLeave={() => setDragOver((cur) => (cur === n ? null : cur))}
               onDrop={(e) => {
                 e.preventDefault()
+                const deviceId = e.dataTransfer.getData('application/x-lightwave-device') || dragDevice
+                setDragOver(null)
+                if (deviceId) {
+                  setDragDevice(null)
+                  setFocus(n)
+                  void bind(n, deviceId)
+                  return
+                }
                 const from = Number(e.dataTransfer.getData('text/plain')) || dragFrom
                 setDragFrom(null)
-                setDragOver(null)
                 if (from && from !== n) void move(from, n)
               }}
             >
@@ -313,13 +496,18 @@ function LightsPane({
             </button>
           )
         })}
-      </div>
-      <p className={`status ${statusBad ? 'bad' : ''}`}>{statusCopy}</p>
+        </div>
+      </section>
+
+      <section className="device-col">
+        <header className="device-head">
+          <h3>Devices</h3>
+          <p>These are the devices that you can map to the pads. Drag one onto a pad, or click a pad and then a device.</p>
+        </header>
+        <p className={`status ${statusBad ? 'bad' : ''}`}>{statusCopy}</p>
       <div className="device-list">
         {state.bluetoothDenied && (
-          <p className="device-empty bad">
-            Bluetooth needed to find H6001. Enable Lightwave in System Settings → Privacy & Security → Bluetooth, then tap Rescan.
-          </p>
+          <p className="device-empty bad">{bluetoothDeniedEmpty(state.platform)}</p>
         )}
         {state.bleScanning && !state.bluetoothDenied && !state.bluetoothOff && (
           <div className="device scanning" aria-live="polite">
@@ -336,6 +524,16 @@ function LightsPane({
               type="button"
               className={`device ${takenHere ? 'current' : ''} ${taken && !takenHere ? 'taken' : ''}`}
               disabled={Boolean(taken) && !takenHere}
+              draggable={!taken || takenHere}
+              onDragStart={(e) => {
+                setDragDevice(d.id)
+                e.dataTransfer.effectAllowed = 'copy'
+                // A distinct MIME type so a pad drop can tell a device drag
+                // from a pad-to-pad move and never confuse the two.
+                e.dataTransfer.setData('application/x-lightwave-device', d.id)
+                e.dataTransfer.setData('text/plain', d.id)
+              }}
+              onDragEnd={() => setDragDevice(null)}
               onClick={() => {
                 if (taken && !takenHere) {
                   setErr(`${d.name} is already on pad ${taken}`)
@@ -353,7 +551,9 @@ function LightsPane({
             </button>
           )
         })}
-      </div>
+        </div>
+      </section>
+
       <footer className="actions">
         <button type="button" className="ghost" onClick={() => Discover().then(onState)}>
           Rescan
@@ -363,21 +563,6 @@ function LightsPane({
         </button>
         <button type="button" className="ghost" onClick={() => FillRemaining().then(onState)}>
           Fill remaining
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true)
-            setErr('')
-            CommitMappings()
-              .then(() => onFinish())
-              .catch((e) => setErr(String(e)))
-              .finally(() => setBusy(false))
-          }}
-        >
-          Save map
         </button>
       </footer>
     </div>
@@ -389,88 +574,336 @@ function MidiPane({
   draft,
   setDraft,
   setErr,
-  setNote,
 }: {
   state: HUDState
   draft: SettingsView
   setDraft: (s: SettingsView) => void
   setErr: (s: string) => void
-  setNote: (s: string) => void
 }) {
+  // Channel is per control because one controller can spread its keys, encoder
+  // and fader across different channels. "Any" is the default and the safer
+  // setting: a firmware remap that moves a control to another channel would
+  // silently break a pinned binding.
+  const chan = (key: 'midiChanCC' | 'midiChanPalette' | 'midiChanRecall', hint: string) => (
+    <label className="field narrow">
+      <span>Channel</span>
+      <select
+        value={draft[key]}
+        onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
+      >
+        <option value={0}>Any{hint ? ` (yours: ${hint})` : ''}</option>
+        {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
+          <option key={n} value={n}>{n}</option>
+        ))}
+      </select>
+    </label>
+  )
+
   return (
     <div className="pane form-pane">
       <p className="lede">
         {state.midiConnected ? `Listening · ${state.midiPort}` : 'No MIDI port — keyboard still drives the HUD.'}
-        {' '}Notes 60 (−) and 61 (+) always cycle palettes. Brightness is CC only.
       </p>
-      <BrightnessSlider value={state.brightness} label="pool dim" />
-      <p className="status">CC 0–127 maps to 1–100% on ignited lights (127 = full). Bottom of the fader is dimmest, not off.</p>
-      <label className="field">
-        <span>Brightness CC</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiCC}
-          onChange={(e) => setDraft({ ...draft, midiCC: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Alternate CC</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiCCAlt}
-          onChange={(e) => setDraft({ ...draft, midiCCAlt: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Color + note</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiNotePlus}
-          onChange={(e) => setDraft({ ...draft, midiNotePlus: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field">
-        <span>Color − note</span>
-        <input
-          type="number"
-          min={0}
-          max={127}
-          value={draft.midiNoteMinus}
-          onChange={(e) => setDraft({ ...draft, midiNoteMinus: Number(e.target.value) })}
-        />
-      </label>
-      <footer className="actions">
-        <button
-          type="button"
-          className="primary"
-          onClick={() => {
-            setErr('')
-            SaveSettings(draft)
-              .then(() => setNote('MIDI knobs saved.'))
-              .catch((e) => setErr(String(e)))
-          }}
-        >
-          Save MIDI
-        </button>
-      </footer>
+
+      <section className="group">
+        <h3 className="group-title">Brightness</h3>
+        <p className="group-hint">
+          CC 0–127 maps to 1–100% on ignited lights. The bottom of the fader is dimmest, not off.
+        </p>
+        <BrightnessSlider value={state.brightness} label="pool dim" />
+        <div className="field-row">
+          <label className="field">
+            <span>CC</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiCC}
+              onChange={(e) => setDraft({ ...draft, midiCC: Number(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Alternate CC</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiCCAlt}
+              onChange={(e) => setDraft({ ...draft, midiCCAlt: Number(e.target.value) })}
+            />
+          </label>
+          {chan('midiChanCC', '3')}
+        </div>
+        <FaderCalibration state={state} setErr={setErr} />
+      </section>
+
+      <section className="group">
+        <h3 className="group-title">Palette</h3>
+        <p className="group-hint">
+          Notes 60 (−) and 61 (+) always cycle palettes; these add your own keys on top.
+        </p>
+        <div className="field-row">
+          <label className="field">
+            <span>Colour + note</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiNotePlus}
+              onChange={(e) => setDraft({ ...draft, midiNotePlus: Number(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Colour − note</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiNoteMinus}
+              onChange={(e) => setDraft({ ...draft, midiNoteMinus: Number(e.target.value) })}
+            />
+          </label>
+          {chan('midiChanPalette', '1')}
+        </div>
+      </section>
+
+      <section className="group">
+        <h3 className="group-title">Recall</h3>
+        <p className="group-hint">
+          Turns everything off, or brings back exactly the lights that were on last — the same
+          press as the Stream Deck status key. 0 leaves it unassigned.
+        </p>
+        <div className="field-row">
+          <label className="field">
+            <span>Recall note</span>
+            <input
+              type="number"
+              min={0}
+              max={127}
+              value={draft.midiNoteRecall}
+              onChange={(e) => setDraft({ ...draft, midiNoteRecall: Number(e.target.value) })}
+            />
+          </label>
+          {chan('midiChanRecall', '2')}
+        </div>
+      </section>
+
     </div>
   )
 }
 
-function HudPane({ state }: { state: HUDState }) {
+function HudPane({
+  state,
+  setErr,
+  setNote,
+}: {
+  state: HUDState
+  setErr: (s: string) => void
+  setNote: (s: string) => void
+}) {
+  const s = state.settings
+  const [busy, setBusy] = useState(false)
+  const on = s.launchAtLogin
+
+  function toggleLogin(next: boolean) {
+    setBusy(true)
+    setErr('')
+    setNote('')
+    SetLaunchAtLogin(next)
+      .then(() =>
+        setNote(next ? 'Lightwave will start hidden at login.' : 'Lightwave will not start at login.'),
+      )
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false))
+  }
+
   return (
     <div className="pane form-pane">
+      {/* Startup leads the page: it is the only setting here that changes what
+          the machine does on its own, and it was previously buried under a
+          stray brightness slider. */}
+      <section className={`group feature ${on ? 'on' : ''}`}>
+        <div className="feature-head">
+          <div>
+            <h3 className="group-title">Start at login</h3>
+            <p className="group-hint">
+              Lightwave launches when you log in and stays hidden — lights, fader, and Stream Deck
+              keys live straight away, with no window taking focus.
+            </p>
+          </div>
+          <span className={`state-pill ${on ? 'ok' : ''}`}>{on ? 'On' : 'Off'}</span>
+        </div>
+        <footer className="actions">
+          <button
+            type="button"
+            className={on ? 'ghost' : 'primary'}
+            disabled={busy}
+            onClick={() => toggleLogin(!on)}
+          >
+            {on ? 'Turn off' : 'Turn on'}
+          </button>
+        </footer>
+      </section>
+
+      <section className="group">
+        <h3 className="group-title">Showing and hiding</h3>
+        <p className="group-hint">
+          The HUD never hides on its own — if it disappears, something dismissed it.
+        </p>
+        <dl className="shortcuts">
+          <div>
+            <dt><kbd>Enter</kbd></dt>
+            <dd>Dismiss the HUD</dd>
+          </div>
+          <div>
+            <dt><kbd>0</kbd></dt>
+            <dd>All lights off, or back on</dd>
+          </div>
+          <div>
+            <dt><kbd>1</kbd>–<kbd>9</kbd></dt>
+            <dd>Toggle that pad</dd>
+          </div>
+          <div>
+            <dt><kbd>+</kbd> <kbd>−</kbd></dt>
+            <dd>Cycle the palette</dd>
+          </div>
+          <div>
+            <dt><kbd>/</kbd></dt>
+            <dd>Gradient or single colour</dd>
+          </div>
+          <div>
+            <dt><kbd>*</kbd></dt>
+            <dd>Start or stop the colour fade</dd>
+          </div>
+          <div>
+            <dt><kbd>,</kbd></dt>
+            <dd>Open this Config window</dd>
+          </div>
+          <div>
+            <dt><kbd>.</kbd></dt>
+            <dd>Quit Lightwave outright</dd>
+          </div>
+        </dl>
+        <p className="group-hint">
+          Hiding does not quit Lightwave: the lights, the fader, and the Stream Deck keys keep
+          working. Launch it again to bring the window back.
+        </p>
+      </section>
+    </div>
+  )
+}
+
+// FaderCalibration measures the fader's real travel. Many controllers do not
+// span the full 0-127 range -- one topping out at 117 mapped to 92%, so the
+// light could never be driven to full. Recording the observed endpoints makes
+// a full throw mean 100% on whatever hardware is plugged in.
+
+function FaderCalibration({
+  state,
+  setErr,
+}: {
+  state: HUDState
+  setErr: (s: string) => void
+}) {
+  const saved = state.settings
+  const [learning, setLearning] = useState(false)
+  const [lo, setLo] = useState<number | null>(null)
+  const [hi, setHi] = useState<number | null>(null)
+  const [live, setLive] = useState<number | null>(null)
+  const [note, setNote] = useState('')
+
+  // Poll the raw CC while learning. 60ms is fast enough to catch the ends of a
+  // sweep without flooding the bridge.
+  useEffect(() => {
+    if (!learning) return
+    let alive = true
+    const id = setInterval(() => {
+      LiveCC()
+        .then((v) => {
+          if (!alive || typeof v !== 'number' || v < 0) return
+          setLive(v)
+          setLo((p) => (p === null || v < p ? v : p))
+          setHi((p) => (p === null || v > p ? v : p))
+        })
+        .catch(() => undefined)
+    }, 60)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [learning])
+
+  const ready = lo !== null && hi !== null && hi - lo >= 8
+
+  return (
+    <div className="calibration">
       <p className="lede">
-        The HUD never hides on its own. Press <code>Enter</code> to dismiss it, or use the Stream Deck toggle.
-        Hide does not quit; launch again or <code>--toggle</code> to show.
+        Fader range: <strong>{saved.midiCCMin}</strong>–<strong>{saved.midiCCMax}</strong>
+        {saved.midiCCMax < 127 || saved.midiCCMin > 0 ? ' (calibrated)' : ' (full range)'}
       </p>
-      <BrightnessSlider value={state.brightness} label="brightness" />
+      {!state.midiConnected && <p className="lede dim">Connect a MIDI controller to calibrate.</p>}
+      {learning ? (
+        <>
+          <p className="lede">
+            Sweep the fader all the way down, then all the way up.
+            {' '}Live: <strong>{live ?? '—'}</strong> · low: <strong>{lo ?? '—'}</strong> · high: <strong>{hi ?? '—'}</strong>
+          </p>
+          <div className="actions">
+            <button
+              type="button"
+              className="primary"
+              disabled={!ready}
+              onClick={() => {
+                setErr('')
+                SaveCCCalibration(lo as number, hi as number)
+                  .then(() => {
+                    setLearning(false)
+                    setNote(`Saved ${lo}–${hi}.`)
+                  })
+                  .catch((e) => setErr(String(e)))
+              }}
+            >
+              {ready ? `Save ${lo}\u2013${hi}` : 'Sweep the fader\u2026'}
+            </button>
+            <button type="button" className="ghost" onClick={() => setLearning(false)}>
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="actions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={!state.midiConnected}
+            onClick={() => {
+              setErr('')
+              setNote('')
+              setLo(null)
+              setHi(null)
+              setLive(null)
+              setLearning(true)
+            }}
+          >
+            Calibrate fader
+          </button>
+          {(saved.midiCCMin > 0 || saved.midiCCMax < 127) && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setErr('')
+                SaveCCCalibration(0, 127)
+                  .then(() => setNote('Reset to full range.'))
+                  .catch((e) => setErr(String(e)))
+              }}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+      {note && <p className="lede dim">{note}</p>}
     </div>
   )
 }
@@ -578,16 +1011,16 @@ function RemotePane({
           }}>
           Clear token
         </button>
-        <button type="button" className="primary" disabled={busy}
+        <button type="button" className="ghost" disabled={busy}
           onClick={() => {
             setBusy(true)
             setErr('')
             SetWebConfig(addr, token.trim())
-              .then(() => { setToken(''); setNote('Saved. Server restarted if it was running.') })
+              .then(() => { setToken(''); setNote('Server settings applied.') })
               .catch((e) => setErr(String(e)))
               .finally(() => setBusy(false))
           }}>
-          Save
+          Apply
         </button>
       </footer>
     </div>
@@ -599,13 +1032,16 @@ function AccountPane({
   onState,
   setErr,
   setNote,
+  apiKey,
+  setApiKey,
 }: {
   state: HUDState
   onState: (s: HUDState) => void
   setErr: (s: string) => void
   setNote: (s: string) => void
+  apiKey: string
+  setApiKey: (v: string) => void
 }) {
-  const [key, setKey] = useState('')
   const s = state.settings
   const badge = s.hasEnvKey ? 'key in .env' : s.hasConfigKey ? 'key in config.json' : 'no key'
 
@@ -622,8 +1058,8 @@ function AccountPane({
           type="password"
           autoComplete="off"
           placeholder={s.hasConfigKey ? '••••••••' : 'Govee developer key'}
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
         />
       </label>
       <footer className="actions">
@@ -640,7 +1076,7 @@ function AccountPane({
             setErr('')
             SetConfigAPIKey('')
               .then(() => {
-                setKey('')
+                setApiKey('')
                 setNote('Cleared stored key. .env still applies.')
               })
               .catch((e) => setErr(String(e)))
@@ -648,23 +1084,10 @@ function AccountPane({
         >
           Clear stored
         </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={!key.trim()}
-          onClick={() => {
-            setErr('')
-            SetConfigAPIKey(key.trim())
-              .then(() => {
-                setKey('')
-                setNote('Key stored locally.')
-              })
-              .catch((e) => setErr(String(e)))
-          }}
-        >
-          Save key
-        </button>
       </footer>
     </div>
   )
 }
+
+export default Config
+

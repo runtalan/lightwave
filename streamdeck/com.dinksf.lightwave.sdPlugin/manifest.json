@@ -9,6 +9,7 @@
   "CategoryIcon": "imgs/category",
   "Icon": "imgs/plugin",
   "CodePath": "bin/lightwave-sd",
+  "CodePathWin": "bin/lightwave-sd.exe",
   "SDKVersion": 2,
   "Software": {
     "MinimumVersion": "6.4"
@@ -17,6 +18,10 @@
     {
       "Platform": "mac",
       "MinimumVersion": "10.15"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
     }
   ],
   "Actions": [
@@ -24,7 +29,7 @@
       "UUID": "com.dinksf.lightwave.status",
       "Name": "Status",
       "Icon": "imgs/actions/status",
-      "Tooltip": "Live display of the palette, its colours, the colour fade, and how many lights are on. Press to cycle palettes.",
+      "Tooltip": "Live display of what is on, brightness, palette, pattern, and the color fade. Press to turn everything off, or bring back the lights that were on last.",
       "Controllers": [
         "Keypad"
       ],
@@ -79,7 +84,7 @@
       "UUID": "com.dinksf.lightwave.palette",
       "Name": "Palette",
       "Icon": "imgs/actions/palette",
-      "Tooltip": "Cycle the color palette.",
+      "Tooltip": "Step to the next or previous palette. The key shows which palette you will land on.",
       "Controllers": [
         "Keypad"
       ],
@@ -89,13 +94,14 @@
           "Image": "imgs/actions/palette-key",
           "TitleAlignment": "bottom"
         }
-      ]
+      ],
+      "UserTitleEnabled": false
     },
     {
       "UUID": "com.dinksf.lightwave.dance",
       "Name": "Color Fade",
       "Icon": "imgs/actions/dance",
-      "Tooltip": "Start or stop the slow color fade across pooled lights.",
+      "Tooltip": "Start or stop the slow color fade. The key says which it will do.",
       "Controllers": [
         "Keypad"
       ],
@@ -111,20 +117,38 @@
       ]
     },
     {
+      "UUID": "com.dinksf.lightwave.gradient",
+      "Name": "Pattern",
+      "Icon": "imgs/actions/gradient",
+      "Tooltip": "Switch between one shared color and a gradient across your lights. The key says which it will do.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/gradient-off",
+          "TitleAlignment": "bottom"
+        },
+        {
+          "Image": "imgs/actions/gradient-on",
+          "TitleAlignment": "bottom"
+        }
+      ]
+    },
+    {
       "UUID": "com.dinksf.lightwave.brightness",
       "Name": "Brightness",
       "Icon": "imgs/actions/brightness",
-      "Tooltip": "Nudge brightness, or turn the dial on Stream Deck +.",
+      "Tooltip": "Shows the current brightness. Read-only on a key \u2014 set the level with the app's slider; on Stream Deck + the dial adjusts it.",
       "Controllers": [
         "Keypad",
         "Encoder"
       ],
-      "PropertyInspectorPath": "ui/brightness.html",
       "Encoder": {
         "layout": "$B1",
         "TriggerDescription": {
           "Rotate": "Brightness",
-          "Push": "Nudge"
+          "Push": ""
         }
       },
       "States": [
@@ -132,7 +156,8 @@
           "Image": "imgs/actions/brightness-key",
           "TitleAlignment": "bottom"
         }
-      ]
+      ],
+      "UserTitleEnabled": false
     }
   ]
 }

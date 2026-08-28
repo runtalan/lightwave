@@ -13,6 +13,10 @@ import (
 // which left those devices with no friendly name at all.
 const cloudDevicesURL = "https://openapi.api.govee.com/router/api/v1/user/devices"
 
+// Reused across rescans so TLS sessions and DNS stay warm. Discovery is rare,
+// but constructing a new Client each time dropped idle connections.
+var cloudHTTP = &http.Client{Timeout: 12 * time.Second}
+
 type cloudResponse struct {
 	Data []struct {
 		Device     string `json:"device"`
@@ -33,8 +37,7 @@ func DiscoverCloud(apiKey string) ([]Device, error) {
 	req.Header.Set("Govee-API-Key", apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 12 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := cloudHTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}

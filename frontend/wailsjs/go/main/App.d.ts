@@ -22,6 +22,8 @@ export function CycleColor(arg1:number):Promise<main.HUDState>;
 
 export function Dancing():Promise<boolean>;
 
+export function DiscardConfig():Promise<void>;
+
 export function Discover():Promise<main.HUDState>;
 
 export function EndWindowDrag():Promise<void>;
@@ -42,7 +44,11 @@ export function HandleIPC(arg1:string):Promise<void>;
 
 export function HideHUD():Promise<void>;
 
+export function HideWindow():Promise<void>;
+
 export function IsSetupOpen():Promise<boolean>;
+
+export function LiveCC():Promise<number>;
 
 export function MarkUIReady():Promise<void>;
 
@@ -52,17 +58,21 @@ export function OpenConfig():Promise<void>;
 
 export function OpenSetup():Promise<void>;
 
-export function PingActivity():Promise<void>;
-
 export function PersistNow():Promise<void>;
+
+export function PingActivity():Promise<void>;
 
 export function PingMotion():Promise<void>;
 
 export function Quit():Promise<void>;
 
+export function RecallToggle():Promise<main.HUDState>;
+
 export function RemoteCommand(arg1:string):Promise<string>;
 
 export function RenameSlot(arg1:number,arg2:string):Promise<main.HUDState>;
+
+export function SaveCCCalibration(arg1:number,arg2:number):Promise<void>;
 
 export function SaveMappings(arg1:Array<config.SlotBinding>):Promise<void>;
 
@@ -75,6 +85,8 @@ export function SetBrightness(arg1:number):Promise<void>;
 export function SetConfigAPIKey(arg1:string):Promise<void>;
 
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
+
+export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 

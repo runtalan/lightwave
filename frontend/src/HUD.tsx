@@ -46,6 +46,9 @@ function keyToSlot(e: KeyboardEvent): number | null {
 export function HUD({ state }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Every HUD shortcut below is an unmodified keypress. Without this guard
+      // Cmd-S toggled a light on its way to App's save handler, and Cmd-. quit.
+      if (e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === 'Enter' || e.code === 'NumpadEnter') {
         e.preventDefault()
         void HideHUD()
@@ -93,6 +96,7 @@ export function HUD({ state }: Props) {
       }
       if (e.key === ',' || e.key === 'g' || e.key === 'G') {
         e.preventDefault()
+        void import('./Config')
         void OpenConfig()
       }
     }
@@ -115,7 +119,17 @@ export function HUD({ state }: Props) {
             {state.gradient ? 'GRADIENT' : 'SINGLE'}
           </p>
         </div>
-        <button type="button" className="config-launch" onClick={() => void OpenConfig()}>
+        <button
+          type="button"
+          className="config-launch"
+          onPointerEnter={() => {
+            void import('./Config')
+          }}
+          onFocus={() => {
+            void import('./Config')
+          }}
+          onClick={() => void OpenConfig()}
+        >
           Config
         </button>
       </header>
@@ -159,7 +173,7 @@ export function HUD({ state }: Props) {
         <li data-desktop-only>
           <button type="button" className="keycap" onClick={() => void HideHUD()}>
             <kbd>Enter</kbd>
-            <span>hide</span>
+            <span>minimize</span>
           </button>
         </li>
         <li data-desktop-only>

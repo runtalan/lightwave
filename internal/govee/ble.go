@@ -7,24 +7,51 @@ import (
 	"sync"
 )
 
+// Govee's Bluetooth company ID (little-endian 0xEC88 in advertisement data).
+const goveeCompanyID uint16 = 0xEC88
+
+// bleLooksGoveeAdv is the advertisement-side gate used by the Windows scanner
+// (Darwin does the same checks in Objective-C before calling into Go). A
+// name-only filter drops H6001, which often omits the GAP name on the first
+// packet and only carries manufacturer 0xEC88 / service 1910.
+func bleLooksGoveeAdv(name string, serviceUUIDs []string, companyIDs []uint16) bool {
+	if bleNameLooksGovee(name) {
+		return true
+	}
+	for _, u := range serviceUUIDs {
+		u = strings.ToUpper(u)
+		if strings.HasSuffix(u, "1910") || strings.Contains(u, "0A0B0C0D1910") {
+			return true
+		}
+	}
+	for _, id := range companyIDs {
+		if id == goveeCompanyID {
+			return true
+		}
+	}
+	return false
+}
+
 // BLE addressing. The app passes device addresses around as opaque strings
 // (slots.json, the pool, the brightness pump), so Bluetooth peripherals reuse
-// the same field with a "ble:" prefix in front of the CoreBluetooth UUID.
-// macOS masks real MAC addresses; the UUID is the stable per-Mac identifier.
+// the same field with a "ble:" prefix. On macOS that is a CoreBluetooth UUID
+// (the OS masks MACs); on Windows it is the Bluetooth address. Either way it
+// is stable on that machine, and BLEBindingMatch still pairs a pad by the
+// advertised MAC tail in the name.
 const BLEPrefix = "ble:"
 
 func IsBLE(addr string) bool {
 	return strings.HasPrefix(strings.TrimSpace(addr), BLEPrefix)
 }
 
-// BLEAddrUUID extracts the CoreBluetooth UUID from a ble: address.
+// BLEAddrUUID extracts the platform identifier from a ble: address.
 func BLEAddrUUID(addr string) string {
 	return strings.TrimPrefix(strings.TrimSpace(addr), BLEPrefix)
 }
 
-// bleSendFn is installed by the darwin BLE manager when it starts. Keeping the
+// bleSendFn is installed by the BLE manager when it starts. Keeping the
 // hook here lets SendTurn/SendBrightness/SendColor dispatch without the
-// portable code importing CoreBluetooth.
+// portable code importing a platform radio.
 var (
 	bleSendMu sync.RWMutex
 	bleSendFn func(addr string, pkt []byte) error

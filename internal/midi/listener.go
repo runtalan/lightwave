@@ -32,18 +32,30 @@ type Listener struct {
 	learnSeen [128]atomic.Uint32
 	learnVary [128]atomic.Uint32
 
-	ccWanted   atomic.Uint32 // cc | (alt << 8)
-	noteWanted atomic.Uint32 // plus | (minus << 8)
-	latestCC   atomic.Uint32
-	latestNote atomic.Uint32
-	statusOK   atomic.Uint32 // 0/1
-	statusSeq  atomic.Uint32
-	seenSeq    atomic.Uint32
+	chanWanted  atomic.Uint32 // ccChan | (paletteChan << 8) | (recallChan << 16)
+	ccWanted    atomic.Uint32 // cc | (alt << 8)
+	noteWanted  atomic.Uint32 // plus | (minus << 8) | (recall << 16)
+	latestCC    atomic.Uint32
+	latestRawCC atomic.Uint32
+	latestNote  atomic.Uint32
+
+	// Raw-message trace ring. Written from the CoreMIDI thread (numbers only,
+	// no lock/log/alloc) and drained by DrainTrace on the poll goroutine. Off
+	// unless traceOn is set, so the normal path pays one atomic load.
+	traceOn   atomic.Bool
+	traceSeq  atomic.Uint64
+	traceRing [traceRingSize]atomic.Uint32
+	// traceDrained is touched only by DrainTrace on the poll goroutine.
+	traceDrained uint64
+	statusOK     atomic.Uint32 // 0/1
+	statusSeq    atomic.Uint32
+	seenSeq      atomic.Uint32
 }
 
 func New(cfg config.MIDI) *Listener {
 	l := &Listener{}
 	l.storeWanted(cfg)
+	SetCCRange(cfg.CCMin, cfg.CCMax)
 	return l
 }
 
@@ -83,7 +95,8 @@ func (l *Listener) VaryingCCs() []uint8 {
 
 func (l *Listener) storeWanted(cfg config.MIDI) {
 	l.ccWanted.Store(uint32(cfg.CC) | uint32(cfg.CCAlt)<<8)
-	l.noteWanted.Store(uint32(cfg.NotePlus) | uint32(cfg.NoteMinus)<<8)
+	l.noteWanted.Store(uint32(cfg.NotePlus) | uint32(cfg.NoteMinus)<<8 | uint32(cfg.NoteRecall)<<16)
+	l.chanWanted.Store(uint32(cfg.ChanCC) | uint32(cfg.ChanPalette)<<8 | uint32(cfg.ChanRecall)<<16)
 }
 
 func (l *Listener) Start() error {
@@ -124,22 +137,52 @@ func (l *Listener) Start() error {
 	l.alive = true
 	cfg := l.cfgLocked()
 	l.mu.Unlock()
-	log.Printf("midi: listening on %s (CC %d/%d, palette notes 60−/61+ and +%d -%d, all channels)", name, cfg.CC, cfg.CCAlt, cfg.NotePlus, cfg.NoteMinus)
+	recall := "unassigned"
+	if cfg.NoteRecall != 0 {
+		recall = fmt.Sprint(cfg.NoteRecall)
+	}
+	log.Printf("midi: listening on %s (CC %d/%d ch %s, palette +%d -%d (stock %d-/%d+) ch %s, recall %s ch %s)",
+		name, cfg.CC, cfg.CCAlt, chanLabel(cfg.ChanCC),
+		cfg.NotePlus, cfg.NoteMinus, NotePaletteDown, NotePaletteUp,
+		chanLabel(cfg.ChanPalette), recall, chanLabel(cfg.ChanRecall))
 	l.setStatus(true, name)
 	return nil
 }
 
-// packed note: bit16 present, bit17 viaCC, bits 8-15 key/cc number
+// packed note: bit16 present, bit17 viaCC, bit18 recall, bits 8-15 key/cc number
 const midiViaCC uint32 = 1 << 17
+const midiRecall uint32 = 1 << 18
 
 // onMIDI runs on the CoreMIDI / RtMidi CGO thread.
 // Store numbers only. Never lock, log, emit, or send on a channel.
 func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 	defer func() { _ = recover() }()
 
+	l.trace(msg)
+
 	want := l.noteWanted.Load()
-	plus, minus := uint8(want), uint8(want>>8)
-	if delta, num, viaCC, ok := PaletteTrigger([]byte(msg), plus, minus); ok && delta != 0 {
+	plus, minus, recall := uint8(want), uint8(want>>8), uint8(want>>16)
+	chans := l.chanWanted.Load()
+	chCC, chPal, chRec := uint8(chans), uint8(chans>>8), uint8(chans>>16)
+	raw := []byte(msg)
+	// Recall is checked before the palette match: an explicit assignment
+	// should win over the palette keys.
+	//
+	// It is deliberately not checked ahead of the brightness CCs. A fader
+	// bound to the same number would otherwise fire recall on every step of a
+	// sweep and never reach the brightness path, which loses the slider
+	// entirely — a far worse failure than a recall key that does nothing. The
+	// brightness CCs are only ever CC messages, so notes are unaffected.
+	if recall != 0 && channelAllows(raw, chRec) && !l.isBrightnessCC(raw, recall) {
+		if num, ok := NoteTrigger(raw, recall); ok {
+			l.latestNote.Store(midiPresent | uint32(num)<<8 | midiRecall)
+			return
+		}
+	}
+	// Same brightness escape as recall above: a palette note sharing the
+	// fader's CC must not swallow the slider.
+	if delta, num, viaCC, ok := PaletteTrigger(raw, plus, minus); ok && delta != 0 &&
+		channelAllows(raw, chPal) && !l.isBrightnessCC(raw, num) {
 		packed := midiPresent | uint32(num)<<8
 		if viaCC {
 			packed |= midiViaCC
@@ -150,12 +193,16 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 
 	var ch, cc, val uint8
 	if msg.GetControlChange(&ch, &cc, &val) {
-		if cc == NotePaletteDown || cc == NotePaletteUp {
+		if l.claimsCCForPalette(cc, plus, minus) {
+			return
+		}
+		if !channelAllows(raw, chCC) {
 			return
 		}
 		wantCC := l.ccWanted.Load()
 		if cc == uint8(wantCC) || cc == uint8(wantCC>>8) {
 			l.latestCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
+			l.latestRawCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
 			l.noteVarying(cc, val)
 			return
 		}
@@ -164,6 +211,7 @@ func (l *Listener) onMIDI(msg gomidi.Message, _ int32) {
 		// button that always emits the same number never qualifies.
 		if l.noteVarying(cc, val) {
 			l.latestCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
+			l.latestRawCC.Store(midiPresent | uint32(cc)<<8 | uint32(val))
 		}
 		return
 	}
@@ -188,7 +236,8 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 		return 0, 0, false
 	}
 	cc, val = uint8(v>>8), uint8(v)
-	if cc == NotePaletteDown || cc == NotePaletteUp {
+	want := l.noteWanted.Load()
+	if l.claimsCCForPalette(cc, uint8(want), uint8(want>>8)) {
 		return 0, 0, false
 	}
 	// A control that has only ever reported one value is not a working slider:
@@ -202,12 +251,26 @@ func (l *Listener) TakeCC() (cc, val uint8, ok bool) {
 	return cc, val, true
 }
 
-func (l *Listener) TakeNote() (note uint8, viaCC bool, ok bool) {
+// PeekRawCC reports the most recent raw CC value without consuming it, so the
+// calibration UI can show what the fader is actually sending while the normal
+// brightness path keeps working.
+func (l *Listener) PeekRawCC() (cc, val uint8, ok bool) {
+	v := l.latestRawCC.Load()
+	if v&midiPresent == 0 {
+		return 0, 0, false
+	}
+	return uint8(v >> 8), uint8(v), true
+}
+
+// TakeNote drains one note event. recall reports that it was the configured
+// recall key rather than a palette step, so the app does not have to re-derive
+// the mapping it was already matched against.
+func (l *Listener) TakeNote() (note uint8, viaCC, recall, ok bool) {
 	v := l.latestNote.Swap(0)
 	if v&midiPresent == 0 {
-		return 0, false, false
+		return 0, false, false, false
 	}
-	return uint8(v >> 8), v&midiViaCC != 0, true
+	return uint8(v >> 8), v&midiViaCC != 0, v&midiRecall != 0, true
 }
 
 func (l *Listener) TakeStatus() (connected bool, port string, changed bool) {
@@ -225,16 +288,22 @@ func (l *Listener) TakeStatus() (connected bool, port string, changed bool) {
 func (l *Listener) cfgLocked() config.MIDI {
 	w := l.ccWanted.Load()
 	n := l.noteWanted.Load()
+	c := l.chanWanted.Load()
 	return config.MIDI{
-		CC:        uint8(w),
-		CCAlt:     uint8(w >> 8),
-		NotePlus:  uint8(n),
-		NoteMinus: uint8(n >> 8),
+		CC:          uint8(w),
+		CCAlt:       uint8(w >> 8),
+		NotePlus:    uint8(n),
+		NoteMinus:   uint8(n >> 8),
+		NoteRecall:  uint8(n >> 16),
+		ChanCC:      uint8(c),
+		ChanPalette: uint8(c >> 8),
+		ChanRecall:  uint8(c >> 16),
 	}
 }
 
 func (l *Listener) Update(cfg config.MIDI) {
 	l.storeWanted(cfg)
+	SetCCRange(cfg.CCMin, cfg.CCMax)
 }
 
 func (l *Listener) Connected() (bool, string) {
@@ -265,47 +334,100 @@ func (l *Listener) Close() {
 	}()
 }
 
-func CCToPercent(value uint8) int {
-	if value >= 127 {
-		return 100
+// ccRange holds the calibrated fader endpoints, packed as min<<8|max so both
+// move together. Many controllers do not span 0-127: a fader topping out at
+// 117 mapped to 92% and the light could never be driven to full.
+var ccRange atomic.Uint32
+
+const defaultCCRange = uint32(0)<<8 | 127
+
+func init() { ccRange.Store(defaultCCRange) }
+
+// SetCCRange installs calibrated endpoints. An inverted or collapsed range
+// falls back to the full 0-127 span rather than making every move meaningless.
+func SetCCRange(min, max uint8) {
+	if max <= min {
+		ccRange.Store(defaultCCRange)
+		return
 	}
-	if value == 0 {
+	ccRange.Store(uint32(min)<<8 | uint32(max))
+}
+
+// CCRange reports the calibrated endpoints.
+func CCRange() (min, max uint8) {
+	v := ccRange.Load()
+	return uint8(v >> 8), uint8(v)
+}
+
+// CCToPercent maps a raw CC value onto 1-100 across the calibrated travel, so
+// a full throw is 100% on any controller.
+func CCToPercent(value uint8) int {
+	lo, hi := CCRange()
+	if value <= lo {
 		// Fader bottom is dimmest, never lamp-off. Govee brightness 0 is a
 		// power-off on both LAN and BLE (H6001 0x33 0x04 0x00).
 		return 1
 	}
-	// Integer map 1–126 → 1–99. (v*100)/127 truncates; 117 would become 92
-	// if someone used /128. Rounding keeps a full-throw fader at 100.
-	n := (int(value)*100 + 63) / 127
+	if value >= hi {
+		return 100
+	}
+	span := int(hi) - int(lo)
+	n := ((int(value)-int(lo))*100 + span/2) / span
 	if n < 1 {
 		return 1
+	}
+	if n > 100 {
+		return 100
 	}
 	return n
 }
 
-// Notes 60 (−) and 61 (+) always cycle the palette, matching the HUD keys.
+// The stock palette notes: 60 (−) and 61 (+), matching the HUD keys. These are
+// only defaults — the configured plus/minus notes always win, so a firmware
+// remap is fixed by editing the settings rather than by rebuilding.
 // GMMK/Glorious pads often emit these as CC rather than Note On; both fire.
 const (
 	NotePaletteDown uint8 = 60
 	NotePaletteUp   uint8 = 61
 )
 
-// PaletteDelta maps a note/CC number to a palette step. 60/61 are hardcoded;
-// the configured plus/minus notes still fire for any other key.
+// PaletteDelta maps a note/CC number to a palette step. The configured
+// plus/minus notes are authoritative, including when they invert the stock
+// 60/61 assignment; those two are consulted only for numbers the config does
+// not claim.
 func PaletteDelta(note, plus, minus uint8) (int, bool) {
-	switch note {
-	case NotePaletteDown:
-		return -1, true
-	case NotePaletteUp:
-		return 1, true
-	}
 	if note == plus {
 		return 1, true
 	}
 	if note == minus {
 		return -1, true
 	}
+	switch note {
+	case NotePaletteDown:
+		return -1, true
+	case NotePaletteUp:
+		return 1, true
+	}
 	return 0, false
+}
+
+// isPaletteNumber reports whether a CC number is one the palette claims,
+// either by configuration or by the stock 60/61 default.
+func isPaletteNumber(n, plus, minus uint8) bool {
+	return n == plus || n == minus || n == NotePaletteDown || n == NotePaletteUp
+}
+
+// claimsCCForPalette reports whether a CC number should be withheld from
+// brightness because the palette owns it. A number that is also a configured
+// brightness CC is never withheld: the same reasoning as recall — a palette
+// key that does nothing is a far smaller loss than a slider that stops
+// working, and only the fader streams continuous values.
+func (l *Listener) claimsCCForPalette(n, plus, minus uint8) bool {
+	if !isPaletteNumber(n, plus, minus) {
+		return false
+	}
+	w := l.ccWanted.Load()
+	return n != uint8(w) && n != uint8(w>>8)
 }
 
 // PaletteTrigger reads a channel message on any MIDI channel.
@@ -334,7 +456,7 @@ func PaletteTrigger(msg []byte, plus, minus uint8) (delta int, num uint8, viaCC 
 		if v == 0 {
 			return 0, 0, false, false
 		}
-		if n != NotePaletteDown && n != NotePaletteUp {
+		if !isPaletteNumber(n, plus, minus) {
 			return 0, 0, false, false
 		}
 		d, hit := PaletteDelta(n, plus, minus)
@@ -371,4 +493,147 @@ func DescribePorts() string {
 		parts = append(parts, fmt.Sprintf("%d:%s", i, p.String()))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// NoteTrigger reports a press of one specific note or CC on any channel. Like
+// PaletteTrigger it ignores releases: Note Off, Note On at velocity 0, and CC
+// value 0 must not fire, or a single press would act twice.
+func NoteTrigger(msg []byte, want uint8) (num uint8, ok bool) {
+	if want == 0 || len(msg) < 3 {
+		return 0, false
+	}
+	st := msg[0]
+	if st < 0x80 || st >= 0xF0 {
+		return 0, false
+	}
+	n, v := msg[1]&0x7f, msg[2]&0x7f
+	if n != want || v == 0 {
+		return 0, false
+	}
+	switch st >> 4 {
+	case 0x9: // Note On
+		return n, true
+	case 0xB: // Control Change — pads that send CC instead of notes
+		return n, true
+	}
+	return 0, false
+}
+
+// isBrightnessCC reports whether this message is a Control Change on one of
+// the configured brightness CCs. Used to stop a recall note assigned to the
+// fader's own number from swallowing every slider move.
+func (l *Listener) isBrightnessCC(msg []byte, num uint8) bool {
+	if len(msg) < 3 || msg[0]>>4 != 0xB {
+		return false
+	}
+	w := l.ccWanted.Load()
+	return num == uint8(w) || num == uint8(w>>8)
+}
+
+// ChannelOf returns the 1-16 MIDI channel of a channel-voice message, or 0 if
+// the message has none (System messages, 0xF0 and up).
+func ChannelOf(msg []byte) uint8 {
+	if len(msg) < 1 {
+		return 0
+	}
+	st := msg[0]
+	if st < 0x80 || st >= 0xF0 {
+		return 0
+	}
+	return st&0x0f + 1
+}
+
+// channelAllows reports whether a message may drive a control bound to `want`.
+// want == 0 means "any channel", which is the default; see config.MIDI.
+func channelAllows(msg []byte, want uint8) bool {
+	if want == 0 {
+		return true
+	}
+	return ChannelOf(msg) == want
+}
+
+// chanLabel renders a channel setting for logs: "any" or the 1-16 number.
+func chanLabel(c uint8) string {
+	if c == 0 {
+		return "any"
+	}
+	return fmt.Sprint(c)
+}
+
+// traceRingSize bounds the raw-message trace. A knob click can emit a burst,
+// and a fader streams; this holds enough to read a few gestures without ever
+// growing. Oldest entries are overwritten.
+const traceRingSize = 256
+
+// SetTrace turns raw-message tracing on or off.
+func (l *Listener) SetTrace(on bool) { l.traceOn.Store(on) }
+
+// Tracing reports whether raw-message tracing is on.
+func (l *Listener) Tracing() bool { return l.traceOn.Load() }
+
+// trace records one raw message. Runs on the CoreMIDI thread, so it only
+// stores numbers into a preallocated ring — no lock, no log, no allocation.
+func (l *Listener) trace(msg []byte) {
+	if !l.traceOn.Load() || len(msg) < 3 {
+		return
+	}
+	// Status goes above midiPresent (bit 16), not onto it: a status byte is
+	// 8 bits and would otherwise OR its low bit into the present flag.
+	packed := midiPresent | uint32(msg[0])<<17 | uint32(msg[1]&0x7f)<<8 | uint32(msg[2]&0x7f)
+	i := l.traceSeq.Add(1) - 1
+	l.traceRing[i%traceRingSize].Store(packed)
+}
+
+// TraceEvent is one raw MIDI message as seen before any filtering.
+type TraceEvent struct {
+	Status uint8 // full status byte, including channel nibble
+	Num    uint8 // note or CC number
+	Val    uint8 // velocity or CC value
+}
+
+// Kind names the message type for a human reading the log.
+func (e TraceEvent) Kind() string {
+	switch e.Status >> 4 {
+	case 0x8:
+		return "NoteOff"
+	case 0x9:
+		if e.Val == 0 {
+			return "NoteOff(vel0)"
+		}
+		return "NoteOn"
+	case 0xB:
+		return "CC"
+	}
+	return fmt.Sprintf("0x%X", e.Status>>4)
+}
+
+// Channel is the 1-based MIDI channel.
+func (e TraceEvent) Channel() int { return int(e.Status&0x0f) + 1 }
+
+// DrainTrace returns the raw messages recorded since the last call, oldest
+// first, and clears them. Safe to call with tracing off (returns nil).
+func (l *Listener) DrainTrace() []TraceEvent {
+	end := l.traceSeq.Load()
+	start := l.traceDrained
+	if end == start {
+		return nil
+	}
+	// A burst larger than the ring means the oldest entries are already gone.
+	if end-start > traceRingSize {
+		start = end - traceRingSize
+	}
+	out := make([]TraceEvent, 0, end-start)
+	for i := start; i < end; i++ {
+		v := l.traceRing[i%traceRingSize].Load()
+		if v&midiPresent == 0 {
+			continue
+		}
+		out = append(out, TraceEvent{
+			Status: uint8(v >> 17),
+			Num:    uint8(v >> 8),
+			Val:    uint8(v),
+		})
+	}
+	l.traceDrained = end
+	return out
 }

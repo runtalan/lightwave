@@ -34,6 +34,10 @@ export function Dancing() {
   return window['go']['main']['App']['Dancing']();
 }
 
+export function DiscardConfig() {
+  return window['go']['main']['App']['DiscardConfig']();
+}
+
 export function Discover() {
   return window['go']['main']['App']['Discover']();
 }
@@ -74,8 +78,16 @@ export function HideHUD() {
   return window['go']['main']['App']['HideHUD']();
 }
 
+export function HideWindow() {
+  return window['go']['main']['App']['HideWindow']();
+}
+
 export function IsSetupOpen() {
   return window['go']['main']['App']['IsSetupOpen']();
+}
+
+export function LiveCC() {
+  return window['go']['main']['App']['LiveCC']();
 }
 
 export function MarkUIReady() {
@@ -94,12 +106,12 @@ export function OpenSetup() {
   return window['go']['main']['App']['OpenSetup']();
 }
 
-export function PingActivity() {
-  return window['go']['main']['App']['PingActivity']();
-}
-
 export function PersistNow() {
   return window['go']['main']['App']['PersistNow']();
+}
+
+export function PingActivity() {
+  return window['go']['main']['App']['PingActivity']();
 }
 
 export function PingMotion() {
@@ -110,12 +122,20 @@ export function Quit() {
   return window['go']['main']['App']['Quit']();
 }
 
+export function RecallToggle() {
+  return window['go']['main']['App']['RecallToggle']();
+}
+
 export function RemoteCommand(arg1) {
   return window['go']['main']['App']['RemoteCommand'](arg1);
 }
 
 export function RenameSlot(arg1, arg2) {
   return window['go']['main']['App']['RenameSlot'](arg1, arg2);
+}
+
+export function SaveCCCalibration(arg1, arg2) {
+  return window['go']['main']['App']['SaveCCCalibration'](arg1, arg2);
 }
 
 export function SaveMappings(arg1) {
@@ -140,6 +160,10 @@ export function SetConfigAPIKey(arg1) {
 
 export function SetIPCServer(arg1) {
   return window['go']['main']['App']['SetIPCServer'](arg1);
+}
+
+export function SetLaunchAtLogin(arg1) {
+  return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
 }
 
 export function SetWebAssets(arg1) {

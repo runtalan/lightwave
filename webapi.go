@@ -111,6 +111,8 @@ func webStateFrom(st HUDState) HUDState {
 	st.ConfigOpen = false
 	st.FirstRun = false
 	st.Settings = SettingsView{}
+	// Phone HUD never lists the catalog; dropping it shrinks every SSE push.
+	st.Catalog = nil
 	return st
 }
 
@@ -163,6 +165,26 @@ func (a *App) SetWebEnabled(on bool) (SettingsView, error) {
 		err = a.webSrv.Stop()
 	}
 	if saveErr := config.SaveSettings(a.currentSettings()); saveErr != nil && err == nil {
+		err = saveErr
+	}
+	a.emitState()
+	return a.settingsView(), err
+}
+
+// SetLaunchAtLogin installs or removes the login agent. Enabling starts
+// Lightwave hidden at login, so the lights, MIDI, and the Stream Deck socket
+// are live without a window taking focus on every boot.
+func (a *App) SetLaunchAtLogin(on bool) (SettingsView, error) {
+	err := config.SetLoginItem(on)
+	if err != nil {
+		// Do not record a state the system did not accept — the toggle would
+		// then disagree with what actually happens at login.
+		return a.settingsView(), err
+	}
+	a.mu.Lock()
+	a.settings.LaunchAtLogin = on
+	a.mu.Unlock()
+	if saveErr := config.SaveSettings(a.currentSettings()); saveErr != nil {
 		err = saveErr
 	}
 	a.emitState()

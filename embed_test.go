@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"lightwave/internal/govee"
 	"lightwave/internal/web"
 )
 
@@ -107,6 +108,7 @@ func TestWebStateIsControlOnly(t *testing.T) {
 	full := HUDState{
 		NeedsSetup: true, SetupOpen: true, ConfigOpen: true, FirstRun: true,
 		Brightness: 61, PaletteName: "Blush",
+		Catalog: []govee.Device{{ID: "ABC", Name: "Lamp"}},
 		Settings: SettingsView{
 			ConfigPath: "/home/u/config.json", HasAPIKey: true,
 			WebAddr: ":8787", WebURLs: []string{"http://10.0.0.2:8787"},
@@ -118,6 +120,9 @@ func TestWebStateIsControlOnly(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Settings, SettingsView{}) {
 		t.Fatalf("settings leaked to the web state: %+v", got.Settings)
+	}
+	if len(got.Catalog) != 0 {
+		t.Fatalf("catalog leaked to the web state: %+v", got.Catalog)
 	}
 	// Everything a phone needs to work the lights must survive.
 	if got.Brightness != 61 || got.PaletteName != "Blush" {

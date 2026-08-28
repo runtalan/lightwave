@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EndWindowDrag, PingActivity, PingMotion, SetBrightness, StartWindowDrag } from '../wailsjs/go/main/App'
+import { EndWindowDrag, HideWindow, PingActivity, PingMotion, Quit, SetBrightness, StartWindowDrag } from '../wailsjs/go/main/App'
 
 declare global {
   interface Window {
@@ -18,6 +18,32 @@ function isInteractive(target: EventTarget | null): boolean {
   return Boolean(target.closest('button, input, select, textarea, a, [data-no-drag]'))
 }
 
+// beginDrag is the shared pointerdown behaviour for any draggable surface:
+// left button only, and never when the press landed on something clickable.
+export function beginDrag(e: React.PointerEvent): void {
+  if (e.button !== 0 || isInteractive(e.target)) return
+  void PingActivity()
+  void StartWindowDrag()
+  try {
+    window.WailsInvoke?.('drag')
+  } catch {
+    /* native Go drag is the fallback */
+  }
+}
+
+// dragSurfaceProps makes a whole region draggable by empty space. Interactive
+// descendants opt out via isInteractive, so buttons/sliders keep their clicks.
+export function dragSurfaceProps() {
+  return {
+    style: {
+      ['--wails-draggable']: 'drag',
+      WebkitAppRegion: 'drag',
+    } as React.CSSProperties,
+    onPointerDown: beginDrag,
+    onPointerUp: () => void EndWindowDrag(),
+  }
+}
+
 export function TitleBar() {
   return (
     <div
@@ -29,21 +55,38 @@ export function TitleBar() {
           WebkitAppRegion: 'drag',
         } as React.CSSProperties
       }
-      onPointerDown={(e) => {
-        if (e.button !== 0 || isInteractive(e.target)) return
-        void PingActivity()
-        void StartWindowDrag()
-        try {
-          window.WailsInvoke?.('drag')
-        } catch {
-          /* native Go drag is the fallback */
-        }
-      }}
+      onPointerDown={beginDrag}
       onPointerUp={() => void EndWindowDrag()}
     >
       <span className="grip" aria-hidden />
       <span className="titlebar-mark">LIGHTWAVE</span>
       <span className="grip" aria-hidden />
+      <div className="titlebar-controls no-drag" data-no-drag>
+        <button
+          type="button"
+          className="titlebar-btn no-drag"
+          data-no-drag
+          title="Minimize"
+          aria-label="Minimize"
+          onPointerDown={(e) => e.stopPropagation()}
+          // HideWindow, not HideHUD: the latter ignores a hide while Config is
+          // open, which left this button dead on every Config tab.
+          onClick={() => void HideWindow()}
+        >
+          &#8211;
+        </button>
+        <button
+          type="button"
+          className="titlebar-btn titlebar-close no-drag"
+          data-no-drag
+          title="Quit Lightwave"
+          aria-label="Quit Lightwave"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => void Quit()}
+        >
+          &times;
+        </button>
+      </div>
     </div>
   )
 }
@@ -81,6 +124,10 @@ export function BrightnessSlider({
           aria-valuemax={100}
           aria-valuenow={shown}
           aria-label="Brightness"
+          // Do NOT call setPointerCapture here: a range input's thumb tracking
+          // is native, and capturing the pointer interferes with it so the
+          // drag stops climbing partway. stopPropagation is enough to keep the
+          // window-drag surface from stealing the gesture.
           onPointerDown={(e) => e.stopPropagation()}
           onPointerUp={() => setLive(null)}
           onPointerCancel={() => setLive(null)}

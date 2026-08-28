@@ -7,17 +7,26 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	sockPath    = "/tmp/lightwave.sock"
 	dialTimeout = 800 * time.Millisecond
 	ioTimeout   = 3 * time.Second
 	retryDelay  = 3 * time.Second
 )
+
+func sockPath() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "lightwave.sock")
+	}
+	return "/tmp/lightwave.sock"
+}
 
 // Pad mirrors one numpad slot.
 type Pad struct {
@@ -34,7 +43,14 @@ type State struct {
 	Brightness int     `json:"brightness"`
 	Palette    string  `json:"palette"`
 	Dancing    bool    `json:"dancing"`
+	Gradient   bool    `json:"gradient"`
 	Swatches   []Color `json:"swatches"`
+	// Palettes either side of the current one, so the next/previous keys can
+	// show their destination rather than the palette already in play.
+	PrevPalette  string  `json:"prevPalette"`
+	NextPalette  string  `json:"nextPalette"`
+	PrevSwatches []Color `json:"prevSwatches"`
+	NextSwatches []Color `json:"nextSwatches"`
 }
 
 // Color is one palette swatch.
@@ -56,6 +72,18 @@ func (s State) CountOn() (on, total int) {
 		}
 	}
 	return on, total
+}
+
+// OnNames returns the names of the lit lights, in pad order. A controller can
+// then name a single lit lamp instead of just counting it.
+func (s State) OnNames() []string {
+	var out []string
+	for i := range s.Pads {
+		if s.Pads[i].Bound && s.Pads[i].On {
+			out = append(out, s.Pads[i].Name)
+		}
+	}
+	return out
 }
 
 // AnyOn reports whether at least one light is currently lit.
@@ -89,7 +117,7 @@ func NewClient() *Client { return &Client{} }
 // stalled command from blocking the subscription.
 func (c *Client) Command(cmd string) (State, error) {
 	var st State
-	conn, err := net.DialTimeout("unix", sockPath, dialTimeout)
+	conn, err := net.DialTimeout("unix", sockPath(), dialTimeout)
 	if err != nil {
 		return st, fmt.Errorf("lightwave not running: %w", err)
 	}
@@ -124,7 +152,7 @@ func (c *Client) Subscribe(onState func(State)) {
 }
 
 func (c *Client) subscribeOnce(onState func(State)) error {
-	conn, err := net.DialTimeout("unix", sockPath, dialTimeout)
+	conn, err := net.DialTimeout("unix", sockPath(), dialTimeout)
 	if err != nil {
 		return err
 	}

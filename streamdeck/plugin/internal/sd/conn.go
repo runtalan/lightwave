@@ -33,6 +33,14 @@ type Payload struct {
 	Ticks    int             `json:"ticks"`
 	Pressed  bool            `json:"pressed"`
 	State    int             `json:"state"`
+	// Title carries what Stream Deck is currently showing on the key, and
+	// TitleParameters.ShowTitle whether the user has the title enabled. Both
+	// arrive with titleParametersDidChange, which is how the plugin learns the
+	// user has typed their own label and stops overwriting it.
+	Title           string `json:"title"`
+	TitleParameters struct {
+		ShowTitle bool `json:"showTitle"`
+	} `json:"titleParameters"`
 }
 
 type Conn struct {
@@ -258,4 +266,17 @@ func (w *Conn) ShowOK(context string) {
 
 func (w *Conn) SetSettings(context string, v any) {
 	_ = w.send(map[string]any{"event": "setSettings", "context": context, "payload": v})
+}
+
+// SendToPropertyInspector pushes a payload to the open Property Inspector for
+// this action. The inspector is a sandboxed web view with no route to
+// Lightwave's socket, so anything it needs from the daemon — the bound lights
+// and their names — has to arrive this way.
+func (w *Conn) SendToPropertyInspector(context, action string, v any) {
+	_ = w.send(map[string]any{
+		"event":   "sendToPropertyInspector",
+		"context": context,
+		"action":  action,
+		"payload": v,
+	})
 }

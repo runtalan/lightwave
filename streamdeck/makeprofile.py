@@ -13,10 +13,16 @@ PLUGIN = "com.dinksf.lightwave"
 DEVICE_MODEL = "20GBJ9901"
 COLS, ROWS = 4, 2
 
+def sock_path():
+    # Same path Lightwave and the plugin use: /tmp on macOS, %TEMP% on Windows.
+    if sys.platform == "win32":
+        return os.path.join(os.environ.get("TEMP") or os.environ.get("TMP") or ".", "lightwave.sock")
+    return "/tmp/lightwave.sock"
+
 def lightwave_pads():
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(2); s.connect("/tmp/lightwave.sock")
+        s.settimeout(2); s.connect(sock_path())
         s.sendall(b"STATE\n")
         line = s.recv(65536).decode().strip(); s.close()
         if line.startswith("STATE "):
@@ -56,18 +62,23 @@ def build(dest_dir, out_file, personal=False):
     first, rest = pads[:4], pads[4:]
     for i, pad in enumerate(first):
         p1[f"{i},0"] = action("pad", pad["name"], {"pad": pad["n"]}, states=2)
-    p1["0,1"] = action("alloff", "All Lights", states=2)
-    p1["1,1"] = action("brightness", "Dimmer", {"mode": "down", "step": 10})
-    p1["2,1"] = action("brightness", "Brighter", {"mode": "up", "step": 10})
+    # Status leads the control row: it is the one key you read rather than
+    # press, so it belongs on the page you land on, not behind a page turn. It
+    # also reports brightness, which is why no separate readout sits here.
+    p1["0,1"] = action("status", "Status")
+    p1["1,1"] = action("alloff", "All Lights", states=2)
+    p1["2,1"] = action("gradient", "Pattern", states=2)
     p1["3,1"] = action("dance", "Color Fade", states=2)
 
-    # Page 2: remaining lights, palette controls.
+    # Page 2 is the scene page: remaining lights up top, then the palette
+    # controls, the brightness readout, and an All Lights within reach so an
+    # emergency off never needs a page turn.
     for i, pad in enumerate(rest[:4]):
         p2[f"{i},0"] = action("pad", pad["name"], {"pad": pad["n"]}, states=2)
-    p2["0,1"] = action("alloff", "All Lights", states=2)
-    p2["1,1"] = action("palette", "Palette −", {"direction": "prev"})
-    p2["2,1"] = action("palette", "Palette +", {"direction": "next"})
-    p2["3,1"] = action("dance", "Color Fade", states=2)
+    p2["0,1"] = action("palette", "Palette −", {"direction": "prev"})
+    p2["1,1"] = action("palette", "Palette +", {"direction": "next"})
+    p2["2,1"] = action("brightness", "Brightness")
+    p2["3,1"] = action("alloff", "All Lights", states=2)
 
     id1, id2 = str(uuid.uuid4()).upper(), str(uuid.uuid4()).upper()
     prof_id = str(uuid.uuid4()).upper()
@@ -104,9 +115,9 @@ def build(dest_dir, out_file, personal=False):
     shutil.rmtree(root)
     names = [p["name"] for p in pads]
     print(f"profile: {out_file}")
-    print(f"  page 1: {', '.join(n for n in names[:4])} + All Lights, Dimmer, Brighter, Color Fade")
+    print(f"  page 1: {', '.join(n for n in names[:4])} + Status, All Lights, Pattern, Color Fade")
     if rest:
-        print(f"  page 2: {', '.join(n for n in names[4:8])} + All Lights, Palette -/+, Color Fade")
+        print(f"  page 2: {', '.join(n for n in names[4:8])} + Palette -/+, Brightness, All Lights")
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))

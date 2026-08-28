@@ -169,6 +169,21 @@ func TestBLEAddrHelpers(t *testing.T) {
 	}
 }
 
+func TestLooksGoveeAdv(t *testing.T) {
+	if !bleLooksGoveeAdv("ihoment_H6001_C883", nil, nil) {
+		t.Fatal("name should match")
+	}
+	if !bleLooksGoveeAdv("", []string{"00010203-0405-0607-0809-0A0B0C0D1910"}, nil) {
+		t.Fatal("service 1910 should match a nameless H6001 advert")
+	}
+	if !bleLooksGoveeAdv("", nil, []uint16{0xEC88}) {
+		t.Fatal("Govee company ID should match")
+	}
+	if bleLooksGoveeAdv("", nil, nil) || bleLooksGoveeAdv("iPhone", nil, nil) {
+		t.Fatal("unrelated advertisers must not match")
+	}
+}
+
 func TestBLENameParsing(t *testing.T) {
 	for _, name := range []string{"ihoment_H6168_3A4B", "Govee_H605C_11FF", "GBK_H6072_2C01", "GVH_H61E5"} {
 		if !bleNameLooksGovee(name) {

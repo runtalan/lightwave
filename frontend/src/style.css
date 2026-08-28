@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 /* Fonts ship inside the app binary. Fetching them from Google Fonts made
    first paint wait on a network round trip every cold launch. */
 @font-face {
@@ -18,20 +16,17 @@
   src: url("./assets/fonts/oxanium-latin.woff2") format("woff2");
 }
 
-@theme {
-  --font-display: "Oxanium", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --color-void: #07040f;
-  --color-neon: #b026ff;
-  --color-magenta: #ff2ec8;
-  --color-amber: #ff7a3d;
-}
-
 :root {
   --neon: #b026ff;
   --magenta: #ff2ec8;
   --amber: #ff7a3d;
   --ice: #e9d5ff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
@@ -52,13 +47,24 @@ button {
   cursor: pointer;
 }
 
-/* Wails v2 frameless window: drag chrome vs clickable controls. */
+/* Wails v2 frameless window: drag chrome vs clickable controls.
+   The shell itself drags, so any empty space moves the window; the
+   no-drag allowlist below carves the interactive controls back out.
+   Order matters: these come first so the no-drag block wins.
+
+   Deliberately no cursor here: dragging works anywhere, but showing the grab
+   hand over the whole app read as busy. The hand lives on the title bar only
+   (.titlebar below), which is the part that advertises "this moves". */
+.hud-shell,
+.panel,
 .drag,
 .drag * {
   --wails-draggable: drag;
   -webkit-app-region: drag;
 }
 
+/* Anything clickable keeps its own cursor: the drag hand on a button reads
+   as "this moves the window" when it does not. */
 .no-drag,
 .no-drag *,
 button,
@@ -83,6 +89,7 @@ a,
 }
 
 .titlebar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -94,6 +101,10 @@ a,
   cursor: grab;
   --wails-draggable: drag;
   -webkit-app-region: drag;
+}
+
+.titlebar:active {
+  cursor: grabbing;
 }
 
 .titlebar-mark {
@@ -132,15 +143,18 @@ a,
   transition: opacity 80ms ease-out;
 }
 
-.scanlines,
-.vignette {
+/* Scanlines and vignette are pseudo-elements, not extra DOM nodes: two
+   full-window overlay divs each promoted a compositor layer on every fade. */
+.hud-shell::before,
+.hud-shell::after {
+  content: "";
   pointer-events: none;
   position: absolute;
   inset: 0;
   border-radius: 22px;
 }
 
-.scanlines {
+.hud-shell::before {
   background: repeating-linear-gradient(
     to bottom,
     rgba(255, 255, 255, 0.035) 0px,
@@ -152,7 +166,7 @@ a,
   z-index: 4;
 }
 
-.vignette {
+.hud-shell::after {
   box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.55);
   z-index: 3;
 }
@@ -367,13 +381,21 @@ a,
   outline: none;
 }
 
+/* Glow pulse rather than filter:saturate — a CSS filter on each ignited
+   tile forced a rasterized layer and re-filtered it every frame. */
 @keyframes plasma {
   0%,
   100% {
-    filter: saturate(1);
+    box-shadow:
+      0 0 0 1px rgba(176, 38, 255, 0.45),
+      0 0 22px rgba(176, 38, 255, 0.55),
+      inset 0 0 24px rgba(255, 46, 200, 0.22);
   }
   50% {
-    filter: saturate(1.35) brightness(1.08);
+    box-shadow:
+      0 0 0 1px rgba(176, 38, 255, 0.65),
+      0 0 34px rgba(176, 38, 255, 0.8),
+      inset 0 0 32px rgba(255, 46, 200, 0.34);
   }
 }
 
@@ -502,6 +524,25 @@ a,
   padding: 0 8px;
 }
 
+/* The whole window is a drag surface, so the row around the fader must stay
+   no-drag: drifting a few pixels off the 16px track mid-drag hands the pointer
+   to the window drag and freezes the value mid-slide. The .meter no-drag rule
+   above covers the row; this gives it a taller catch area without touching the
+   input's own box (its width math is load-bearing). */
+.meter {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* Belt and braces: the fader and its track are explicitly no-drag, so the
+   window-drag surface can never claim any part of the gesture. */
+.meter-track,
+.meter-track *,
+.brightness-slider {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+
 .meter-label,
 .meter-val,
 .hud-foot,
@@ -603,6 +644,17 @@ a,
   flex: 1;
 }
 
+/* Save and Cancel sit here, outside the scrolling pane body, so they hold the
+   same corner on every tab regardless of how tall that tab's content is. */
+.config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(176, 38, 255, 0.22);
+  flex-shrink: 0;
+}
+
 .rail {
   display: flex;
   flex-direction: column;
@@ -662,6 +714,94 @@ a,
   }
 }
 
+/* Column headers, shared by the pad and device columns so the two read as a
+   matched pair rather than a grid with a list bolted beside it. */
+.device-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(176, 38, 255, 0.18);
+}
+
+.device-head h3 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ice);
+}
+
+.device-head p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(233, 213, 255, 0.55);
+}
+
+.pad-col,
+.device-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* A device is a drag source as well as a button; the grab cursor is the only
+   affordance saying so before the pointer goes down. */
+.device[draggable='true'] {
+  cursor: grab;
+}
+
+.device[draggable='true']:active {
+  cursor: grabbing;
+}
+
+/* Wide window: pads on the left, devices on the right. */
+@media (min-width: 900px) {
+  .lights-pane {
+    display: grid;
+    grid-template-columns: minmax(340px, 1fr) minmax(320px, 0.9fr);
+    grid-template-rows: min-content 1fr min-content;
+    gap: 10px 18px;
+    align-content: start;
+    min-height: 0;
+  }
+
+  /* The intro line and the button row span both columns; the two columns sit
+     in the middle row so they share the remaining height. */
+  .lights-pane > .lede,
+  .lights-pane > footer.actions {
+    grid-column: 1 / -1;
+  }
+
+  .lights-pane > .pad-col {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .lights-pane > .device-col {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .lights-pane .grid {
+    grid-template-rows: repeat(3, 132px);
+  }
+
+  .lights-pane .device-list {
+    min-height: 0;
+    flex: 1;
+  }
+
+  /* Settings panes do not need the full width — long lines of inputs are
+     harder to scan than a comfortable column. */
+  .form-pane {
+    max-width: 860px;
+  }
+}
+
 .form-pane {
   justify-content: flex-start;
 }
@@ -688,8 +828,165 @@ a,
   font-family: "Oxanium", sans-serif;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   outline: 1px solid var(--magenta);
+}
+
+/* Selects match the text inputs, so a channel picker does not read as a
+   different class of control from the CC number beside it. */
+.field select {
+  border-radius: 10px;
+  border: 1px solid rgba(176, 38, 255, 0.28);
+  background: rgba(8, 5, 16, 0.7);
+  color: var(--ice);
+  padding: 8px 10px;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: "Oxanium", sans-serif;
+}
+
+/* Grouping. The MIDI pane was one flat run of inputs with no indication of
+   which control each belonged to; these box the fields per control so the
+   page reads as three sections rather than a wall of numbers. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(176, 38, 255, 0.22);
+  background: rgba(10, 5, 20, 0.4);
+}
+
+.group-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ice);
+}
+
+.group-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(233, 213, 255, 0.6);
+}
+
+/* A feature group is the one setting on a page that deserves weight — here,
+   the thing that changes what the machine does at login. Brighter border and
+   a lit edge when active, so it reads as the page's subject rather than one
+   more row of settings. */
+.group.feature {
+  border-color: rgba(176, 38, 255, 0.42);
+  background:
+    linear-gradient(180deg, rgba(176, 38, 255, 0.1), rgba(10, 5, 20, 0.4) 60%);
+  padding: 18px;
+  gap: 12px;
+}
+
+.group.feature.on {
+  border-color: var(--neon);
+  box-shadow: 0 0 22px rgba(176, 38, 255, 0.25);
+  background:
+    linear-gradient(180deg, rgba(176, 38, 255, 0.18), rgba(10, 5, 20, 0.45) 60%);
+}
+
+.feature-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.feature-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.group.feature .group-title {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+
+/* The on/off state reads at a glance, without having to parse the button
+   label to work out which way round it is. */
+.state-pill {
+  flex: 0 0 auto;
+  align-self: center;
+  border-radius: 999px;
+  border: 1px solid rgba(176, 38, 255, 0.3);
+  background: rgba(8, 4, 16, 0.6);
+  color: rgba(233, 213, 255, 0.6);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+}
+
+.state-pill.ok {
+  border-color: var(--neon);
+  background: rgba(176, 38, 255, 0.22);
+  color: #fff;
+}
+
+/* Inside a group the button sits with its own copy, not pushed to the far
+   edge of the pane the way a pane-level footer is. */
+.group .actions {
+  justify-content: flex-start;
+}
+
+/* Key reference: two columns of key-to-action pairs. A definition list is the
+   honest markup for this, and it wraps to one column when there is no room. */
+.shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 4px 18px;
+  margin: 2px 0 0;
+}
+
+.shortcuts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(176, 38, 255, 0.1);
+}
+
+.shortcuts dt {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  min-width: 72px;
+}
+
+.shortcuts dd {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(233, 213, 255, 0.62);
+}
+
+/* Related fields sit on one line while there is room, and wrap on a narrow
+   window rather than overflowing. */
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.field-row .field {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.field-row .field.narrow {
+  flex: 0 1 190px;
 }
 
 .key-badge {
@@ -749,7 +1046,8 @@ a,
   gap: 5px;
 }
 
-.keymap kbd {
+.keymap kbd,
+.shortcuts kbd {
   font-family: "Oxanium", sans-serif;
   font-size: 11px;
   font-weight: 700;
@@ -890,4 +1188,132 @@ a,
   user-select: text;
   -webkit-user-select: text;
   word-break: break-all;
+}
+
+/* Cmd-S confirmation. Sits above the HUD panel and outside its fade so a save
+   made just as the HUD auto-hides still shows its result. */
+.save-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(233, 213, 255, 0.92);
+  background: rgba(24, 10, 40, 0.88);
+  border: 1px solid rgba(255, 46, 200, 0.45);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.save-toast.bad {
+  color: #ffb4a2;
+  border-color: rgba(255, 120, 90, 0.6);
+}
+
+/* Fader calibration block in the MIDI pane. */
+.calibration {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(176, 38, 255, 0.28);
+  background: rgba(8, 5, 16, 0.5);
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.calibration .lede {
+  margin: 0 0 8px;
+}
+
+.calibration .actions {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+/* Window controls sit at the right end of the title bar without disturbing the
+   centred wordmark, so they are absolute rather than extra flex children. */
+.titlebar-controls {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(176, 38, 255, 0.35);
+  background: rgba(176, 38, 255, 0.12);
+  color: var(--ice);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn:hover {
+  background: rgba(176, 38, 255, 0.28);
+  border-color: var(--neon);
+}
+
+/* Quit is destructive, so it reads red on hover rather than the usual violet. */
+.titlebar-close:hover {
+  background: rgba(255, 76, 76, 0.3);
+  border-color: #ff6b6b;
+  color: #fff;
+}
+
+/* Unsaved-changes prompt. Covers the panel so the question cannot be missed,
+   and is no-drag throughout: a modal must not double as a window handle. */
+.confirm-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(4, 2, 10, 0.78);
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.confirm-box {
+  max-width: 320px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(176, 38, 255, 0.45);
+  background: linear-gradient(180deg, rgba(20, 11, 34, 0.98), rgba(10, 6, 18, 0.98));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+
+.confirm-box p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.confirm-box .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
 }
