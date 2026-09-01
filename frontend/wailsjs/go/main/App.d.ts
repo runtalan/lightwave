@@ -90,6 +90,8 @@ export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 
 export function SetPalette(arg1:number):Promise<main.HUDState>;
 
+export function SetSlotTrim(arg1:number,arg2:number):Promise<main.HUDState>;
+
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 
 export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;

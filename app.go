@@ -70,17 +70,19 @@ const (
 )
 
 // sendPoolBrightness is a seam so tests can observe the LAN write rate.
-// Swapped only via setSendPoolBrightness, which is race-safe.
 var (
 	sendMu       sync.RWMutex
-	sendPoolFunc = govee.ApplyPoolBrightness
+	sendPoolFunc = govee.ApplyPoolBrightnessMap
 )
 
-func sendPoolBrightness(ips []string, percent int, turnOn bool) {
+// sendPoolBrightness dims each lamp to its own target percent (per-lamp
+// trim applied by the caller), so one pad can run dimmer than the rest
+// while all of them still move together off the same slider.
+func sendPoolBrightness(targets map[string]int, turnOn bool) {
 	sendMu.RLock()
 	f := sendPoolFunc
 	sendMu.RUnlock()
-	f(ips, percent, turnOn)
+	f(targets, turnOn)
 }
 
 // sendTurn is a seam so tests can observe on/off commands.
@@ -94,6 +96,9 @@ type SlotView struct {
 	IP       string `json:"ip"`
 	Active   bool   `json:"active"`
 	Online   bool   `json:"online"`
+	// Trim is this pad's brightness trim, 1-100, or 0 when untrimmed (the
+	// pad tracks the slider exactly). See config.SlotBinding.Trim.
+	Trim int `json:"trim"`
 }
 
 type HUDState struct {
@@ -218,6 +223,10 @@ type App struct {
 	pendingBright   atomic.Int32
 	emitPending     atomic.Uint32
 	lastSentBright  int
+	// trimDirty forces the next brightnessPump cycle to resend even if the
+	// slider value (lastSentBright) hasn't moved, so a trim change applied
+	// while the slider is parked reaches the lamp immediately.
+	trimDirty       bool
 	dragging        bool
 	lastBrightTouch time.Time
 	hiddenAt        time.Time
@@ -1127,6 +1136,7 @@ func (a *App) snapshotLocked() HUDState {
 			IP:       s.IP,
 			Active:   a.pool[i],
 			Online:   s.IP != "",
+			Trim:     s.Trim,
 		}
 		if d, ok := byID[govee.NormalizeID(s.DeviceID)]; ok {
 			if v.Name == "" {
@@ -1689,19 +1699,24 @@ func (a *App) brightnessPump() {
 			// Slider / MIDI CC counts as activity here (after coalesce), never
 			// from the CoreMIDI callback, and never as a show/hide.
 			a.lastActivity = time.Now()
-			ips := a.poolIPsLocked()
+			dests := a.poolDestsLocked()
 			wasOff := a.lastSentBright == 0
-			unchanged := a.lastSentBright == wire
+			unchanged := a.lastSentBright == wire && !a.trimDirty
 			// Store the ignited value, never 0: lastSentBright==0 means AllOff,
 			// not "user parked the fader at the bottom".
 			a.lastSentBright = wire
+			a.trimDirty = false
 			a.mu.Unlock()
-			if len(ips) == 0 || unchanged {
+			if len(dests) == 0 || unchanged {
 				return
 			}
 			// Dim only. Never SendTurn(false) and never paint RGB 0,0,0 —
 			// those are extinguish / palette paths, not fader motion.
-			sendPoolBrightness(ips, wire, wasOff)
+			targets := make(map[string]int, len(dests))
+			for _, d := range dests {
+				targets[d.IP] = ignitedBrightness(wire * d.Trim / 100)
+			}
+			sendPoolBrightness(targets, wasOff)
 		}()
 		// Hard floor between LAN writes, so a fast slide cannot flood the
 		// devices. A value arriving during this window is not lost: it stays
@@ -1901,6 +1916,9 @@ func (a *App) poolIPsLocked() []string {
 type lampDest struct {
 	IP    string
 	Model string
+	// Trim is this lamp's share of the brightness slider, 1-100 (100 = no
+	// trim). See config.SlotBinding.Trim.
+	Trim int
 }
 
 func (a *App) poolDestsLocked() []lampDest {
@@ -1921,7 +1939,7 @@ func (a *App) poolDestsLocked() []lampDest {
 			continue
 		}
 		govee.Remember(ip, model)
-		out = append(out, lampDest{IP: ip, Model: model})
+		out = append(out, lampDest{IP: ip, Model: model, Trim: a.slots[n-1].EffectiveTrim()})
 	}
 	return out
 }
@@ -2107,6 +2125,43 @@ func (a *App) RenameSlot(slot int, name string) (HUDState, error) {
 	a.mu.Unlock()
 	if err := config.SaveSlotFile(snapshot); err != nil {
 		log.Printf("rename: save failed: %v", err)
+	}
+	a.emitState()
+	return st, nil
+}
+
+// SetSlotTrim sets a pad's brightness trim: that lamp always runs at percent
+// of whatever the slider says, so it can read dimmer (or brighter) than the
+// rest of the pool while a single fader still drives all of them together.
+// percent <= 0 clears the trim — the pad goes back to tracking the slider
+// exactly. Persisted immediately, like a rename.
+func (a *App) SetSlotTrim(slot int, percent int) (HUDState, error) {
+	if slot < 1 || slot > 9 {
+		return a.snapshot(), fmt.Errorf("slot must be 1-9")
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	a.mu.Lock()
+	if slot > len(a.slots) || a.slots[slot-1].DeviceID == "" {
+		st := a.snapshotLocked()
+		a.mu.Unlock()
+		return st, fmt.Errorf("pad %d has no light bound", slot)
+	}
+	a.slots[slot-1].Trim = percent
+	a.trimDirty = true
+	snapshot := config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	st := a.snapshotLocked()
+	a.mu.Unlock()
+	if err := config.SaveSlotFile(snapshot); err != nil {
+		log.Printf("trim: save failed: %v", err)
+	}
+	select {
+	case a.brightKick <- struct{}{}:
+	default:
 	}
 	a.emitState()
 	return st, nil

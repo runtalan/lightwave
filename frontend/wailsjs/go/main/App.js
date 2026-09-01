@@ -170,6 +170,10 @@ export function SetPalette(arg1) {
   return window['go']['main']['App']['SetPalette'](arg1);
 }
 
+export function SetSlotTrim(arg1, arg2) {
+  return window['go']['main']['App']['SetSlotTrim'](arg1, arg2);
+}
+
 export function SetWebAssets(arg1) {
   return window['go']['main']['App']['SetWebAssets'](arg1);
 }

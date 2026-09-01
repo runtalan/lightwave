@@ -6,6 +6,7 @@ import {
   MoveSlot,
   RenameSlot,
   AssignSlot,
+  SetSlotTrim,
   CloseConfig,
   CommitMappings,
   Discover,
@@ -322,6 +323,7 @@ function LightsPane({
   const [dragDevice, setDragDevice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [renaming, setRenaming] = useState<number | null>(null)
+  const [trimming, setTrimming] = useState<number | null>(null)
 
   async function rename(slot: number, value: string) {
     setRenaming(null)
@@ -341,6 +343,18 @@ function LightsPane({
       const next = await MoveSlot(from, to)
       onState(next)
       setNote(to === from ? '' : `Moved to pad ${to}.`)
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
+
+  async function trim(slot: number, percent: number) {
+    setTrimming(null)
+    setErr('')
+    try {
+      const next = await SetSlotTrim(slot, percent)
+      onState(next)
+      setNote(percent > 0 ? `Pad ${slot} trimmed to ${percent}%.` : `Pad ${slot} trim cleared.`)
     } catch (e) {
       setErr(String(e))
     }
@@ -479,7 +493,55 @@ function LightsPane({
               )}
               {mapped && !slot?.ip && <span className="warn">no link</span>}
               {mapped && slot?.ip?.startsWith('ble:') && <span className="linkway">BLE</span>}
-              {mapped && renaming !== n && (
+              {mapped && trimming === n ? (
+                <input
+                  className="trim-field"
+                  autoFocus
+                  type="number"
+                  min={1}
+                  max={100}
+                  defaultValue={slot?.trim || 100}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => void trim(n, Number(e.target.value))}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') void trim(n, Number(e.currentTarget.value))
+                    if (e.key === 'Escape') setTrimming(null)
+                  }}
+                />
+              ) : (
+                mapped &&
+                renaming !== n && (
+                  <span
+                    className={`trim ${slot?.trim ? 'set' : ''}`}
+                    title={
+                      slot?.trim
+                        ? `Trimmed to ${slot?.trim}% of the slider — click to change`
+                        : "Trim this pad's share of the brightness slider"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setFocus(n)
+                      setTrimming(n)
+                    }}
+                  >
+                    {slot?.trim ? `${slot?.trim}%` : '◐'}
+                  </span>
+                )
+              )}
+              {mapped && renaming !== n && trimming !== n && Boolean(slot?.trim) && (
+                <span
+                  className="trim-clear"
+                  title="Clear trim"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void trim(n, 0)
+                  }}
+                >
+                  ×
+                </span>
+              )}
+              {mapped && renaming !== n && trimming !== n && (
                 <span
                   className="rename"
                   title="Rename"

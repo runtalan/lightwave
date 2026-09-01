@@ -48,6 +48,21 @@ type SlotBinding struct {
 	// cloud/BLE catalog on every scan, so a rename has to be recorded
 	// separately or it would be overwritten minutes later.
 	Custom string `json:"custom,omitempty"`
+	// Trim scales this lamp's share of the brightness slider, 1-100. 0 (the
+	// zero value, so existing configs need no migration) means "no trim":
+	// the lamp tracks the slider exactly. A trim of 70 means this lamp always
+	// runs at 70% of whatever the slider says, so one pad can read dimmer
+	// than the rest while a single fader still drives all of them together.
+	Trim int `json:"trim,omitempty"`
+}
+
+// EffectiveTrim is the percentage of the slider this lamp actually gets:
+// Trim when set, or 100 (untrimmed) otherwise.
+func (s SlotBinding) EffectiveTrim() int {
+	if s.Trim <= 0 || s.Trim > 100 {
+		return 100
+	}
+	return s.Trim
 }
 
 // Label is the name to display: the user's rename when set, else whatever

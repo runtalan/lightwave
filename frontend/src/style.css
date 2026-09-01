@@ -428,6 +428,56 @@ a,
   outline: none;
 }
 
+/* Brightness trim: a pad's share of the slider. Unset (◐) sits dim until
+   hovered; once trimmed, the value itself is the button and a separate ×
+   clears it back to tracking the slider exactly. */
+.trim {
+  position: absolute;
+  top: 5px;
+  right: 42px;
+  font-size: 11px;
+  opacity: 0.4;
+}
+
+.trim.set {
+  opacity: 0.85;
+  color: #57d7ff;
+}
+
+.trim:hover {
+  opacity: 1;
+  color: var(--magenta);
+}
+
+.trim-clear {
+  position: absolute;
+  top: 5px;
+  right: 60px;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.trim-clear:hover {
+  opacity: 1;
+  color: var(--magenta);
+}
+
+.trim-field {
+  width: 46px;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ice);
+  background: rgba(4, 2, 10, 0.9);
+  border: 1px solid var(--neon);
+  border-radius: 6px;
+  padding: 2px 4px;
+  outline: none;
+  position: absolute;
+  top: 3px;
+  right: 6px;
+}
+
 /* Glow pulse rather than filter:saturate — a CSS filter on each ignited
    tile forced a rasterized layer and re-filtered it every frame. */
 @keyframes plasma {

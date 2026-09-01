@@ -352,21 +352,34 @@ func SendBrightness(ip string, percent int) error {
 	return sendControl(ip, fmt.Sprintf(`{"msg":{"cmd":"brightness","data":{"value":%d}}}`, percent))
 }
 
-// ApplyPoolBrightness dims ignited lamps. percent 0 is sent as 1% — Govee
-// brightness 0 is power-off. This path never sends turn-off or RGB 0,0,0;
-// extinguish is SendTurn(false) from the pad/all-off handlers only.
+// ApplyPoolBrightness dims ignited lamps to the same percent. percent 0 is
+// sent as 1% — Govee brightness 0 is power-off. This path never sends
+// turn-off or RGB 0,0,0; extinguish is SendTurn(false) from the pad/all-off
+// handlers only.
 func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
-	if percent < 1 {
-		percent = 1
-	}
-	if percent > 100 {
-		percent = 100
-	}
+	targets := make(map[string]int, len(ips))
 	for _, ip := range ips {
+		targets[ip] = percent
+	}
+	ApplyPoolBrightnessMap(targets, turnOn)
+}
+
+// ApplyPoolBrightnessMap dims each lamp to its own target percent, so a lamp
+// with a brightness trim can land somewhere other than the rest of the pool
+// while still moving in lockstep with them. Same power/ramping rules as
+// ApplyPoolBrightness, applied per lamp.
+func ApplyPoolBrightnessMap(targets map[string]int, turnOn bool) {
+	for ip, percent := range targets {
 		if strings.TrimSpace(ip) == "" {
 			continue
 		}
-		func(ip string) {
+		if percent < 1 {
+			percent = 1
+		}
+		if percent > 100 {
+			percent = 100
+		}
+		func(ip string, percent int) {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("govee: brightness send recovered (%s): %v", ip, r)
@@ -401,7 +414,7 @@ func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
 				}
 			}
 			lastBright.Store(ip, percent)
-		}(ip)
+		}(ip, percent)
 	}
 }
 

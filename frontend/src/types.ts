@@ -14,6 +14,8 @@ export type SlotView = {
   ip: string
   active: boolean
   online: boolean
+  // Brightness trim, 1-100, or 0 when untrimmed (tracks the slider exactly).
+  trim: number
 }
 
 export type SettingsView = {
@@ -156,6 +158,7 @@ export function emptyState(): HUDState {
       ip: '',
       active: false,
       online: false,
+      trim: 0,
     })),
     activePool: [],
     brightness: 80,

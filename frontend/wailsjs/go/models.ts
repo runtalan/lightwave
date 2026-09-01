@@ -137,11 +137,12 @@ export namespace main {
 	    ip: string;
 	    active: boolean;
 	    online: boolean;
-	
+	    trim: number;
+
 	    static createFrom(source: any = {}) {
 	        return new SlotView(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.number = source["number"];
@@ -151,6 +152,7 @@ export namespace main {
 	        this.ip = source["ip"];
 	        this.active = source["active"];
 	        this.online = source["online"];
+	        this.trim = source["trim"];
 	    }
 	}
 	export class HUDState {
