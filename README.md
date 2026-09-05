@@ -234,6 +234,7 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Palette** | Step to the next or previous palette. Each key shows the palette you'll land on, with its colors |
 | **Color Fade** | Start or stop the slow fade — the key says which it will do |
 | **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
+| **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
 
 ### The Status key
 

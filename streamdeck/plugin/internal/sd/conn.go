@@ -280,3 +280,14 @@ func (w *Conn) SendToPropertyInspector(context, action string, v any) {
 		"payload": v,
 	})
 }
+
+// SetFeedback updates the slots of a Stream Deck + touch-strip layout. Keys
+// carry their state in an image; an encoder carries it in the layout, so a dial
+// action needs this as well as SetImage.
+func (w *Conn) SetFeedback(context string, payload map[string]any) {
+	_ = w.send(map[string]any{
+		"event":   "setFeedback",
+		"context": context,
+		"payload": payload,
+	})
+}

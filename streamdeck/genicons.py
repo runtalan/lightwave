@@ -241,6 +241,18 @@ def brightness(nx,ny):
             c = over(c, shade, 0.94*inb)
     return c,a
 
+def sweep(nx,ny):
+    """Light Sweep dial icon: four lamps in a row, each brighter than the last,
+    so the icon says "one at a time, left to right" — the thing the dial does."""
+    c,a = grid_bg(nx,ny,None,0.85)
+    if a<=0: return (0,0,0),0.0
+    for i,(cx,r) in enumerate(((-0.60,0.115),(-0.20,0.135),(0.20,0.155),(0.60,0.175))):
+        d = math.hypot(nx-cx, ny)
+        dot = smooth(r+0.055, r-0.02, d)
+        if dot>0:
+            c = over(c, mix(NEON,MAG,i/3.0), (0.28+0.23*i)*dot)
+    return c,a
+
 def logo(nx,ny):
     c,a = grid_bg(nx,ny,None,1.0)
     if a<=0: return (0,0,0),0.0
@@ -255,6 +267,7 @@ targets=[("actions/pad-off",pad(False)),("actions/pad-on",pad(True)),("actions/p
  ("actions/palette",palette),("actions/palette-key",palette),
  ("actions/dance",dance(True)),("actions/dance-off",dance(False)),("actions/dance-on",dance(True)),
  ("actions/brightness",brightness),("actions/brightness-key",brightness),
+ ("actions/sweep",sweep),
  ("actions/gradient",gradient(True)),
  ("actions/gradient-off",gradient(False)),("actions/gradient-on",gradient(True)),
  ("plugin",logo),("category",logo)]
