@@ -67,7 +67,7 @@ const definitions={
   'brightness':{title:'Brightness',description:'Set or adjust the selected light’s brightness.',modes:[['brightness','Set Brightness'],['brightness_up','Increase'],['brightness_down','Decrease']],value:'brightness'},
   'color':{title:'Color',description:'Apply a color to the selected light.',modes:[['color','Set Color']],color:true},
   'temperature':{title:'White Temperature',description:'Set a white temperature on a compatible light.',modes:[['temperature','Set Temperature']],value:'temperature'},
-  'palette':{title:'Palette',description:'Apply a Lightwave palette to a light or room.',modes:[['palette','Apply Palette']],palette:true},
+  'palette':{title:'Palette / Warmness',description:'Apply a Lightwave palette, or switch this control to adjustable warmness.',modes:[['palette','Apply Palette'],['warmness','Warmness']],palette:true},
   'fade':{title:'Color Fade',description:'Start or stop a slow palette fade.',modes:[['fade','Start / Stop Fade']],palette:true},
   'status':{title:'Status',description:'Show the current state without changing the light.',modes:[['status','Display Only'],['toggle','Display & Toggle']]},
   'sweep':{title:'Light Sweep',description:'Use a dial to move through an ordered room.',modes:[['brightness','Set Level']],value:'brightness',group:true},
@@ -79,8 +79,11 @@ function rgbHex(){return '#'+[settings.r??126,settings.g??48,settings.b??255].ma
 function rgbSettings(){const h=color.value;return {r:parseInt(h.slice(1,3),16),g:parseInt(h.slice(3,5),16),b:parseInt(h.slice(5,7),16)}}
 function updateModeFields(){
   const adjusts=['brightness_up','brightness_down'].includes(mode.value);
-  $('value-row').hidden=!definition.value||adjusts;
+  const warmth=mode.value==='warmness';
+  $('value-row').hidden=(!definition.value&&!warmth)||adjusts;
   $('step-row').hidden=!adjusts;
+  $('palette-row').hidden=!definition.palette||warmth;
+  if(warmth){ $('value-label').textContent='Warmness (K)'; value.min=2000;value.max=6500;value.step=100;value.value=settings.value||3000; }
 }
 function configureAction(){
   $('action-title').textContent=definition.title;
@@ -92,10 +95,12 @@ function configureAction(){
   $('mode-row').hidden=definition.modes.length===1;
   updateModeFields();
   $('color-row').hidden=!definition.color;
-  $('palette-row').hidden=!definition.palette;
+  $('palette-row').hidden=!definition.palette||mode.value==='warmness';
   $('unavailable-note').hidden=!definition.unavailable;
   $('unavailable-note').textContent=definition.unavailable||'';
-  if(definition.value==='temperature'){
+  if(mode.value==='warmness'){
+    $('value-label').textContent='Warmness (K)'; value.min=2000;value.max=6500;value.step=100;value.value=settings.value||3000;
+  }else if(definition.value==='temperature'){
     $('value-label').textContent='Temperature (K)'; value.min=2000;value.max=9000;value.step=100;value.value=settings.value||2700;
   }else{ $('value-label').textContent='Brightness (%)';value.min=1;value.max=100;value.step=1;value.value=settings.value||70; }
   step.value=settings.step||10;color.value=rgbHex();
@@ -145,7 +150,7 @@ document.addEventListener('lw-ready',e=>{settings=e.detail||{};kind=action.split
 document.addEventListener('lw-catalog',e=>renderCatalog(e.detail||{}));
 target.onchange=()=>{save({target:target.value});$('ready').hidden=!target.value};
 groupTarget.onchange=()=>{if(!groupTarget.value)return;settings.target=groupTarget.value;save({target:groupTarget.value});renderCatalog(catalog)};
-mode.onchange=()=>{settings.mode=mode.value;updateModeFields();save({mode:mode.value})};
+mode.onchange=()=>{settings.mode=mode.value;if(mode.value==='warmness'&&!settings.value)settings.value=3000;updateModeFields();save({mode:mode.value,value:settings.value})};
 value.onchange=()=>save({value:Number(value.value)});
 step.onchange=()=>save({step:Number(step.value)});
 color.onchange=()=>save(Object.assign({mode:'color'},rgbSettings()));

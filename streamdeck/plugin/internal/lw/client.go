@@ -44,6 +44,8 @@ type State struct {
 	Palette    string  `json:"palette"`
 	Dancing    bool    `json:"dancing"`
 	Gradient   bool    `json:"gradient"`
+	WarmMode   bool    `json:"warmMode"`
+	Warmness   int     `json:"warmness"`
 	Swatches   []Color `json:"swatches"`
 	// Palettes either side of the current one, so the next/previous keys can
 	// show their destination rather than the palette already in play.

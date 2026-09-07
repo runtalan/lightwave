@@ -82,6 +82,8 @@ export function ScanLAN():Promise<main.HUDState>;
 
 export function SetBrightness(arg1:number):Promise<void>;
 
+export function SetWarmness(arg1:number):Promise<main.HUDState>;
+
 export function SetConfigAPIKey(arg1:string):Promise<void>;
 
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
@@ -107,6 +109,8 @@ export function ToggleAll():Promise<main.HUDState>;
 export function ToggleDance():Promise<main.HUDState>;
 
 export function ToggleGradient():Promise<main.HUDState>;
+
+export function ToggleWarmMode():Promise<main.HUDState>;
 
 export function ToggleSlot(arg1:number):Promise<void>;
 

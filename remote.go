@@ -35,6 +35,8 @@ import (
 //	PALETTE <+1|-1>    -> cycle palettes; the reply also names the palettes
 //	                      either side, so a key can show where it will land
 //	PALETTE SET <name|index> -> jump straight to one palette
+//	WARM_MODE          -> switch between palette and warmness mode
+//	WARMNESS <kelvin>  -> set a white temperature from 2000 to 6500K
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
 	defer func() {
@@ -128,6 +130,18 @@ func (a *App) RemoteCommand(cmd string) string {
 		a.ToggleGradient()
 		return a.remoteState()
 
+	case "WARM_MODE":
+		a.ToggleWarmMode()
+		return a.remoteState()
+
+	case "WARMNESS":
+		k, err := strconv.Atoi(arg)
+		if err != nil {
+			return "ERR warmness needs a Kelvin value"
+		}
+		a.SetWarmness(k)
+		return a.remoteState()
+
 	case "PALETTE":
 		if strings.EqualFold(arg, "SET") {
 			// Direct select, by index or by name. Names win over indexes in
@@ -199,6 +213,8 @@ type RemoteState struct {
 	Palettes   []string      `json:"palettes"`
 	Dancing    bool          `json:"dancing"`
 	Gradient   bool          `json:"gradient"`
+	WarmMode   bool          `json:"warmMode"`
+	Warmness   int           `json:"warmness"`
 	Swatches   []RemoteColor `json:"swatches"`
 	// Every palette's colours, keyed by name, so a controller with a
 	// jump-straight-to-palette key can draw the palette it targets rather
@@ -240,6 +256,8 @@ func (a *App) remoteState() string {
 		Palettes:        paletteNames,
 		Dancing:         a.dancing,
 		Gradient:        a.gradient,
+		WarmMode:        a.warmMode,
+		Warmness:        a.warmness,
 		Swatches:        make([]RemoteColor, 0, len(pal.Colors)),
 		PaletteSwatches: make(map[string][]RemoteColor, len(color.Palettes)),
 	}

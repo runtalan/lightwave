@@ -82,12 +82,20 @@
     },
     {
       "UUID": "com.dinksf.lightwave.palette",
-      "Name": "Palette",
+      "Name": "Palette / Warmness",
       "Icon": "imgs/actions/palette",
-      "Tooltip": "Step to the next or previous palette (the key shows where you will land), or jump straight to a chosen one.",
+      "Tooltip": "Step through palettes in LightWave mode, or adjust warmness in Warmness mode.",
       "Controllers": [
-        "Keypad"
+        "Keypad",
+        "Encoder"
       ],
+      "Encoder": {
+        "layout": "$B1",
+        "TriggerDescription": {
+          "Rotate": "Palette / warmth",
+          "Push": "Palette / warmth"
+        }
+      },
       "PropertyInspectorPath": "ui/palette.html",
       "States": [
         {

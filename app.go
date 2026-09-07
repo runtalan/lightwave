@@ -108,6 +108,8 @@ type HUDState struct {
 	PaletteIndex  int        `json:"paletteIndex"`
 	PaletteName   string     `json:"paletteName"`
 	PaletteNames  []string   `json:"paletteNames"`
+	WarmMode      bool       `json:"warmMode"`
+	Warmness      int        `json:"warmness"`
 	MIDIConnected bool       `json:"midiConnected"`
 	MIDIPort      string     `json:"midiPort"`
 	DeviceCount   int        `json:"deviceCount"`
@@ -218,11 +220,11 @@ type App struct {
 	midiCfg   config.MIDI
 	settings  config.Settings
 
-	stop            chan struct{}
-	brightKick      chan struct{}
-	pendingBright   atomic.Int32
-	emitPending     atomic.Uint32
-	lastSentBright  int
+	stop           chan struct{}
+	brightKick     chan struct{}
+	pendingBright  atomic.Int32
+	emitPending    atomic.Uint32
+	lastSentBright int
 	// trimDirty forces the next brightnessPump cycle to resend even if the
 	// slider value (lastSentBright) hasn't moved, so a trim change applied
 	// while the slider is parked reaches the lamp immediately.
@@ -236,6 +238,8 @@ type App struct {
 	// same palette colour; true spreads complementary/adjacent swatches
 	// across the pool. RGBIC strips also get a zone ramp in gradient mode.
 	gradient  bool
+	warmMode  bool
+	warmness  int
 	lastColor map[string]color.RGBK
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
@@ -265,6 +269,8 @@ func NewApp(forceSetup, startHidden bool) *App {
 		stop:         make(chan struct{}),
 		brightKick:   make(chan struct{}, 1),
 		gradient:     settings.Gradient,
+		warmMode:     settings.WarmMode,
+		warmness:     settings.Warmness,
 		lastColor:    map[string]color.RGBK{},
 	}
 	if len(a.slots) != 9 {
@@ -939,6 +945,10 @@ func (a *App) ToggleDance() HUDState {
 	}()
 	a.recordUserActivity()
 	a.mu.Lock()
+	if a.warmMode {
+		a.mu.Unlock()
+		return a.snapshot()
+	}
 	a.dancing = !a.dancing
 	a.danceGen++
 	gen := a.danceGen
@@ -1171,6 +1181,8 @@ func (a *App) snapshotLocked() HUDState {
 		PaletteIndex:    a.engine.Index,
 		PaletteName:     a.engine.Name(),
 		PaletteNames:    paletteNames,
+		WarmMode:        a.warmMode,
+		Warmness:        a.warmness,
 		Dancing:         a.dancing,
 		Gradient:        a.gradient,
 		MIDIConnected:   ok,
@@ -1730,8 +1742,13 @@ func (a *App) brightnessPump() {
 func (a *App) applyPaletteToPool() {
 	a.mu.Lock()
 	dancing := a.dancing
+	warm := a.warmMode
 	a.mu.Unlock()
 	if dancing {
+		return
+	}
+	if warm {
+		a.paintWarmness(true)
 		return
 	}
 	a.paintScene(false)
@@ -1747,6 +1764,13 @@ func (a *App) applyPaletteToPool() {
 // turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
 // may have been switched off at the wall).
 func (a *App) paintScene(turnOn bool) {
+	a.mu.Lock()
+	warm := a.warmMode
+	a.mu.Unlock()
+	if warm {
+		a.paintWarmness(turnOn)
+		return
+	}
 	a.mu.Lock()
 	dests := a.poolDestsLocked()
 	grad := a.gradient
@@ -1871,12 +1895,112 @@ func (a *App) CycleColor(direction int) HUDState {
 	}
 	a.recordUserActivity()
 	a.mu.Lock()
+	if a.warmMode {
+		// Positive palette movement means more warmth: step down in Kelvin.
+		a.warmness = clampWarmness(a.warmness - direction*100)
+		s := a.settings
+		s.Warmness = a.warmness
+		a.settings = s
+		a.mu.Unlock()
+		if err := config.SaveSettings(s); err != nil {
+			log.Printf("persist warmness: %v", err)
+		}
+		a.paintWarmness(true)
+		a.emitState()
+		return a.snapshot()
+	}
 	pal := a.engine.Cycle(direction)
 	a.mu.Unlock()
 	a.paintScene(true)
 	a.emitState()
 	a.emit("color:cycle", pal.Name)
 	return a.snapshot()
+}
+
+// ToggleWarmMode switches between Lightwave palettes and one adjustable white
+// temperature. Palette selections remain available when switched back.
+func (a *App) ToggleWarmMode() HUDState {
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.warmMode = !a.warmMode
+	if a.warmMode {
+		a.dancing = false
+		a.danceGen++
+	}
+	s := a.settings
+	s.WarmMode = a.warmMode
+	s.Warmness = a.warmness
+	a.settings = s
+	warm := a.warmMode
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist warmth mode: %v", err)
+	}
+	if warm {
+		a.paintWarmness(true)
+	} else {
+		a.paintScene(true)
+	}
+	a.emitState()
+	return a.snapshot()
+}
+
+// SetWarmness sets a native white temperature in Kelvin.
+func (a *App) SetWarmness(kelvin int) HUDState {
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.warmness = clampWarmness(kelvin)
+	s := a.settings
+	s.Warmness = a.warmness
+	a.settings = s
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist warmness: %v", err)
+	}
+	a.paintWarmness(true)
+	a.emitState()
+	return a.snapshot()
+}
+
+func clampWarmness(k int) int {
+	if k < config.MinWarmness {
+		return config.MinWarmness
+	}
+	if k > config.MaxWarmness {
+		return config.MaxWarmness
+	}
+	return k
+}
+
+func warmRGB(k int) color.RGBK {
+	// BLE-only lamps receive this visual approximation; LAN lamps also get the
+	// precise Kelvin value below.
+	if k <= 2400 {
+		return color.RGBK{R: 255, G: 147, B: 67, Kelvin: k}
+	}
+	if k <= 3200 {
+		return color.RGBK{R: 255, G: 184, B: 113, Kelvin: k}
+	}
+	if k <= 4200 {
+		return color.RGBK{R: 255, G: 218, B: 176, Kelvin: k}
+	}
+	if k <= 5200 {
+		return color.RGBK{R: 255, G: 238, B: 215, Kelvin: k}
+	}
+	return color.RGBK{R: 232, G: 242, B: 255, Kelvin: k}
+}
+
+func (a *App) paintWarmness(turnOn bool) {
+	a.mu.Lock()
+	dests := a.poolDestsLocked()
+	c := warmRGB(a.warmness)
+	a.mu.Unlock()
+	for _, d := range dests {
+		if turnOn {
+			_ = govee.SendTurn(d.IP, true)
+		}
+		_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
+	}
 }
 
 // The palette table is fixed at compile time, so snapshots can share one list

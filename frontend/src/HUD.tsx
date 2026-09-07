@@ -4,13 +4,14 @@ import {
   CycleColor,
   Quit,
   SetPalette,
+  ToggleWarmMode,
   ToggleDance,
   ToggleGradient,
   HideHUD,
   OpenConfig,
   ToggleSlot,
 } from '../wailsjs/go/main/App'
-import { BrightnessSlider, TitleBar } from './chrome'
+import { BrightnessSlider, TitleBar, WarmnessSlider } from './chrome'
 import { NUMPAD_ORDER, type HUDState } from './types'
 import { slotByNumber } from './lib'
 
@@ -120,6 +121,9 @@ export function HUD({ state }: Props) {
               arrow overlaying the select's padding so clicking it opens the
               menu. */}
           <h1 className="palette-pick">
+            {state.warmMode ? (
+              <button type="button" className="mode-heading" onClick={() => void ToggleWarmMode()}>Warmness</button>
+            ) : (
             <select
               aria-label="Palette"
               value={state.paletteIndex}
@@ -135,10 +139,14 @@ export function HUD({ state }: Props) {
                 <option value={state.paletteIndex}>{state.paletteName}</option>
               )}
             </select>
+            )}
             <span className="palette-arrow" aria-hidden="true">
               ▾
             </span>
           </h1>
+          <button type="button" className="mode-toggle" onClick={() => void ToggleWarmMode()}>
+            {state.warmMode ? 'LightWave mode' : 'Warmness mode'}
+          </button>
           <p className={`mode-chip ${state.gradient ? 'on' : ''}`}>
             {state.gradient ? 'GRADIENT' : 'SINGLE'}
           </p>
@@ -173,13 +181,13 @@ export function HUD({ state }: Props) {
         <li>
           <button type="button" className="keycap" onClick={() => void CycleColor(1)}>
             <kbd>+</kbd>
-            <span>palette +</span>
+            <span>{state.warmMode ? 'warmer' : 'palette +'}</span>
           </button>
         </li>
         <li>
           <button type="button" className="keycap" onClick={() => void CycleColor(-1)}>
             <kbd>−</kbd>
-            <span>palette −</span>
+            <span>{state.warmMode ? 'cooler' : 'palette −'}</span>
           </button>
         </li>
         <li>
@@ -231,12 +239,13 @@ export function HUD({ state }: Props) {
       </div>
 
       <BrightnessSlider value={state.brightness} />
+      {state.warmMode && <WarmnessSlider value={state.warmness} />}
 
       <footer className="hud-foot">
         <span className={state.midiConnected ? 'ok' : 'dim'}>
           {state.midiConnected ? `midi · ${state.midiPort}` : 'midi silent'}
         </span>
-        <span className="dim">+ / − palette · / {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
+        <span className="dim">+ / − {state.warmMode ? 'warmth' : 'palette'} · / {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
       </footer>
     </div>
   )

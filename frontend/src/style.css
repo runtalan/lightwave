@@ -227,6 +227,30 @@ a,
   text-shadow: inherit;
 }
 
+.mode-heading, .mode-toggle {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  text-transform: inherit;
+}
+
+.mode-toggle {
+  color: var(--magenta);
+  display: block;
+  font-family: "Oxanium", sans-serif;
+  font-size: 10px;
+  letter-spacing: .12em;
+  margin-top: 4px;
+}
+
+.warmness-meter .brightness-slider {
+  direction: rtl;
+}
+
 .palette-pick select:focus-visible {
   outline: 1px solid rgba(176, 38, 255, 0.6);
   outline-offset: 3px;

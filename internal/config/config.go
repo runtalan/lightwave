@@ -184,6 +184,12 @@ type Settings struct {
 	// Gradient is the HUD scene style: false paints every pooled lamp the
 	// same colour; true spreads complementary/adjacent swatches across the pool.
 	Gradient bool `json:"gradient"`
+	// WarmMode replaces palette scenes with one adjustable white temperature.
+	WarmMode bool `json:"warmMode"`
+	// Warmness is the white temperature in Kelvin, from cool (6500K) to warm
+	// (2000K). It is intentionally stored as Kelvin so controllers can show a
+	// useful, device-native value.
+	Warmness int `json:"warmness"`
 	// FadeSeconds is how long Color Fade takes to walk the palette once.
 	// Lower is more obvious motion. The default 60s is a slow drift; the
 	// narrow calm palettes (Sage, Blush, Morning Haze) can look almost
@@ -219,6 +225,8 @@ type settingsFile struct {
 	WebAddr         *string `json:"webAddr"`
 	WebToken        *string `json:"webToken"`
 	Gradient        *bool   `json:"gradient"`
+	WarmMode        *bool   `json:"warmMode"`
+	Warmness        *int    `json:"warmness"`
 	FadeSeconds     *int    `json:"fadeSeconds"`
 	FadeDrift       *int    `json:"fadeDrift"`
 	LaunchAtLogin   *bool   `json:"launchAtLogin"`
@@ -269,6 +277,7 @@ func DefaultSettings() Settings {
 		FadeSeconds:     DefaultFadeSeconds,
 		FadeDrift:       DefaultFadeDrift,
 		WebAddr:         DefaultWebAddr,
+		Warmness:        DefaultWarmness,
 	}
 }
 
@@ -277,6 +286,9 @@ func DefaultSettings() Settings {
 // as a strobe rather than a fade. The ceiling keeps a mistyped value from
 // looking like the animation is broken.
 const (
+	MinWarmness        = 2000
+	MaxWarmness        = 6500
+	DefaultWarmness    = 3000
 	DefaultFadeSeconds = 60
 	MinFadeSeconds     = 5
 	MaxFadeSeconds     = 600
@@ -397,16 +409,28 @@ func LoadSettings() Settings {
 	if raw.Gradient != nil {
 		s.Gradient = *raw.Gradient
 	}
+	if raw.WarmMode != nil {
+		s.WarmMode = *raw.WarmMode
+	}
+	if raw.Warmness != nil {
+		s.Warmness = *raw.Warmness
+	}
 	if raw.FadeSeconds != nil {
 		s.FadeSeconds = *raw.FadeSeconds
 	}
 	if raw.FadeDrift != nil {
 		s.FadeDrift = *raw.FadeDrift
 	}
+	if s.Warmness < MinWarmness || s.Warmness > MaxWarmness {
+		s.Warmness = DefaultWarmness
+	}
 	return s
 }
 
 func SaveSettings(s Settings) error {
+	if s.Warmness < MinWarmness || s.Warmness > MaxWarmness {
+		s.Warmness = DefaultWarmness
+	}
 	s.MidiCC = int(clampU8(s.MidiCC, 7))
 	s.MidiCCAlt = int(clampU8(s.MidiCCAlt, 1))
 	s.MidiNotePlus = int(clampU8(s.MidiNotePlus, 61))
