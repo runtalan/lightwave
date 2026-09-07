@@ -432,6 +432,14 @@ func (a *app) apply(s settings) {
 			c := p[i%len(p)]
 			a.command([]Device{d}, "color", c[0], c[1], c[2])
 		}
+	case "warmness":
+		if s.Value < 2000 {
+			s.Value = 2000
+		}
+		if s.Value > 6500 {
+			s.Value = 6500
+		}
+		a.command(ds, "temperature", s.Value)
 	case "scene":
 		a.mu.Lock()
 		sc := a.db.Scenes[s.Scene]
@@ -686,22 +694,43 @@ func (a *app) handle(e event) {
 	case "dialRotate":
 		a.mu.Lock()
 		x, ok := a.contexts[e.Context]
-		a.mu.Unlock()
 		if !ok || e.Payload.Ticks == 0 {
+			a.mu.Unlock()
 			return
 		}
-		x.s.Mode = "brightness"
-		step := x.s.Step
-		if step == 0 {
-			step = 2
+		if x.action == actPalette && x.s.Mode == "warmness" {
+			x.s.Value -= e.Payload.Ticks * 100
+			if x.s.Value < 2000 {
+				x.s.Value = 2000
+			}
+			if x.s.Value > 6500 {
+				x.s.Value = 6500
+			}
+		} else if x.action == actTemperature {
+			x.s.Mode = "temperature"
+			x.s.Value -= e.Payload.Ticks * 100
+			if x.s.Value < 2000 {
+				x.s.Value = 2000
+			}
+			if x.s.Value > 6500 {
+				x.s.Value = 6500
+			}
+		} else {
+			x.s.Mode = "brightness"
+			step := x.s.Step
+			if step == 0 {
+				step = 2
+			}
+			x.s.Value += e.Payload.Ticks * step
+			if x.s.Value < 1 {
+				x.s.Value = 1
+			}
+			if x.s.Value > 100 {
+				x.s.Value = 100
+			}
 		}
-		x.s.Value += e.Payload.Ticks * step
-		if x.s.Value < 1 {
-			x.s.Value = 1
-		}
-		if x.s.Value > 100 {
-			x.s.Value = 100
-		}
+		a.contexts[e.Context] = x
+		a.mu.Unlock()
 		a.apply(x.s)
 	}
 }

@@ -288,6 +288,17 @@ func (p *plugin) press(ev sd.Event) {
 	case actGradient:
 		cmd = "GRADIENT"
 	case actPalette:
+		p.mu.Lock()
+		warm := p.haveState && p.state.WarmMode
+		p.mu.Unlock()
+		if warm {
+			if inst.settings.Direction == "prev" {
+				cmd = "PALETTE -1"
+			} else {
+				cmd = "PALETTE +1"
+			}
+			break
+		}
 		// "set:<name>" jumps straight to one palette; anything else keeps the
 		// original prev/next cycling, so profiles saved before direct select
 		// existed still work.
@@ -335,7 +346,29 @@ func (p *plugin) rotate(ev sd.Event) {
 		p.rotateSweep(ev)
 		return
 	}
+	if inst != nil && inst.action == actPalette {
+		p.rotatePalette(ev)
+		return
+	}
 	p.rotateBrightness(ev)
+}
+
+// rotatePalette sends the published palette command. Lightwave turns that
+// into warmer/cooler 100K steps whenever Warmness mode is active.
+func (p *plugin) rotatePalette(ev sd.Event) {
+	if ev.Payload.Ticks == 0 {
+		return
+	}
+	dir := "+1"
+	if ev.Payload.Ticks < 0 {
+		dir = "-1"
+	}
+	st, err := p.client.Command("PALETTE " + dir)
+	if err != nil {
+		log.Printf("dial palette/warmness: %v", err)
+		return
+	}
+	p.applyState(st)
 }
 
 // rotateBrightness maps a dial to the pool brightness.
@@ -573,6 +606,12 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			"value": strconv.Itoa(on) + "/" + strconv.Itoa(total),
 		})
 	case actPalette:
+		if st.WarmMode {
+			warmth := (6500 - st.Warmness) * 100 / 4500
+			p.sd.SetTitle(inst.context, "Warmth\n"+strconv.Itoa(warmth)+"%\n"+strconv.Itoa(st.Warmness)+"K")
+			p.sd.SetFeedback(inst.context, map[string]any{"title": "Warmth", "value": strconv.Itoa(warmth) + "%"})
+			break
+		}
 		if name, ok := strings.CutPrefix(inst.settings.Direction, "set:"); ok && name != "" {
 			// A fixed jump target: show that palette itself, not a direction.
 			sw, known := st.PaletteSwatches[name]

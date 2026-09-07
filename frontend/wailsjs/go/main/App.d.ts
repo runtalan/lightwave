@@ -92,6 +92,8 @@ export function SetPalette(arg1:number):Promise<main.HUDState>;
 
 export function SetSlotTrim(arg1:number,arg2:number):Promise<main.HUDState>;
 
+export function SetWarmness(arg1:number):Promise<main.HUDState>;
+
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 
 export function SetWebConfig(arg1:string,arg2:string):Promise<main.SettingsView>;
@@ -109,5 +111,7 @@ export function ToggleDance():Promise<main.HUDState>;
 export function ToggleGradient():Promise<main.HUDState>;
 
 export function ToggleSlot(arg1:number):Promise<void>;
+
+export function ToggleWarmMode():Promise<main.HUDState>;
 
 export function ToggleWindow():Promise<void>;

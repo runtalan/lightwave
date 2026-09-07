@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	stdruntime "runtime"
 	"sort"
@@ -108,6 +109,8 @@ type HUDState struct {
 	PaletteIndex  int        `json:"paletteIndex"`
 	PaletteName   string     `json:"paletteName"`
 	PaletteNames  []string   `json:"paletteNames"`
+	WarmMode      bool       `json:"warmMode"`
+	Warmness      int        `json:"warmness"`
 	MIDIConnected bool       `json:"midiConnected"`
 	MIDIPort      string     `json:"midiPort"`
 	DeviceCount   int        `json:"deviceCount"`
@@ -218,11 +221,11 @@ type App struct {
 	midiCfg   config.MIDI
 	settings  config.Settings
 
-	stop            chan struct{}
-	brightKick      chan struct{}
-	pendingBright   atomic.Int32
-	emitPending     atomic.Uint32
-	lastSentBright  int
+	stop           chan struct{}
+	brightKick     chan struct{}
+	pendingBright  atomic.Int32
+	emitPending    atomic.Uint32
+	lastSentBright int
 	// trimDirty forces the next brightnessPump cycle to resend even if the
 	// slider value (lastSentBright) hasn't moved, so a trim change applied
 	// while the slider is parked reaches the lamp immediately.
@@ -236,6 +239,8 @@ type App struct {
 	// same palette colour; true spreads complementary/adjacent swatches
 	// across the pool. RGBIC strips also get a zone ramp in gradient mode.
 	gradient  bool
+	warmMode  bool
+	warmness  int
 	lastColor map[string]color.RGBK
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
@@ -265,6 +270,8 @@ func NewApp(forceSetup, startHidden bool) *App {
 		stop:         make(chan struct{}),
 		brightKick:   make(chan struct{}, 1),
 		gradient:     settings.Gradient,
+		warmMode:     settings.WarmMode,
+		warmness:     settings.Warmness,
 		lastColor:    map[string]color.RGBK{},
 	}
 	if len(a.slots) != 9 {
@@ -362,6 +369,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	go a.midiApplyLoop()
 	go a.brightnessPump()
+	startGlobalNumpad(a.handleGlobalNumpad)
 	go func() {
 		_ = a.midi.Start()
 	}()
@@ -415,6 +423,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	stopGlobalNumpad()
 	select {
 	case <-a.stop:
 	default:
@@ -431,6 +440,29 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.webSrv != nil {
 		_ = a.webSrv.Stop()
+	}
+}
+
+// handleGlobalNumpad mirrors the lighting bindings in the HUD, but works while
+// another macOS app owns focus. The event tap filters auto-repeat, so holding a
+// number cannot accidentally toggle a light back off.
+func (a *App) handleGlobalNumpad(key int) {
+	switch key {
+	case 82: // keypad 0
+		a.ToggleAll()
+	case 83, 84, 85, 86, 87, 88, 89, 91, 92: // keypad 1–9
+		pad := map[int]int{83: 1, 84: 2, 85: 3, 86: 4, 87: 5, 88: 6, 89: 7, 91: 8, 92: 9}[key]
+		if err := a.ToggleSlot(pad); err != nil {
+			log.Printf("global numpad slot %d: %v", pad, err)
+		}
+	case 69: // keypad +
+		a.CycleColor(1)
+	case 78: // keypad −
+		a.CycleColor(-1)
+	case 67: // keypad ×
+		a.ToggleWarmMode()
+	case 75: // keypad ÷
+		a.ToggleGradient()
 	}
 }
 
@@ -929,8 +961,8 @@ func (a *App) applyDeviceStatus(st govee.DevStatus) {
 }
 
 // ToggleDance starts or stops the slow colour fade across every pooled lamp.
-// Bound to the star key. Each lamp walks the same palette from a different
-// offset, so they stay related without ever showing the identical colour.
+// Each lamp walks the same palette from a different offset, so they stay
+// related without ever showing the identical colour.
 func (a *App) ToggleDance() HUDState {
 	defer func() {
 		if r := recover(); r != nil {
@@ -939,6 +971,10 @@ func (a *App) ToggleDance() HUDState {
 	}()
 	a.recordUserActivity()
 	a.mu.Lock()
+	if a.warmMode {
+		a.mu.Unlock()
+		return a.snapshot()
+	}
 	a.dancing = !a.dancing
 	a.danceGen++
 	gen := a.danceGen
@@ -1171,6 +1207,8 @@ func (a *App) snapshotLocked() HUDState {
 		PaletteIndex:    a.engine.Index,
 		PaletteName:     a.engine.Name(),
 		PaletteNames:    paletteNames,
+		WarmMode:        a.warmMode,
+		Warmness:        a.warmness,
 		Dancing:         a.dancing,
 		Gradient:        a.gradient,
 		MIDIConnected:   ok,
@@ -1730,8 +1768,13 @@ func (a *App) brightnessPump() {
 func (a *App) applyPaletteToPool() {
 	a.mu.Lock()
 	dancing := a.dancing
+	warm := a.warmMode
 	a.mu.Unlock()
 	if dancing {
+		return
+	}
+	if warm {
+		a.paintWarmness(true)
 		return
 	}
 	a.paintScene(false)
@@ -1747,6 +1790,13 @@ func (a *App) applyPaletteToPool() {
 // turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
 // may have been switched off at the wall).
 func (a *App) paintScene(turnOn bool) {
+	a.mu.Lock()
+	warm := a.warmMode
+	a.mu.Unlock()
+	if warm {
+		a.paintWarmness(turnOn)
+		return
+	}
 	a.mu.Lock()
 	dests := a.poolDestsLocked()
 	grad := a.gradient
@@ -1871,12 +1921,129 @@ func (a *App) CycleColor(direction int) HUDState {
 	}
 	a.recordUserActivity()
 	a.mu.Lock()
+	if a.warmMode {
+		// Positive palette movement means more warmth: step down in Kelvin.
+		a.warmness = clampWarmness(a.warmness - direction*100)
+		s := a.settings
+		s.Warmness = a.warmness
+		a.settings = s
+		a.mu.Unlock()
+		if err := config.SaveSettings(s); err != nil {
+			log.Printf("persist warmness: %v", err)
+		}
+		a.paintWarmness(true)
+		a.emitState()
+		return a.snapshot()
+	}
 	pal := a.engine.Cycle(direction)
 	a.mu.Unlock()
 	a.paintScene(true)
 	a.emitState()
 	a.emit("color:cycle", pal.Name)
 	return a.snapshot()
+}
+
+// ToggleWarmMode switches between Lightwave palettes and one adjustable white
+// temperature. Palette selections remain available when switched back.
+func (a *App) ToggleWarmMode() HUDState {
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.warmMode = !a.warmMode
+	if a.warmMode {
+		a.dancing = false
+		a.danceGen++
+	}
+	s := a.settings
+	s.WarmMode = a.warmMode
+	s.Warmness = a.warmness
+	a.settings = s
+	warm := a.warmMode
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist warmth mode: %v", err)
+	}
+	if warm {
+		a.paintWarmness(true)
+	} else {
+		a.paintScene(true)
+	}
+	a.emitState()
+	return a.snapshot()
+}
+
+// SetWarmness sets a native white temperature in Kelvin.
+func (a *App) SetWarmness(kelvin int) HUDState {
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.warmness = clampWarmness(kelvin)
+	s := a.settings
+	s.Warmness = a.warmness
+	a.settings = s
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist warmness: %v", err)
+	}
+	a.paintWarmness(true)
+	a.emitState()
+	return a.snapshot()
+}
+
+func clampWarmness(k int) int {
+	if k < config.MinWarmness {
+		return config.MinWarmness
+	}
+	if k > config.MaxWarmness {
+		return config.MaxWarmness
+	}
+	return k
+}
+
+func warmRGB(k int) color.RGBK {
+	// Bluetooth H6072s receive RGB rather than a native Kelvin opcode. This
+	// established colour-temperature curve keeps the lamp's output near its
+	// maximum at cool white (6000K is 255/246/237), unlike our old hand-picked
+	// swatch whose 232 red channel made the lamp visibly dim at full brightness.
+	t := float64(clampWarmness(k)) / 100
+	var r, g, b float64
+	if t <= 66 {
+		r = 255
+		g = 99.4708025861*math.Log(t) - 161.1195681661
+		if t <= 19 {
+			b = 0
+		} else {
+			b = 138.5177312231*math.Log(t-10) - 305.0447927307
+		}
+	} else {
+		r = 329.698727446 * math.Pow(t-60, -0.1332047592)
+		g = 288.1221695283 * math.Pow(t-60, -0.0755148492)
+		b = 255
+	}
+	channel := func(v float64) int {
+		return max(0, min(255, int(math.Round(v))))
+	}
+	return color.RGBK{R: channel(r), G: channel(g), B: channel(b), Kelvin: k}
+}
+
+func (a *App) paintWarmness(turnOn bool) {
+	a.mu.Lock()
+	dests := a.poolDestsLocked()
+	c := warmRGB(a.warmness)
+	brightness := ignitedBrightness(a.brightness)
+	a.mu.Unlock()
+	for _, d := range dests {
+		if turnOn {
+			_ = govee.SendTurn(d.IP, true)
+		}
+		_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
+		// Some BLE RGBIC controllers retain a separate level per colour mode.
+		// Reassert brightness after switching into manual/segment colour so a
+		// 100% slider really finishes with the device's brightness at 100%.
+		level := brightness
+		if d.Trim > 0 {
+			level = ignitedBrightness(brightness * d.Trim / 100)
+		}
+		_ = govee.SendBrightness(d.IP, level)
+	}
 }
 
 // The palette table is fixed at compile time, so snapshots can share one list

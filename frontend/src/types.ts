@@ -53,6 +53,8 @@ export type HUDState = {
   paletteIndex: number
   paletteName: string
   paletteNames: string[]
+  warmMode: boolean
+  warmness: number
   midiConnected: boolean
   midiPort: string
   deviceCount: number
@@ -165,6 +167,8 @@ export function emptyState(): HUDState {
     paletteIndex: 0,
     paletteName: 'Warm Whites',
     paletteNames: [],
+    warmMode: false,
+    warmness: 3000,
     midiConnected: false,
     midiPort: '',
     deviceCount: 0,
