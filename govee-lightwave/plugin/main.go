@@ -199,15 +199,17 @@ type database struct {
 	Scenes  map[string]Scene  `json:"scenes"`
 }
 type settings struct {
-	Target  string `json:"target"`
-	Mode    string `json:"mode"`
-	Value   int    `json:"value"`
-	R       int    `json:"r"`
-	G       int    `json:"g"`
-	B       int    `json:"b"`
-	Palette string `json:"palette"`
-	Scene   string `json:"scene"`
-	Step    int    `json:"step"`
+	Target   string   `json:"target"`
+	Mode     string   `json:"mode"`
+	Value    int      `json:"value"`
+	R        int      `json:"r"`
+	G        int      `json:"g"`
+	B        int      `json:"b"`
+	Palette  string   `json:"palette"`
+	Scene    string   `json:"scene"`
+	Step     int      `json:"step"`
+	RoomName string   `json:"roomName"`
+	Members  []string `json:"members"`
 }
 type app struct {
 	sd       *conn
@@ -565,6 +567,14 @@ func (a *app) handle(e event) {
 			case actSweep:
 				s.Mode, s.Value = "brightness", 70
 			}
+		}
+		if name := strings.TrimSpace(s.RoomName); name != "" && len(s.Members) > 0 {
+			id := "room:" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+			a.mu.Lock()
+			a.db.Rooms[id] = Room{ID: id, Name: name, Devices: append([]string(nil), s.Members...)}
+			a.save()
+			a.mu.Unlock()
+			s.Target = id
 		}
 		a.mu.Lock()
 		a.contexts[e.Context] = struct {
