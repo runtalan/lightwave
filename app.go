@@ -1802,13 +1802,32 @@ func (a *App) paintScene(turnOn bool) {
 	grad := a.gradient
 	pal := a.engine.Palette()
 	swatches := a.engine.SceneColors(len(dests), grad)
+	brightness := ignitedBrightness(a.brightness)
 	prev := map[string]color.RGBK{}
 	for k, v := range a.lastColor {
 		prev[k] = v
 	}
+	// A palette repaint moves every lamp into a colour mode, so the pump's
+	// "same value, skip it" shortcut no longer reflects what the lamps are
+	// actually showing — the next slider move must reach them.
+	a.lastSentBright = -1
 	a.mu.Unlock()
 	if len(dests) == 0 || len(swatches) == 0 {
 		return
+	}
+
+	// Some BLE RGBIC controllers retain a separate level per colour mode, so a
+	// lamp painted into manual/segment colour adopts whatever brightness it had
+	// stored for that mode rather than the one on the slider. Reassert it after
+	// the colour, exactly as paintWarmness does, or a slider already sitting at
+	// 100% never gets re-sent and the lamp stays dim. Every exit from the paint
+	// loop below has to pass through here.
+	reassertLevel := func(d lampDest) {
+		level := brightness
+		if d.Trim > 0 {
+			level = ignitedBrightness(brightness * d.Trim / 100)
+		}
+		_ = govee.SendBrightness(d.IP, level)
 	}
 
 	const steps = 4
@@ -1841,12 +1860,14 @@ func (a *App) paintScene(turnOn bool) {
 			} else {
 				next[i] = c
 			}
+			reassertLevel(d)
 			continue
 		}
 		next[i] = c
 		from, ok := prev[d.IP]
 		if !ok || (from.R == c.R && from.G == c.G && from.B == c.B && from.Kelvin == c.Kelvin) {
 			_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
+			reassertLevel(d)
 			continue
 		}
 		for s := 1; s <= steps; s++ {
@@ -1867,6 +1888,7 @@ func (a *App) paintScene(turnOn bool) {
 				time.Sleep(30 * time.Millisecond)
 			}
 		}
+		reassertLevel(d)
 	}
 	a.mu.Lock()
 	if a.lastColor == nil {

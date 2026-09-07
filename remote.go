@@ -1,15 +1,12 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
 
 	"lightwave/internal/color"
-	"lightwave/internal/govee"
 )
 
 // RemoteCommand executes a command sent over the IPC socket by an external
@@ -169,32 +166,6 @@ func (a *App) RemoteCommand(cmd string) string {
 		}
 		a.CycleColor(dir)
 		return a.remoteState()
-
-	// RAW <pad> <hex> pushes one arbitrary frame down a pad's existing BLE
-	// link. TEMPORARY probe scaffolding for identifying the Govee
-	// colour-temperature opcode; remove once sendBLEColor carries Kelvin.
-	case "RAW":
-		if len(fields) < 3 {
-			return "ERR usage: RAW <pad> <hex>"
-		}
-		n, err := strconv.Atoi(fields[1])
-		if err != nil || n < 1 || n > 9 {
-			return "ERR bad pad"
-		}
-		cmd, err := hex.DecodeString(strings.ReplaceAll(fields[2], " ", ""))
-		if err != nil {
-			return "ERR bad hex: " + err.Error()
-		}
-		a.mu.Lock()
-		ip, _, label := a.slotLinkLocked(n)
-		a.mu.Unlock()
-		if ip == "" {
-			return "ERR pad has no address"
-		}
-		if err := govee.SendRawBLE(ip, cmd); err != nil {
-			return "ERR " + err.Error()
-		}
-		return fmt.Sprintf("OK sent % X to pad %d (%s)", cmd, n, label)
 
 	case "SHOW", "SETUP", "CONFIG", "TOGGLE", "SUBSCRIBE":
 		// Window commands stay on the legacy fire-and-forget path.

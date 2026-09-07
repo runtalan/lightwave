@@ -91,3 +91,90 @@ func TestGradientToggleRestoresKelvin(t *testing.T) {
 		t.Fatalf("after gradient toggle Kelvin = %d, want %d (lamp stays dim)", got, baseline)
 	}
 }
+
+// brightnessOf returns the values of every brightness payload sent to ip.
+func brightnessOf(payloads []string) []int {
+	var out []int
+	for _, p := range payloads {
+		if !strings.Contains(p, `"cmd":"brightness"`) {
+			continue
+		}
+		var m struct {
+			Msg struct {
+				Data struct {
+					V int `json:"value"`
+				} `json:"data"`
+			} `json:"msg"`
+		}
+		if json.Unmarshal([]byte(p), &m) == nil {
+			out = append(out, m.Msg.Data.V)
+		}
+	}
+	return out
+}
+
+// Painting a palette moves every lamp into a colour mode, and some BLE RGBIC
+// controllers keep a separate level per mode — so the lamp adopts whatever it
+// had stored there instead of the slider. paintWarmness already reasserts the
+// level; paintScene must too, or a slider sitting at 100% is never re-sent (the
+// pump skips it as unchanged) and the pool stays visibly dim.
+func TestPaintSceneReassertsBrightness(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		model    string
+		gradient bool
+	}{
+		{"single colour", "H6001", false},
+		{"segment gradient", "H617A", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const ip = "192.0.2.91"
+			a := &App{
+				pool:       map[int]bool{1: true},
+				slots:      []config.SlotBinding{{Slot: 1, IP: ip, Model: tc.model}},
+				lastColor:  map[string]color.RGBK{},
+				brightness: 100,
+				gradient:   tc.gradient,
+			}
+			govee.Remember(ip, tc.model)
+
+			var payloads []string
+			govee.SetTestControlSink(func(_, p string) { payloads = append(payloads, p) })
+			t.Cleanup(func() { govee.SetTestControlSink(nil) })
+
+			a.paintScene(true)
+
+			got := brightnessOf(payloads)
+			if len(got) == 0 {
+				t.Fatalf("paintScene sent no brightness — lamp keeps its per-mode level and stays dim")
+			}
+			for _, v := range got {
+				if v != 100 {
+					t.Fatalf("reasserted brightness = %d, want 100", v)
+				}
+			}
+		})
+	}
+}
+
+// The pump skips a send when the level has not changed. A palette repaint has
+// to clear that latch, otherwise the next slider move at the same percentage
+// never reaches lamps that just adopted a per-mode level.
+func TestPaintSceneClearsBrightnessLatch(t *testing.T) {
+	const ip = "192.0.2.92"
+	a := &App{
+		pool:           map[int]bool{1: true},
+		slots:          []config.SlotBinding{{Slot: 1, IP: ip, Model: "H6001"}},
+		lastColor:      map[string]color.RGBK{},
+		brightness:     100,
+		lastSentBright: 100,
+	}
+	govee.SetTestControlSink(func(_, _ string) {})
+	t.Cleanup(func() { govee.SetTestControlSink(nil) })
+
+	a.paintScene(true)
+
+	if a.lastSentBright != -1 {
+		t.Fatalf("lastSentBright = %d after repaint, want -1 so the pump re-sends", a.lastSentBright)
+	}
+}

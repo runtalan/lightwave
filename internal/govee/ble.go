@@ -289,14 +289,3 @@ func BLEFallbackName(model, suffix string) string {
 	}
 	return "Govee BLE"
 }
-
-// SendRawBLE writes an arbitrary command to a BLE lamp, padded and checksummed
-// like any other frame. TEMPORARY probe scaffolding for identifying the Govee
-// colour-temperature opcode — remove with the RAW remote verb once the correct
-// encoding is known and implemented in sendBLEColor.
-func SendRawBLE(addr string, cmd []byte) error {
-	if !IsBLE(addr) {
-		return fmt.Errorf("govee: %q is not a BLE address", addr)
-	}
-	return bleSend(addr, blePacket(cmd))
-}
