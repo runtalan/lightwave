@@ -7,6 +7,7 @@ export namespace config {
 	    model: string;
 	    ip: string;
 	    custom?: string;
+	    trim?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SlotBinding(source);
@@ -20,6 +21,7 @@ export namespace config {
 	        this.model = source["model"];
 	        this.ip = source["ip"];
 	        this.custom = source["custom"];
+	        this.trim = source["trim"];
 	    }
 	}
 
@@ -138,11 +140,11 @@ export namespace main {
 	    active: boolean;
 	    online: boolean;
 	    trim: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SlotView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.number = source["number"];

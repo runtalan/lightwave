@@ -222,6 +222,7 @@ export function HUD({ state }: Props) {
             >
               <span className="pad">{n}</span>
               <span className="name">{mapped ? slot?.name : '—'}</span>
+              {mapped && slot?.model && <span className="model">{slot.model}</span>}
               {mapped && !slot?.ip && <span className="warn">no link</span>}
               {mapped && slot?.ip?.startsWith('ble:') && <span className="linkway">BLE</span>}
             </button>

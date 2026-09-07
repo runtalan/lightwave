@@ -323,6 +323,7 @@ function LightsPane({
   const [dragDevice, setDragDevice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [renaming, setRenaming] = useState<number | null>(null)
+  const [renamingDevice, setRenamingDevice] = useState<string | null>(null)
   const [trimming, setTrimming] = useState<number | null>(null)
 
   async function rename(slot: number, value: string) {
@@ -491,6 +492,9 @@ function LightsPane({
               ) : (
                 <span className="name">{mapped ? slot?.name : 'empty'}</span>
               )}
+              {mapped && slot?.model && renaming !== n && (
+                <span className="model">{slot.model}</span>
+              )}
               {mapped && !slot?.ip && <span className="warn">no link</span>}
               {mapped && slot?.ip?.startsWith('ble:') && <span className="linkway">BLE</span>}
               {mapped && trimming === n ? (
@@ -590,12 +594,13 @@ function LightsPane({
         {(state.catalog ?? []).map((d) => {
           const taken = boundIds.get(d.id)
           const takenHere = taken === focus
+          const boundSlot = taken ? slotByNumber(state, taken) : undefined
+          const displayName = boundSlot?.name || d.name || d.model || d.id
           return (
             <button
               key={d.id}
               type="button"
               className={`device ${takenHere ? 'current' : ''} ${taken && !takenHere ? 'taken' : ''}`}
-              disabled={Boolean(taken) && !takenHere}
               draggable={!taken || takenHere}
               onDragStart={(e) => {
                 setDragDevice(d.id)
@@ -608,18 +613,56 @@ function LightsPane({
               onDragEnd={() => setDragDevice(null)}
               onClick={() => {
                 if (taken && !takenHere) {
-                  setErr(`${d.name} is already on pad ${taken}`)
+                  setFocus(taken)
+                  setNote(`${displayName} is mapped to pad ${taken}.`)
                   return
                 }
                 void bind(focus, takenHere ? '' : d.id)
               }}
             >
-              <span className="d-name">{d.name || d.model || d.id}</span>
+              {renamingDevice === d.id && taken ? (
+                <input
+                  className="device-rename-field"
+                  autoFocus
+                  defaultValue={displayName}
+                  maxLength={40}
+                  aria-label={`Rename ${displayName}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => {
+                    setRenamingDevice(null)
+                    void rename(taken, e.target.value)
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                      setRenamingDevice(null)
+                      void rename(taken, e.currentTarget.value)
+                    }
+                    if (e.key === 'Escape') setRenamingDevice(null)
+                  }}
+                />
+              ) : (
+                <span className="d-name">{displayName}</span>
+              )}
               <span className="d-meta">
                 {d.model}
                 {d.ip ? (d.ip.startsWith('ble:') ? ' · BLE' : ` · ${d.ip}`) : ' · no link'}
                 {taken ? ` · pad ${taken}` : ''}
               </span>
+              {taken && renamingDevice !== d.id && (
+                <span
+                  className="device-rename"
+                  title="Rename light"
+                  aria-label={`Rename ${displayName}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setFocus(taken)
+                    setRenamingDevice(d.id)
+                  }}
+                >
+                  ✎
+                </span>
+              )}
             </button>
           )
         })}
@@ -1241,4 +1284,3 @@ function AccountPane({
 }
 
 export default Config
-
