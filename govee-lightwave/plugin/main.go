@@ -42,6 +42,9 @@ type event struct {
 		Settings json.RawMessage `json:"settings"`
 		Ticks    int             `json:"ticks"`
 		Request  string          `json:"request"`
+		RoomID   string          `json:"roomId"`
+		RoomName string          `json:"roomName"`
+		Members  []string        `json:"members"`
 	} `json:"payload"`
 }
 type conn struct {
@@ -172,6 +175,9 @@ func (w *conn) state(ctx string, n int) {
 func (w *conn) alert(ctx string) { _ = w.send(map[string]string{"event": "showAlert", "context": ctx}) }
 func (w *conn) pi(ctx, act string, p any) {
 	_ = w.send(map[string]any{"event": "sendToPropertyInspector", "context": ctx, "action": act, "payload": p})
+}
+func (w *conn) settings(ctx string, p any) {
+	_ = w.send(map[string]any{"event": "setSettings", "context": ctx, "payload": p})
 }
 
 type Device struct {
@@ -338,7 +344,7 @@ func (a *app) members(target string) []Device {
 		return out
 	}
 	// An unavailable or discovery-only Bluetooth ID must never mean all lights.
-	if target != "" {
+	if target != "__all__" {
 		return nil
 	}
 	out := []Device{}
@@ -390,8 +396,29 @@ func (a *app) apply(s settings) {
 		a.command(ds, "power", 1)
 	case "off":
 		a.command(ds, "power", 0)
+	case "toggle":
+		value := 1
+		if anyOn(ds) {
+			value = 0
+		}
+		a.command(ds, "power", value)
 	case "brightness":
 		a.command(ds, "brightness", s.Value)
+	case "brightness_up", "brightness_down":
+		step := s.Step
+		if step < 1 {
+			step = 10
+		}
+		if s.Mode == "brightness_down" {
+			step = -step
+		}
+		for _, d := range ds {
+			value := d.Brightness + step
+			if d.Brightness == 0 {
+				value = 50
+			}
+			a.command([]Device{d}, "brightness", value)
+		}
 	case "color":
 		a.command(ds, "color", s.R, s.G, s.B)
 	case "temperature":
@@ -511,7 +538,8 @@ func (a *app) refresh() {
 		}
 	}
 }
-func (a *app) sendInspector(ctx, act string) {
+func (a *app) sendInspector(ctx, act string) { a.sendInspectorNotice(ctx, act, "", "") }
+func (a *app) sendInspectorNotice(ctx, act, notice, errorMessage string) {
 	a.mu.Lock()
 	ds := make([]Device, 0, len(a.db.Devices))
 	for _, d := range a.db.Devices {
@@ -526,11 +554,12 @@ func (a *app) sendInspector(ctx, act string) {
 		ble = append(ble, d)
 	}
 	lanStatus, bleStatus := a.discoveryStatus, a.bleStatus
+	assignedTarget := a.contexts[ctx].s.Target
 	a.mu.Unlock()
 	sort.Slice(ds, func(i, j int) bool { return ds[i].Name < ds[j].Name })
 	sort.Slice(ble, func(i, j int) bool { return ble[i].ID < ble[j].ID })
 	if a.sd != nil {
-		a.sd.pi(ctx, act, map[string]any{"devices": ds, "rooms": rs, "bluetoothDevices": ble, "discoveryStatus": lanStatus, "bluetoothStatus": bleStatus, "palettes": []string{"Ocean", "Sunset", "Candlelight", "Sage"}})
+		a.sd.pi(ctx, act, map[string]any{"devices": ds, "rooms": rs, "bluetoothDevices": ble, "assignedTarget": assignedTarget, "discoveryStatus": lanStatus, "bluetoothStatus": bleStatus, "notice": notice, "error": errorMessage, "palettes": []string{"Ocean", "Sunset", "Candlelight", "Sage"}})
 	}
 }
 
@@ -580,8 +609,10 @@ func (a *app) handle(e event) {
 		// saved a setting. The inspector will retain these defaults thereafter.
 		if s.Mode == "" {
 			switch e.Action {
-			case actPower, actStatus:
-				s.Mode = "on"
+			case actPower:
+				s.Mode = "toggle"
+			case actStatus:
+				s.Mode = "status"
 			case actBrightness:
 				s.Mode, s.Value = "brightness", 70
 			case actColor:
@@ -598,14 +629,6 @@ func (a *app) handle(e event) {
 				s.Mode, s.Value = "brightness", 70
 			}
 		}
-		if name := strings.TrimSpace(s.RoomName); name != "" && len(s.Members) > 0 {
-			id := "room:" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-			a.mu.Lock()
-			a.db.Rooms[id] = Room{ID: id, Name: name, Devices: append([]string(nil), s.Members...)}
-			a.save()
-			a.mu.Unlock()
-			s.Target = id
-		}
 		a.mu.Lock()
 		a.contexts[e.Context] = struct {
 			action string
@@ -617,7 +640,7 @@ func (a *app) handle(e event) {
 		a.mu.Lock()
 		delete(a.contexts, e.Context)
 		a.mu.Unlock()
-	case "propertyInspectorDidAppear", "sendToPlugin":
+	case "propertyInspectorDidAppear":
 		a.mu.Lock()
 		if a.inspectors == nil {
 			a.inspectors = map[string]string{}
@@ -625,9 +648,21 @@ func (a *app) handle(e event) {
 		a.inspectors[e.Context] = e.Action
 		a.mu.Unlock()
 		a.sendInspector(e.Context, e.Action)
-		if e.Payload.Request == "scan" {
+	case "sendToPlugin":
+		a.mu.Lock()
+		if a.inspectors == nil {
+			a.inspectors = map[string]string{}
+		}
+		a.inspectors[e.Context] = e.Action
+		a.mu.Unlock()
+		switch e.Payload.Request {
+		case "scan":
 			go a.scan()
 			a.scanBluetooth()
+		case "saveRoom":
+			a.saveRoom(e)
+		default:
+			a.sendInspector(e.Context, e.Action)
 		}
 	case "propertyInspectorDidDisappear":
 		a.mu.Lock()
@@ -640,12 +675,12 @@ func (a *app) handle(e event) {
 		if !ok {
 			return
 		}
-		if e.Action == actStatus {
-			if anyOn(a.members(x.s.Target)) {
-				x.s.Mode = "off"
-			} else {
-				x.s.Mode = "on"
-			}
+		if x.s.Target == "" {
+			a.sd.alert(e.Context)
+			return
+		}
+		if e.Action == actStatus && x.s.Mode != "toggle" {
+			return
 		}
 		a.apply(x.s)
 	case "dialRotate":
@@ -669,6 +704,53 @@ func (a *app) handle(e event) {
 		}
 		a.apply(x.s)
 	}
+}
+
+func newRoomID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("room:%d", time.Now().UnixNano())
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("room:%x", b)
+}
+
+func (a *app) saveRoom(e event) {
+	name := strings.TrimSpace(e.Payload.RoomName)
+	if name == "" || len([]rune(name)) > 48 {
+		a.sendInspectorNotice(e.Context, e.Action, "", "Enter a room name between 1 and 48 characters.")
+		return
+	}
+	a.mu.Lock()
+	seen := map[string]bool{}
+	members := make([]string, 0, len(e.Payload.Members))
+	for _, id := range e.Payload.Members {
+		if _, ok := a.db.Devices[id]; ok && !seen[id] {
+			seen[id] = true
+			members = append(members, id)
+		}
+	}
+	if len(members) == 0 {
+		a.mu.Unlock()
+		a.sendInspectorNotice(e.Context, e.Action, "", "Select at least one available LAN light.")
+		return
+	}
+	id := e.Payload.RoomID
+	if _, ok := a.db.Rooms[id]; !ok {
+		id = newRoomID()
+	}
+	a.db.Rooms[id] = Room{ID: id, Name: name, Devices: members}
+	a.save()
+	instance := a.contexts[e.Context]
+	instance.s.Target = id
+	instance.s.RoomName = ""
+	instance.s.Members = nil
+	a.contexts[e.Context] = instance
+	a.mu.Unlock()
+	a.sd.settings(e.Context, instance.s)
+	a.sendInspectorNotice(e.Context, e.Action, "Room saved and selected.", "")
+	a.refresh()
 }
 func anyOn(ds []Device) bool {
 	for _, d := range ds {

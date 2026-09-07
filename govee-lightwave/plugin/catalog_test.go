@@ -68,3 +68,43 @@ func TestCatalogRoutesToOpenInspector(t *testing.T) {
 	}
 	<-done
 }
+
+func TestSaveRoomCreatesStableTargetFromAvailableDevices(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go func() { _, _ = io.Copy(io.Discard, server) }()
+
+	a := &app{
+		sd: &conn{c: client},
+		contexts: map[string]struct {
+			action string
+			s      settings
+		}{"key-1": {action: actPower}},
+		inspectors: map[string]string{},
+		fades:      map[string]chan struct{}{},
+	}
+	a.db = database{
+		Devices: map[string]Device{"desk": {ID: "desk"}, "wall": {ID: "wall"}},
+		Rooms:   map[string]Room{},
+		Scenes:  map[string]Scene{},
+	}
+	var e event
+	e.Action, e.Context = actPower, "key-1"
+	e.Payload.RoomName = "  Studio  "
+	e.Payload.Members = []string{"desk", "missing", "desk", "wall"}
+	a.saveRoom(e)
+
+	if len(a.db.Rooms) != 1 {
+		t.Fatalf("created %d rooms", len(a.db.Rooms))
+	}
+	instance := a.contexts["key-1"]
+	room, ok := a.db.Rooms[instance.s.Target]
+	if !ok || room.ID == "" || room.Name != "Studio" {
+		t.Fatalf("room was not selected with normalized values: %+v", room)
+	}
+	if len(room.Devices) != 2 || room.Devices[0] != "desk" || room.Devices[1] != "wall" {
+		t.Fatalf("room contains unavailable or duplicate devices: %v", room.Devices)
+	}
+}

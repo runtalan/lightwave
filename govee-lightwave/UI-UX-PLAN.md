@@ -1,6 +1,6 @@
-# Configuration audit and revised flow
+# Configuration audit and implemented flow
 
-Scope: planning only for the visual redesign and room workflow. Discovery transport, catalog delivery, status text, and replacement of stale options are implemented separately. No redesigned layout is included in this change.
+Status: implemented in the property inspector and plugin runtime. The first screen now prioritizes an individual light, action-specific settings replace the generic operation form, and room creation lives under More Options. Room saves use explicit requests and stable IDs, then select the new room for the current action. Bluetooth candidates remain clearly labeled as discovery-only until model-specific GATT control is implemented.
 
 ## Decision
 
@@ -39,7 +39,7 @@ Locations refer to the configuration code inspected before the discovery repair;
 
 The accessibility and form audit uses [Web Interface Guidelines](https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md). Findings are based on code and user-reported friction. The current inspector was also opened in the collaborative browser to verify discovery updates; the proposed redesign has not been implemented or visually validated.
 
-## Proposed inspector hierarchy
+## Inspector hierarchy
 
 | Surface | Show | Keep deeper |
 |---|---|---|
@@ -116,10 +116,10 @@ Use labeled controls, semantic buttons, visible keyboard focus, announced async 
 
 Test at typical Stream Deck inspector widths with long names, 0/1/20 devices, both transports, no mouse, and permission denial. First-light success takes one device selection after discovery. No room name or checklist appears in that path. Room creation takes one optional route and never changes unrelated keys.
 
-## Later implementation sequence
+## Implementation sequence
 
-1. Fix target/settings semantics: explicit unassigned/device/group/all types, canonical action defaults, UUID room CRUD messages, error acknowledgments.
-2. Build the first-light inspector and action-specific fields.
-3. Add advanced room editor with draft preservation and optional ordering.
-4. Add connection recovery, accessible status feedback, and actual-width visual QA.
-5. Connect Bluetooth control only after model-specific GATT validation and honest state reporting; Bluetooth discovery is not that validation.
+1. Completed: explicit unassigned/device/group/all targeting, canonical action defaults, UUID room save messages, and acknowledgments.
+2. Completed: first-light inspector and action-specific fields.
+3. Completed: advanced create/edit room flow with draft preservation.
+4. Completed: accessible status feedback and visual QA at a 360-pixel inspector width. More detailed permission-specific recovery remains future work.
+5. Future: connect Bluetooth control only after model-specific GATT validation and honest state reporting; Bluetooth discovery is not that validation.

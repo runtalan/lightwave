@@ -1,1 +1,54 @@
-:root{color-scheme:dark}body{margin:0;background:#0b0613;color:#e9d5ff;font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{padding:14px}h1{margin:0 0 7px;color:#d57aff;font-size:15px}.lead,#help{color:#ad94bf;line-height:1.45;margin:0 0 14px}label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;color:#c9b2d8}select,input{box-sizing:border-box;width:62%;background:#1a0d28;color:#f1e6ff;border:1px solid #5b3377;border-radius:5px;padding:6px}input[type=color]{height:31px;padding:2px}details{margin-top:16px;border-top:1px solid #44235e;padding-top:9px}summary{cursor:pointer;color:#d57aff}#members{max-height:110px;overflow:auto}#members label{justify-content:flex-start;gap:7px;margin:5px 0}#members input{width:auto}button{background:#7022a9;color:#fff;border:0;border-radius:5px;padding:7px 9px;cursor:pointer}
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+html{background:#0b0613}
+body{margin:0;background:radial-gradient(circle at top right,#251039 0,#0b0613 44%);color:#eadcf5;font-size:13px;overflow-x:hidden}
+.skip-link{position:fixed;top:6px;left:6px;z-index:2;transform:translateY(-160%);border-radius:5px;background:#fff;color:#170921;padding:7px 10px;font-weight:700}
+.skip-link:focus{transform:translateY(0)}
+main{max-width:460px;padding:16px}
+header{padding-bottom:4px}
+.eyebrow{margin:0 0 4px;color:#b45dff;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+h1,h2{margin:0;text-wrap:balance}
+h1{font-size:18px;line-height:1.25}
+h2{margin-bottom:9px;color:#d8c5e7;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.lead,.editor-heading p,.connection p{color:#a993b9;line-height:1.45;text-wrap:pretty}
+.lead{margin:5px 0 14px}
+section{border-top:1px solid #372046;padding:13px 0}
+.field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:9px 0;color:#cbb9d8}
+.field>span{min-width:0;max-width:36%;overflow-wrap:anywhere}
+select,input{width:64%;min-width:0;border:1px solid #583574;border-radius:6px;background-color:#1b1028;color:#f5edfb;font:inherit;padding:7px}
+input[type=color]{height:34px;padding:3px}
+select:hover,input:hover{border-color:#8e4fbd}
+select:focus-visible,input:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid #d46cff;outline-offset:2px}
+.success,.notice,.error{border-radius:6px;padding:8px 10px;line-height:1.35}
+.success{margin:8px 0 0;background:#172b24;color:#97e7c2}
+.notice{background:#24182e;color:#cbb9d8}
+.error{background:#3c1728;color:#ffb7d1}
+.more{border-top:1px solid #372046;padding:12px 0}
+summary{cursor:pointer;color:#c66cff;font-weight:600;padding:4px 0}
+.more-body{padding:10px 0 0}
+button{min-height:34px;border:0;border-radius:6px;background:#8a32c4;color:#fff;font:inherit;font-weight:600;padding:7px 11px;touch-action:manipulation;cursor:pointer}
+button:hover{background:#a348df}
+button:active{transform:translateY(1px)}
+button:disabled{cursor:wait;opacity:.55}
+button.secondary{border:1px solid #65407d;background:#1c1029;color:#e9d5ff}
+button.secondary:hover{background:#2a173c}
+button.quiet{background:transparent;color:#bfa9ce}
+.editor{margin-top:10px;border:1px solid #482b5d;border-radius:8px;background:#130b1d;padding:12px}
+.editor-heading h2{margin-bottom:2px}
+.editor-heading p{margin:0 0 10px}
+.stacked{display:block;color:#cbb9d8;font-weight:600}
+.stacked input{display:block;width:100%;margin-top:6px}
+fieldset{margin:13px 0;border:0;padding:0}
+legend{margin-bottom:5px;color:#cbb9d8;font-weight:600}
+.members{display:grid;gap:3px;max-height:156px;overflow:auto;overscroll-behavior:contain}
+.members label{display:flex;align-items:center;gap:8px;border-radius:5px;padding:7px;color:#ddcde8;cursor:pointer}
+.members label:hover{background:#21132e}
+.members input{width:auto}
+.members span{min-width:0;overflow-wrap:anywhere}
+.button-row{display:flex;gap:5px;margin-top:10px}
+.connection{margin-top:10px;border-top:1px solid #34213f;padding-top:7px}
+.connection p{margin:7px 0 10px}
+.status{margin-top:11px;border-radius:7px;background:#171020;color:#ae9bbb;line-height:1.4;padding:9px 10px;overflow-wrap:anywhere}
+.status.has-error{background:#3c1728;color:#ffb7d1}
+[hidden]{display:none!important}
+@media(prefers-reduced-motion:reduce){button:active{transform:none}}
