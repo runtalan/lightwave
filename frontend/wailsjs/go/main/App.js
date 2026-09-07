@@ -154,14 +154,6 @@ export function SetBrightness(arg1) {
   return window['go']['main']['App']['SetBrightness'](arg1);
 }
 
-export function SetWarmness(arg1) {
-  return window['go']['main']['App']['SetWarmness'](arg1);
-}
-
-export function ToggleWarmMode() {
-  return window['go']['main']['App']['ToggleWarmMode']();
-}
-
 export function SetConfigAPIKey(arg1) {
   return window['go']['main']['App']['SetConfigAPIKey'](arg1);
 }
@@ -180,6 +172,10 @@ export function SetPalette(arg1) {
 
 export function SetSlotTrim(arg1, arg2) {
   return window['go']['main']['App']['SetSlotTrim'](arg1, arg2);
+}
+
+export function SetWarmness(arg1) {
+  return window['go']['main']['App']['SetWarmness'](arg1);
 }
 
 export function SetWebAssets(arg1) {
@@ -216,6 +212,10 @@ export function ToggleGradient() {
 
 export function ToggleSlot(arg1) {
   return window['go']['main']['App']['ToggleSlot'](arg1);
+}
+
+export function ToggleWarmMode() {
+  return window['go']['main']['App']['ToggleWarmMode']();
 }
 
 export function ToggleWindow() {

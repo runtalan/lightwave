@@ -34,7 +34,7 @@ The cloud is used for exactly one thing: reading your light *names* during setup
 | **Slider / dial** | Dim every lit light together, smoothly |
 | **+** | Cycle color palettes |
 | **−** | Switch between single-color and gradient scenes |
-| **\*** | Start or stop a slow color fade across the room |
+| **\*** | Toggle between LightWave palettes and Warmness mode |
 | **Enter** | Hide the window (it keeps running) |
 | **.** | Quit |
 

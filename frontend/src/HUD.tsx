@@ -5,7 +5,6 @@ import {
   Quit,
   SetPalette,
   ToggleWarmMode,
-  ToggleDance,
   ToggleGradient,
   HideHUD,
   OpenConfig,
@@ -67,7 +66,7 @@ export function HUD({ state }: Props) {
       // Star / asterisk: numpad *, or Shift+8 on the number row.
       if (e.code === 'NumpadMultiply' || e.key === '*') {
         e.preventDefault()
-        void ToggleDance()
+        void ToggleWarmMode()
         return
       }
       if (e.code === 'Digit0' || e.code === 'Numpad0') {
@@ -173,9 +172,9 @@ export function HUD({ state }: Props) {
           them. */}
       <ul className="keymap" aria-label="Shortcuts">
         <li>
-          <button type="button" className="keycap" onClick={() => void ToggleDance()}>
-            <kbd className={state.dancing ? 'live' : ''}>*</kbd>
-            <span>color fades</span>
+          <button type="button" className="keycap" onClick={() => void ToggleWarmMode()}>
+            <kbd className={state.warmMode ? 'live' : ''}>*</kbd>
+            <span>{state.warmMode ? 'warmness' : 'LightWave mode'}</span>
           </button>
         </li>
         <li>

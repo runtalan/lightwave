@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	stdruntime "runtime"
 	"sort"
@@ -368,6 +369,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	go a.midiApplyLoop()
 	go a.brightnessPump()
+	startGlobalNumpad(a.handleGlobalNumpad)
 	go func() {
 		_ = a.midi.Start()
 	}()
@@ -421,6 +423,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	stopGlobalNumpad()
 	select {
 	case <-a.stop:
 	default:
@@ -437,6 +440,29 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.webSrv != nil {
 		_ = a.webSrv.Stop()
+	}
+}
+
+// handleGlobalNumpad mirrors the lighting bindings in the HUD, but works while
+// another macOS app owns focus. The event tap filters auto-repeat, so holding a
+// number cannot accidentally toggle a light back off.
+func (a *App) handleGlobalNumpad(key int) {
+	switch key {
+	case 82: // keypad 0
+		a.ToggleAll()
+	case 83, 84, 85, 86, 87, 88, 89, 91, 92: // keypad 1–9
+		pad := map[int]int{83: 1, 84: 2, 85: 3, 86: 4, 87: 5, 88: 6, 89: 7, 91: 8, 92: 9}[key]
+		if err := a.ToggleSlot(pad); err != nil {
+			log.Printf("global numpad slot %d: %v", pad, err)
+		}
+	case 69: // keypad +
+		a.CycleColor(1)
+	case 78: // keypad −
+		a.CycleColor(-1)
+	case 67: // keypad ×
+		a.ToggleWarmMode()
+	case 75: // keypad ÷
+		a.ToggleGradient()
 	}
 }
 
@@ -935,8 +961,8 @@ func (a *App) applyDeviceStatus(st govee.DevStatus) {
 }
 
 // ToggleDance starts or stops the slow colour fade across every pooled lamp.
-// Bound to the star key. Each lamp walks the same palette from a different
-// offset, so they stay related without ever showing the identical colour.
+// Each lamp walks the same palette from a different offset, so they stay
+// related without ever showing the identical colour.
 func (a *App) ToggleDance() HUDState {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1973,33 +1999,50 @@ func clampWarmness(k int) int {
 }
 
 func warmRGB(k int) color.RGBK {
-	// BLE-only lamps receive this visual approximation; LAN lamps also get the
-	// precise Kelvin value below.
-	if k <= 2400 {
-		return color.RGBK{R: 255, G: 147, B: 67, Kelvin: k}
+	// Bluetooth H6072s receive RGB rather than a native Kelvin opcode. This
+	// established colour-temperature curve keeps the lamp's output near its
+	// maximum at cool white (6000K is 255/246/237), unlike our old hand-picked
+	// swatch whose 232 red channel made the lamp visibly dim at full brightness.
+	t := float64(clampWarmness(k)) / 100
+	var r, g, b float64
+	if t <= 66 {
+		r = 255
+		g = 99.4708025861*math.Log(t) - 161.1195681661
+		if t <= 19 {
+			b = 0
+		} else {
+			b = 138.5177312231*math.Log(t-10) - 305.0447927307
+		}
+	} else {
+		r = 329.698727446 * math.Pow(t-60, -0.1332047592)
+		g = 288.1221695283 * math.Pow(t-60, -0.0755148492)
+		b = 255
 	}
-	if k <= 3200 {
-		return color.RGBK{R: 255, G: 184, B: 113, Kelvin: k}
+	channel := func(v float64) int {
+		return max(0, min(255, int(math.Round(v))))
 	}
-	if k <= 4200 {
-		return color.RGBK{R: 255, G: 218, B: 176, Kelvin: k}
-	}
-	if k <= 5200 {
-		return color.RGBK{R: 255, G: 238, B: 215, Kelvin: k}
-	}
-	return color.RGBK{R: 232, G: 242, B: 255, Kelvin: k}
+	return color.RGBK{R: channel(r), G: channel(g), B: channel(b), Kelvin: k}
 }
 
 func (a *App) paintWarmness(turnOn bool) {
 	a.mu.Lock()
 	dests := a.poolDestsLocked()
 	c := warmRGB(a.warmness)
+	brightness := ignitedBrightness(a.brightness)
 	a.mu.Unlock()
 	for _, d := range dests {
 		if turnOn {
 			_ = govee.SendTurn(d.IP, true)
 		}
 		_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
+		// Some BLE RGBIC controllers retain a separate level per colour mode.
+		// Reassert brightness after switching into manual/segment colour so a
+		// 100% slider really finishes with the device's brightness at 100%.
+		level := brightness
+		if d.Trim > 0 {
+			level = ignitedBrightness(brightness * d.Trim / 100)
+		}
+		_ = govee.SendBrightness(d.IP, level)
 	}
 }
 

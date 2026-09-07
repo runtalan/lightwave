@@ -82,8 +82,6 @@ export function ScanLAN():Promise<main.HUDState>;
 
 export function SetBrightness(arg1:number):Promise<void>;
 
-export function SetWarmness(arg1:number):Promise<main.HUDState>;
-
 export function SetConfigAPIKey(arg1:string):Promise<void>;
 
 export function SetIPCServer(arg1:ipc.Server):Promise<void>;
@@ -93,6 +91,8 @@ export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 export function SetPalette(arg1:number):Promise<main.HUDState>;
 
 export function SetSlotTrim(arg1:number,arg2:number):Promise<main.HUDState>;
+
+export function SetWarmness(arg1:number):Promise<main.HUDState>;
 
 export function SetWebAssets(arg1:fs.FS):Promise<void>;
 
@@ -110,8 +110,8 @@ export function ToggleDance():Promise<main.HUDState>;
 
 export function ToggleGradient():Promise<main.HUDState>;
 
-export function ToggleWarmMode():Promise<main.HUDState>;
-
 export function ToggleSlot(arg1:number):Promise<void>;
+
+export function ToggleWarmMode():Promise<main.HUDState>;
 
 export function ToggleWindow():Promise<void>;
