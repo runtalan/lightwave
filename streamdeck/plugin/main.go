@@ -37,6 +37,18 @@ const (
 	actGradient   = "com.dinksf.lightwave.gradient"
 	actBrightness = "com.dinksf.lightwave.brightness"
 	actStatus     = "com.dinksf.lightwave.status"
+	actSweep      = "com.dinksf.lightwave.sweep"
+)
+
+// Sweep pacing. One light per step is the whole point of the knob — the room
+// should fill and empty visibly rather than all at once — and the gap also
+// keeps a fast spin from firing eight lamp commands into the daemon at once.
+const (
+	sweepStepDelay = 300 * time.Millisecond
+	// A knob left alone this long re-anchors to the lights as they actually
+	// are, so a pad toggled from the HUD or the numpad in the meantime does not
+	// make the next turn jump.
+	sweepIdle = 2 * time.Second
 )
 
 func main() {
@@ -55,8 +67,9 @@ func main() {
 	}
 
 	p := &plugin{
-		client:   lw.NewClient(),
-		contexts: map[string]*instance{},
+		client:    lw.NewClient(),
+		contexts:  map[string]*instance{},
+		sweepWake: make(chan struct{}, 1),
 	}
 
 	conn, err := sd.Dial(*port, *pluginUUID, *registerEvent)
@@ -69,6 +82,7 @@ func main() {
 	// from the HUD, the numpad, or the lamps themselves.
 	go p.client.Subscribe(p.onLightwaveState)
 	go p.animate()
+	go p.sweepLoop()
 
 	conn.Run(p.onEvent)
 }
@@ -130,6 +144,13 @@ type plugin struct {
 	state     lw.State
 	haveState bool
 	phase     float64
+
+	// How many lights the sweep knob is currently asking for, and when it was
+	// last turned. sweepLoop walks the room towards the target one light at a
+	// time; sweepWake nudges it awake.
+	sweepTarget int
+	sweepAt     time.Time
+	sweepWake   chan struct{}
 }
 
 func (p *plugin) onEvent(ev sd.Event) {
@@ -277,6 +298,10 @@ func (p *plugin) press(ev sd.Event) {
 		} else {
 			cmd = "PALETTE +1"
 		}
+	case actSweep:
+		// Pushing the knob is the shortcut past the slow walk: everything off,
+		// or everything back on. The next turn re-anchors from there.
+		cmd = "ALL_TOGGLE"
 	case actStatus:
 		// The status key is the "is anything on?" key, so pressing it answers
 		// that: turn the room off, or bring back exactly the lights that were
@@ -301,8 +326,20 @@ func (p *plugin) press(ev sd.Event) {
 	p.applyState(st)
 }
 
-// rotate handles a Stream Deck + dial, mapped to brightness.
+// rotate handles a Stream Deck + dial.
 func (p *plugin) rotate(ev sd.Event) {
+	p.mu.Lock()
+	inst := p.contexts[ev.Context]
+	p.mu.Unlock()
+	if inst != nil && inst.action == actSweep {
+		p.rotateSweep(ev)
+		return
+	}
+	p.rotateBrightness(ev)
+}
+
+// rotateBrightness maps a dial to the pool brightness.
+func (p *plugin) rotateBrightness(ev sd.Event) {
 	ticks := ev.Payload.Ticks
 	if ticks == 0 {
 		return
@@ -319,6 +356,120 @@ func (p *plugin) rotate(ev sd.Event) {
 		return
 	}
 	p.applyState(st)
+}
+
+// rotateSweep moves the light-count target the knob is aiming for. It does not
+// switch anything itself: turning the knob is instant, but the lights are not,
+// so the work is handed to sweepLoop and paced there.
+func (p *plugin) rotateSweep(ev sd.Event) {
+	ticks := ev.Payload.Ticks
+	if ticks == 0 {
+		return
+	}
+	p.mu.Lock()
+	st, have := p.state, p.haveState
+	p.mu.Unlock()
+	if !have {
+		fresh, err := p.client.Command("STATE")
+		if err != nil {
+			log.Printf("sweep: %v", err)
+			p.sd.ShowAlert(ev.Context)
+			return
+		}
+		p.applyState(fresh)
+		st = fresh
+	}
+	on, total := st.CountOn()
+	if total == 0 {
+		// Nothing bound: there is no room to walk through.
+		p.sd.ShowAlert(ev.Context)
+		return
+	}
+
+	p.mu.Lock()
+	if time.Since(p.sweepAt) > sweepIdle {
+		p.sweepTarget = on
+	}
+	p.sweepTarget = clampInt(p.sweepTarget+ticks, 0, total)
+	p.sweepAt = time.Now()
+	p.mu.Unlock()
+
+	select {
+	case p.sweepWake <- struct{}{}:
+	default: // already running or already asked to run
+	}
+}
+
+// sweepLoop walks the lit lights towards the knob's target, one light and one
+// step delay at a time. It re-reads the state on every step, so a target the
+// knob moves mid-walk — or a pad switched somewhere else — is picked up on the
+// next light rather than fought over.
+func (p *plugin) sweepLoop() {
+	for range p.sweepWake {
+		for {
+			p.mu.Lock()
+			st, have, target := p.state, p.haveState, p.sweepTarget
+			p.mu.Unlock()
+			if !have {
+				break
+			}
+			pad, on, done := sweepStep(st, target)
+			if done {
+				break
+			}
+			cmd := "SLOT_OFF "
+			if on {
+				cmd = "SLOT_ON "
+			}
+			next, err := p.client.Command(cmd + strconv.Itoa(pad))
+			if err != nil {
+				log.Printf("sweep %s%d: %v", cmd, pad, err)
+				break
+			}
+			p.applyState(next)
+			time.Sleep(sweepStepDelay)
+		}
+	}
+}
+
+// sweepStep names the one light to change to move the room towards target.
+//
+// The order is pad order: turning right lights the lowest dark pad, so the room
+// fills 1, 2, 3, ...; turning left darkens the highest lit pad, so a left turn
+// undoes a right turn light for light. Picking from the live state rather than
+// replaying a remembered sequence is what lets the knob pick up wherever the
+// lights happen to be.
+func sweepStep(st lw.State, target int) (pad int, on, done bool) {
+	lowestDark, highestLit, lit := 0, 0, 0
+	for n := 1; n <= 9; n++ {
+		p := st.Pad(n)
+		if p == nil || !p.Bound {
+			continue
+		}
+		if p.On {
+			lit++
+			highestLit = n
+		} else if lowestDark == 0 {
+			lowestDark = n
+		}
+	}
+	switch {
+	case lit < target && lowestDark != 0:
+		return lowestDark, true, false
+	case lit > target && highestLit != 0:
+		return highestLit, false, false
+	}
+	return 0, false, true
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // onLightwaveState receives pushes from the daemon.
@@ -404,6 +555,23 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		} else {
 			log.Printf("level render: %v", err)
 		}
+	case actSweep:
+		// The dial reports how far through the room the knob has walked, as a
+		// count and as the same arc gauge the brightness dial uses.
+		on, total := st.CountOn()
+		pct := 0
+		if total > 0 {
+			pct = on * 100 / total
+		}
+		if img, err := render.Level(pct, on > 0); err == nil {
+			p.sd.SetImage(inst.context, img)
+		} else {
+			log.Printf("sweep render: %v", err)
+		}
+		p.sd.SetFeedback(inst.context, map[string]any{
+			"title": "Lights",
+			"value": strconv.Itoa(on) + "/" + strconv.Itoa(total),
+		})
 	case actPalette:
 		if name, ok := strings.CutPrefix(inst.settings.Direction, "set:"); ok && name != "" {
 			// A fixed jump target: show that palette itself, not a direction.

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0b0613">
+  <link rel="stylesheet" href="pi.css">
+  <script src="pi.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#configuration">Skip to configuration</a>
+<main id="configuration">
+  <header>
+    <p class="eyebrow" translate="no">Govee Lightwave</p>
+    <h1 id="action-title">Choose a Light</h1>
+    <p class="lead" id="action-description">Select one discovered light to configure this key.</p>
+  </header>
+
+  <section aria-labelledby="target-heading">
+    <h2 id="target-heading">Light</h2>
+    <label class="field" for="target"><span>Control</span><select id="target" name="target"><option value="">Choose a light…</option></select></label>
+    <p id="ready" class="success" hidden>Ready — press your key.</p>
+  </section>
+
+  <section id="action-settings" aria-labelledby="settings-heading">
+    <h2 id="settings-heading">Action</h2>
+    <label class="field" id="mode-row" for="mode"><span>Behavior</span><select id="mode" name="mode"></select></label>
+    <label class="field" id="value-row" for="value"><span id="value-label">Brightness (%)</span><input id="value" name="value" type="number" inputmode="numeric" autocomplete="off"></label>
+    <label class="field" id="step-row" for="step"><span>Step (%)</span><input id="step" name="step" type="number" inputmode="numeric" min="1" max="50" autocomplete="off"></label>
+    <label class="field" id="color-row" for="color"><span>Color</span><input id="color" name="color" type="color" value="#7e30ff"></label>
+    <label class="field" id="palette-row" for="palette"><span>Palette</span><select id="palette" name="palette"></select></label>
+    <p id="unavailable-note" class="notice" hidden></p>
+  </section>
+
+  <details class="more">
+    <summary>More Options</summary>
+    <div class="more-body">
+      <label class="stacked" for="group-target">Use a Saved Room<select id="group-target" name="group-target"><option value="">Keep Individual Light</option></select></label>
+      <button id="new-room" class="secondary" type="button">Control Several Lights</button>
+      <div id="room-editor" class="editor" hidden>
+        <div class="editor-heading">
+          <h2>Create a Room</h2>
+          <p>Choose lights once, then reuse this room on other keys.</p>
+        </div>
+        <label class="stacked" for="room-name">Room Name<input id="room-name" name="room-name" type="text" maxlength="48" autocomplete="off" placeholder="Studio…"></label>
+        <fieldset><legend>Lights</legend><div id="members" class="members"></div></fieldset>
+        <p id="room-error" class="error" role="alert" hidden></p>
+        <div class="button-row"><button id="save-room" type="button">Save Room</button><button id="cancel-room" class="quiet" type="button">Cancel</button></div>
+      </div>
+      <details class="connection">
+        <summary>Connection Details</summary>
+        <p>LAN lights require LAN Control in Govee Home. Bluetooth lights currently appear for discovery only.</p>
+        <button id="find-lights" class="secondary" type="button">Find Lights Again</button>
+      </details>
+    </div>
+  </details>
+
+  <div id="status" class="status" role="status" aria-live="polite">Looking for lights…</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const target=$('target'), groupTarget=$('group-target'), mode=$('mode'), value=$('value'), step=$('step'), color=$('color'), palette=$('palette');
+const roomEditor=$('room-editor'), roomName=$('room-name'), members=$('members');
+let catalog={devices:[],rooms:[],bluetoothDevices:[]}, editingRoom='';
+
+const definitions={
+  'power':{title:'Power',description:'Choose a light, then decide what this key does.',modes:[['toggle','Toggle'],['on','Turn On'],['off','Turn Off']]},
+  'brightness':{title:'Brightness',description:'Set or adjust the selected light’s brightness.',modes:[['brightness','Set Brightness'],['brightness_up','Increase'],['brightness_down','Decrease']],value:'brightness'},
+  'color':{title:'Color',description:'Apply a color to the selected light.',modes:[['color','Set Color']],color:true},
+  'temperature':{title:'White Temperature',description:'Set a white temperature on a compatible light.',modes:[['temperature','Set Temperature']],value:'temperature'},
+  'palette':{title:'Palette',description:'Apply a Lightwave palette to a light or room.',modes:[['palette','Apply Palette']],palette:true},
+  'fade':{title:'Color Fade',description:'Start or stop a slow palette fade.',modes:[['fade','Start / Stop Fade']],palette:true},
+  'status':{title:'Status',description:'Show the current state without changing the light.',modes:[['status','Display Only'],['toggle','Display & Toggle']]},
+  'sweep':{title:'Light Sweep',description:'Use a dial to move through an ordered room.',modes:[['brightness','Set Level']],value:'brightness',group:true},
+  'scene':{title:'Scene',description:'Recall a saved lighting scene.',modes:[['scene','Recall Scene']],unavailable:'Scene editing is coming in a later milestone.'}
+};
+let kind='power', definition=definitions.power;
+
+function rgbHex(){return '#'+[settings.r??126,settings.g??48,settings.b??255].map(v=>Number(v).toString(16).padStart(2,'0')).join('')}
+function rgbSettings(){const h=color.value;return {r:parseInt(h.slice(1,3),16),g:parseInt(h.slice(3,5),16),b:parseInt(h.slice(5,7),16)}}
+function updateModeFields(){
+  const adjusts=['brightness_up','brightness_down'].includes(mode.value);
+  $('value-row').hidden=!definition.value||adjusts;
+  $('step-row').hidden=!adjusts;
+}
+function configureAction(){
+  $('action-title').textContent=definition.title;
+  $('action-description').textContent=definition.description;
+  mode.replaceChildren(...definition.modes.map(([v,t])=>new Option(t,v)));
+  const requestedMode=settings.mode||definition.modes[0][0];
+  mode.value=definition.modes.some(([v])=>v===requestedMode)?requestedMode:definition.modes[0][0];
+  if(requestedMode!==mode.value){settings.mode=mode.value;save({mode:mode.value})}
+  $('mode-row').hidden=definition.modes.length===1;
+  updateModeFields();
+  $('color-row').hidden=!definition.color;
+  $('palette-row').hidden=!definition.palette;
+  $('unavailable-note').hidden=!definition.unavailable;
+  $('unavailable-note').textContent=definition.unavailable||'';
+  if(definition.value==='temperature'){
+    $('value-label').textContent='Temperature (K)'; value.min=2000;value.max=9000;value.step=100;value.value=settings.value||2700;
+  }else{ $('value-label').textContent='Brightness (%)';value.min=1;value.max=100;value.step=1;value.value=settings.value||70; }
+  step.value=settings.step||10;color.value=rgbHex();
+}
+function renderCatalog(d){
+  catalog=d;
+  const selected=d.assignedTarget||settings.target||target.value;
+  if(d.assignedTarget) settings.target=d.assignedTarget;
+  const groups={
+    lights:document.createElement('optgroup'),
+    bluetooth:document.createElement('optgroup')
+  };
+  groups.lights.label='Individual Lights';groups.bluetooth.label='Bluetooth';
+  for(const x of d.devices||[])groups.lights.append(new Option((x.name||x.model)+' · '+x.model,x.id));
+  for(const x of d.bluetoothDevices||[]){const o=new Option(x.name+' · discovery only',x.id);o.disabled=true;groups.bluetooth.append(o)}
+  target.replaceChildren(new Option('Choose a light…',''));
+  for(const group of Object.values(groups))if(group.children.length)target.append(group);
+  groupTarget.replaceChildren(new Option('Keep Individual Light',''));
+  for(const r of d.rooms||[])groupTarget.add(new Option(r.name+' · '+r.devices.length+' lights',r.id));
+  groupTarget.add(new Option('All Managed Lights','__all__'));
+  const selectedRoom=(d.rooms||[]).find(r=>r.id===selected);
+  if(selectedRoom)target.add(new Option('Room · '+selectedRoom.name,selectedRoom.id));
+  if(selected==='__all__')target.add(new Option('All Managed Lights','__all__'));
+  if(selected&&![...target.options].some(o=>o.value===selected)){const o=new Option('Unavailable Light',selected);o.disabled=true;target.append(o)}
+  target.value=selected;
+  groupTarget.value=selectedRoom?selectedRoom.id:(selected==='__all__'?'__all__':'');
+  palette.replaceChildren(...(d.palettes||[]).map(p=>new Option(p,p)));
+  palette.value=settings.palette||'Ocean';
+  const checks=new Set([...members.querySelectorAll('input:checked')].map(x=>x.value));
+  members.replaceChildren();
+  for(const x of d.devices||[]){
+    const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');
+    checkbox.type='checkbox';checkbox.value=x.id;checkbox.checked=checks.size?checks.has(x.id):x.id===target.value;
+    text.textContent=x.name||x.model;label.append(checkbox,text);members.append(label);
+  }
+  $('ready').hidden=!target.value||target.selectedOptions[0]?.disabled;
+  const messages=[d.error,d.notice,d.discoveryStatus,d.bluetoothStatus].filter(Boolean);
+  $('status').textContent=messages.join(' ');
+  $('status').classList.toggle('has-error',Boolean(d.error));
+  if(d.error){$('room-error').textContent=d.error;$('room-error').hidden=false}
+  if(d.notice){roomEditor.hidden=true;$('room-error').hidden=true}
+}
+function request(request,extra={}){sendToPlugin(Object.assign({request},extra))}
+function sendToPlugin(payload){if(socket&&socket.readyState===1)socket.send(JSON.stringify({event:'sendToPlugin',context,action,payload}))}
+
+document.addEventListener('lw-ready',e=>{settings=e.detail||{};kind=action.split('.').pop();definition=definitions[kind]||definitions.power;configureAction();target.value=settings.target||''});
+document.addEventListener('lw-catalog',e=>renderCatalog(e.detail||{}));
+target.onchange=()=>{save({target:target.value});$('ready').hidden=!target.value};
+groupTarget.onchange=()=>{if(!groupTarget.value)return;settings.target=groupTarget.value;save({target:groupTarget.value});renderCatalog(catalog)};
+mode.onchange=()=>{settings.mode=mode.value;updateModeFields();save({mode:mode.value})};
+value.onchange=()=>save({value:Number(value.value)});
+step.onchange=()=>save({step:Number(step.value)});
+color.onchange=()=>save(Object.assign({mode:'color'},rgbSettings()));
+palette.onchange=()=>save({palette:palette.value});
+$('find-lights').onclick=()=>{ $('status').textContent='Looking for lights…';request('scan') };
+$('new-room').onclick=()=>{
+  const room=(catalog.rooms||[]).find(r=>r.id===settings.target);
+  editingRoom=room?.id||'';roomName.value=room?.name||'';
+  const chosen=new Set(room?.devices||((catalog.devices||[]).some(d=>d.id===settings.target)?[settings.target]:[]));
+  for(const box of members.querySelectorAll('input'))box.checked=chosen.has(box.value);
+  $('room-editor').querySelector('h2').textContent=room?'Edit Room':'Create a Room';
+  roomEditor.hidden=false;roomName.focus()
+};
+$('cancel-room').onclick=()=>{editingRoom='';roomEditor.hidden=true;$('room-error').hidden=true};
+$('save-room').onclick=()=>{
+  const selected=[...members.querySelectorAll('input:checked')].map(x=>x.value);
+  const name=roomName.value.trim();
+  if(!name){$('room-error').textContent='Enter a room name.';$('room-error').hidden=false;roomName.focus();return}
+  if(!selected.length){$('room-error').textContent='Select at least one light.';$('room-error').hidden=false;members.querySelector('input')?.focus();return}
+  $('save-room').disabled=true;$('status').textContent='Saving room…';
+  request('saveRoom',{roomId:editingRoom,roomName:name,members:selected});
+  setTimeout(()=>$('save-room').disabled=false,800);
+};
+</script>
+</body>
+</html>

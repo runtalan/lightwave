@@ -123,7 +123,8 @@ hold that permission.
 
 Actions: **Light** (toggle one pad, key shows the light's name and lights up when
 on), **All Lights** (everything off, or back on), **Palette**, **Color Fade**, **Brightness** (key nudge, or the
-dial on Stream Deck +). Keys track state pushed from Lightwave, so they stay
+dial on Stream Deck +), **Light Sweep** (a Stream Deck + dial that walks the
+lights on in pad order and back off in reverse, one every 300ms). Keys track state pushed from Lightwave, so they stay
 correct when lights are changed from the HUD, the numpad, or the Govee app.
 
 Lightwave must be running; a key press when it is not shows an alert, and the

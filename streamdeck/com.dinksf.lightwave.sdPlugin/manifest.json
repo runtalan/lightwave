@@ -139,7 +139,7 @@
       "UUID": "com.dinksf.lightwave.brightness",
       "Name": "Brightness",
       "Icon": "imgs/actions/brightness",
-      "Tooltip": "Shows the current brightness. Read-only on a key \u2014 set the level with the app's slider; on Stream Deck + the dial adjusts it.",
+      "Tooltip": "Shows the current brightness. Read-only on a key — set the level with the app's slider; on Stream Deck + the dial adjusts it.",
       "Controllers": [
         "Keypad",
         "Encoder"
@@ -154,6 +154,29 @@
       "States": [
         {
           "Image": "imgs/actions/brightness-key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.dinksf.lightwave.sweep",
+      "Name": "Light Sweep",
+      "Icon": "imgs/actions/sweep",
+      "Tooltip": "Turn the dial right to bring the lights up one at a time, in pad order; turn it left to take them back down, last one first. Push to jump straight to all off or all on.",
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "$B1",
+        "TriggerDescription": {
+          "Rotate": "Lights on/off",
+          "Push": "All off / all on"
+        }
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/sweep",
           "TitleAlignment": "bottom"
         }
       ],

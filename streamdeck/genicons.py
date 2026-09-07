@@ -1,264 +1,190 @@
-import zlib, struct, math, os
+"""Render the Stream Deck icon family using Lightwave's native visual language.
 
-NEON=(0xb0,0x26,0xff); MAG=(0xff,0x2e,0xc8); BG=(0x0d,0x08,0x16)
-SS=3  # supersample factor -> smooth edges
+Run from any directory: python3 streamdeck/genicons.py
+Requires Pillow (python3 -m pip install Pillow). All artwork is procedural;
+72px and 144px PNGs and the review sheet are generated from the same geometry.
+"""
+from pathlib import Path
+import math
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-def mix(a,b,t):
-    t=max(0.0,min(1.0,t))
-    return tuple(a[i]+(b[i]-a[i])*t for i in range(3))
-
-def over(dst, src, a):
-    return tuple(src[i]*a + dst[i]*(1-a) for i in range(3))
-
-def smooth(edge0, edge1, x):
-    if edge0 == edge1: return 0.0 if x < edge0 else 1.0
-    t = max(0.0, min(1.0, (x-edge0)/(edge1-edge0)))
-    return t*t*(3-2*t)
-
-def rounded_box(nx, ny, half, r):
-    """signed distance to a rounded square centred at 0, half-extent `half`."""
-    qx, qy = abs(nx)-(half-r), abs(ny)-(half-r)
-    ax, ay = max(qx,0.0), max(qy,0.0)
-    return math.hypot(ax,ay) + min(max(qx,qy),0.0) - r
-
-def grid_bg(nx, ny, col, strength=1.0):
-    """Purple grid plate: rounded tile, subtle vertical sheen, thin gridlines."""
-    d = rounded_box(nx, ny, 0.92, 0.34)
-    if d > 0.02: return None, 0.0
-    plate_a = smooth(0.02, -0.02, d)
-    # base plate, slightly brighter at the top
-    base = mix((0.16*255,0.09*255,0.28*255), (0.07*255,0.04*255,0.13*255), (ny+1)/2)
-    c = base
-    # gridlines
-    cell = 0.46
-    for axis in (nx, ny):
-        f = abs(((axis/cell) % 1.0) - 0.5) * cell   # distance to nearest line
-        line = smooth(0.028, 0.006, f)
-        if line > 0:
-            c = over(c, mix(NEON, MAG, (nx+1)/2), 0.30*line*strength)
-    # inner border glow
-    edge = smooth(-0.13, -0.02, d)
-    if edge > 0:
-        c = over(c, mix(NEON, MAG, (nx+1)/2), 0.42*edge)
-    return c, plate_a
-
-def spark(nx, ny, t=1.0):
-    """A four-point sparkle: long tapered needles, not a plus sign.
-
-    The previous version modulated radius by cos(2a), which gives four stubby
-    equal lobes — visually a plus. Here each ray is drawn as a spine that
-    narrows to a point, the vertical pair runs longer than the horizontal, and
-    short diagonals fill the gaps so the silhouette reads as a star burst.
-    """
-    col = mix(MAG, NEON, (ny + 1) / 2)
-    d = math.hypot(nx, ny)
-
-    def needle(u, v, length, width):
-        """Ray along +/-u: |v| must shrink to 0 as |u| approaches length."""
-        au = abs(u)
-        if au > length:
-            return 0.0
-        # Concave taper: fat near the core, a fine point at the tip.
-        prof = (1.0 - au / length) ** 1.9
-        halfw = width * prof
-        if halfw <= 0.0005:
-            return 0.0
-        return smooth(halfw, halfw * 0.25, abs(v))
-
-    a = 0.0
-    a = max(a, needle(ny, nx, 0.92, 0.135))   # vertical, longest
-    a = max(a, needle(nx, ny, 0.74, 0.115))   # horizontal
-    # Diagonals at 45 degrees, shorter and finer, to break up the cross.
-    r2 = 0.70710678
-    du, dv = (nx + ny) * r2, (nx - ny) * r2
-    a = max(a, needle(du, dv, 0.40, 0.055))
-    a = max(a, needle(dv, du, 0.40, 0.055))
-
-    # Hot core and surrounding bloom.
-    core = smooth(0.17, 0.0, d)
-    a = max(a, core)
-    c = mix(col, (255, 255, 255), core * 0.9)
-    bloom = smooth(0.85, 0.12, d) * 0.42 * t
-    return c, min(1.0, a * t + bloom * 0.5)
+ROOT = Path(__file__).resolve().parent
+OUT = ROOT / 'com.dinksf.lightwave.sdPlugin' / 'imgs'
+S = 4
+SIZE = 144
+NEON = '#b026ff'
+MAG = '#ff2ec8'
+ICE = '#e9d5ff'
+DIM = '#76568f'
 
 
-def spark_outline(nx, ny, weight=0.075):
-    """Hollow version of spark(), for the unlit state."""
-    col = mix(MAG, NEON, (ny + 1) / 2)
-
-    def edge(u, v, length, width):
-        au = abs(u)
-        if au > length:
-            return 0.0
-        prof = (1.0 - au / length) ** 1.9
-        halfw = width * prof
-        if halfw <= 0.0005:
-            return 0.0
-        return smooth(weight, weight * 0.3, abs(abs(v) - halfw))
-
-    a = 0.0
-    a = max(a, edge(ny, nx, 0.92, 0.135))
-    a = max(a, edge(nx, ny, 0.74, 0.115))
-    r2 = 0.70710678
-    du, dv = (nx + ny) * r2, (nx - ny) * r2
-    a = max(a, edge(du, dv, 0.40, 0.055))
-    a = max(a, edge(dv, du, 0.40, 0.055))
-    return col, a
+def layer():
+    return Image.new('RGBA', (SIZE*S, SIZE*S))
 
 
-def render(path, size, fn):
-    w=h=size
-    rows=[]
-    for py in range(h):
-        row=bytearray()
-        for px in range(w):
-            racc=gacc=bacc=aacc=0.0
-            for sy in range(SS):
-                for sx in range(SS):
-                    x=(px+(sx+0.5)/SS)/w*2-1
-                    y=(py+(sy+0.5)/SS)/h*2-1
-                    c,a = fn(x,y)
-                    if a<=0: continue
-                    racc+=c[0]*a; gacc+=c[1]*a; bacc+=c[2]*a; aacc+=a
-            n=SS*SS
-            if aacc<=0:
-                row += bytes((0,0,0,0))
-            else:
-                a=aacc/n
-                row += bytes((int(max(0,min(255,racc/aacc))), int(max(0,min(255,gacc/aacc))),
-                              int(max(0,min(255,bacc/aacc))), int(max(0,min(255,a*255)))))
-        rows.append(bytes(row))
-    raw=b''.join(b'\x00'+r for r in rows)
-    def chunk(t,d):
-        return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
-    open(path,'wb').write(b'\x89PNG\r\n\x1a\n'
-        +chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))
-        +chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b''))
+def line(im, points, fill=ICE, width=4):
+    d = ImageDraw.Draw(im)
+    points = [(round(x*S), round(y*S)) for x, y in points]
+    d.line(points, fill=fill, width=round(width*S), joint='curve')
+    r = width*S/2
+    for x, y in (points[0], points[-1]):
+        d.ellipse((x-r, y-r, x+r, y+r), fill=fill)
 
-# ---- the light key: grid plate always, spark only when on ----
-def pad(on):
-    def f(nx,ny):
-        c,a = grid_bg(nx,ny,None, 1.0 if on else 0.72)
-        if a<=0: return (0,0,0),0.0
+
+def box(im, bounds, fill=None, outline=None, width=2, radius=5):
+    ImageDraw.Draw(im).rounded_rectangle(tuple(round(v*S) for v in bounds), radius*S,
+                                        fill=fill, outline=outline, width=round(width*S))
+
+
+def circle(im, x, y, r, fill=None, outline=None, width=3):
+    ImageDraw.Draw(im).ellipse(((x-r)*S, (y-r)*S, (x+r)*S, (y+r)*S),
+                              fill=fill, outline=outline, width=round(width*S))
+
+
+def arc(im, bounds, start, end, fill=ICE, width=4):
+    ImageDraw.Draw(im).arc(tuple(v*S for v in bounds), start, end, fill=fill, width=width*S)
+
+
+def star(im, x, y, r, on=True):
+    points = [(x, y-r), (x+r*.16, y-r*.16), (x+r*.76, y),
+              (x+r*.16, y+r*.16), (x, y+r), (x-r*.16, y+r*.16),
+              (x-r*.76, y), (x-r*.16, y-r*.16), (x, y-r)]
+    if on:
+        ImageDraw.Draw(im).polygon([(a*S, b*S) for a,b in points], fill=ICE)
+        circle(im, x,y,3, '#ffffff')
+    else:
+        line(im, points, DIM, 2.5)
+
+
+def plate(active=False):
+    im = layer()
+    # Dark plum glass, violet illumination, and fine scanlines from the HUD.
+    pixels = im.load()
+    for y in range(SIZE*S):
+        for x in range(SIZE*S):
+            nx, ny = x/(SIZE*S), y/(SIZE*S)
+            glow = math.exp(-((nx-.5)**2/.10 + (ny-.36)**2/.12))
+            strength = 1 if active else .35
+            scan = 1.4 if y % (3*S) < S else 0
+            pixels[x,y] = (int(10+38*glow*strength+scan), int(6+5*glow),
+                           int(18+55*glow*strength+scan), 255)
+    mask = Image.new('L', im.size)
+    ImageDraw.Draw(mask).rounded_rectangle((3*S,3*S,141*S,141*S), 22*S, fill=255)
+    im.putalpha(mask)
+    box(im, (4,4,140,140), outline=NEON if active else '#4a1c66', width=1.3, radius=21)
+    line(im, [(32,7),(112,7)], '#8530ad' if active else '#49205e', 1)
+    return im
+
+
+def glyph(kind, on=True):
+    im = layer()
+    ink = ICE if on else DIM
+    if kind in ('pad', 'logo'):
+        star(im,72,65,35,on)
+    elif kind == 'alloff':
+        arc(im,(45,35,99,89),-48,228,ink,5)
+        line(im,[(72,29),(72,58)],ink,5)
+        for x in (56,72,88):
+            circle(im,x,104,3,MAG if on else DIM)
+    elif kind == 'palette':
+        for i,c in enumerate((NEON,MAG,'#ff7a3d')):
+            x=34+i*27
+            box(im,(x,37,x+22,91),fill=c,radius=7)
+            line(im,[(x+6,44),(x+15,44)],'#ffffff',1.5)
+    elif kind == 'dance':
+        for i,c in enumerate((NEON,MAG,ICE)):
+            points=[(x,52+i*14+9*math.sin((x-28)/88*math.pi*2-i*.65)) for x in range(28,117)]
+            line(im,points,c if on else DIM,3.5)
         if on:
-            # A lit key has to read as lit from across a room, so the on state
-            # is not just the same star in a brighter ink: the whole plate is
-            # washed with light that falls off from the core, the star is drawn
-            # heavier, and its centre burns to white. Against the hollow
-            # outline of the off state that is unmistakable at a glance.
-            d = math.hypot(nx, ny)
-            # Wash the whole plate first, so even the corners sit brighter than
-            # any part of the off state.
-            c = over(c, mix(NEON, MAG, (nx+1)/2), 0.30)
-            c = over(c, mix(NEON, MAG, (nx+1)/2), 0.55*smooth(1.35, 0.0, d))
-            c = over(c, mix(MAG, (255,255,255), 0.45), 0.45*smooth(0.66, 0.0, d))
-            sc,sa = spark(nx*1.28, ny*1.28)
-            if sa>0:
-                c = over(c, mix(sc,(255,255,255),0.5), min(1.0, sa*1.35))
-            # Hot centre, so the eye lands on a point of light.
-            c = over(c, (255,255,255), 0.95*smooth(0.16,0.0,d))
+            line(im,[(64,95),(64,107)],MAG,3)
+            line(im,[(80,95),(80,107)],MAG,3)
         else:
-            # Unlit: the same silhouette as the lit spark, drawn hollow, so the
-            # two states read as one object switching rather than two shapes.
-            sc, sa = spark_outline(nx*1.5, ny*1.5)
-            if sa>0: c = over(c, mix(sc,(0,0,0),0.15), 0.72*sa)
-        return c,a
-    return f
+            ImageDraw.Draw(im).polygon([(67*S,94*S),(67*S,109*S),(80*S,101.5*S)],fill=ICE)
+    elif kind == 'gradient':
+        for i,c in enumerate((NEON,'#d82be4',MAG)):
+            x=31+i*29
+            box(im,(x,37,x+24,94),fill=c if on else NEON,radius=5)
+            circle(im,x+12,103,2.5,c if on else NEON)
+    elif kind == 'brightness':
+        circle(im,72,65,17,outline=ICE,width=4)
+        for i in range(8):
+            a=i*math.pi/4
+            line(im,[(72+26*math.cos(a),65+26*math.sin(a)),
+                     (72+34*math.cos(a),65+34*math.sin(a))],MAG if i%2 else NEON,4)
+    elif kind == 'sweep':
+        for i,x in enumerate((34,59,84,109)):
+            box(im,(x-8,73-i*9,x+8,94),fill=(DIM,NEON,'#d82be4',MAG)[i],radius=4)
+        line(im,[(32,108),(111,108)],ICE,3)
+        line(im,[(104,102),(111,108),(104,114)],ICE,3)
+    elif kind == 'status':
+        box(im,(29,31,115,98),outline=ICE,width=3,radius=9)
+        line(im,[(39,68),(50,68),(59,49),(72,82),(82,60),(105,60)],MAG,3)
+        for x,c in ((58,NEON),(72,MAG),(86,ICE)):
+            circle(im,x,109,3,c)
+    else:
+        raise ValueError(kind)
+    return im
 
-def power(nx,ny,lit=False):
-    c,a = grid_bg(nx,ny,None, 1.0 if lit else 0.8)
-    if a<=0: return (0,0,0),0.0
-    col = mix(NEON,MAG,(nx+1)/2)
-    d=math.hypot(nx,ny)
-    ring = smooth(0.62,0.56,d)*smooth(0.40,0.46,d)
-    gap = smooth(0.34,0.26,abs(nx)) if ny<-0.20 else 0.0
-    ring = ring*(1-gap)
-    stem = smooth(0.10,0.06,abs(nx))*smooth(0.06,0.0,max(0,ny-0.02))*smooth(-0.70,-0.64,ny)
-    m = max(ring, stem)
-    if m>0:
-        c = over(c, mix(col,(255,255,255),(0.45 if lit else 0.25)*m), 0.96*m)
-    if lit:
-        # Bloom behind the glyph so "all on" reads as energised at a glance.
-        glow = smooth(0.86, 0.12, d) * 0.40
-        if glow>0: c = over(c, col, glow)
-    return c,a
 
-def palette(nx,ny):
-    c,a = grid_bg(nx,ny,None,0.8)
-    if a<=0: return (0,0,0),0.0
-    for i in range(3):
-        off = -0.34 + i*0.34
-        yy = off + 0.16*math.sin(nx*3.0 + i*0.9)
-        band = smooth(0.075,0.02,abs(ny-yy))
-        if band>0:
-            col = mix(NEON, MAG, (i/2.0)*0.85 + 0.1)
-            c = over(c, col, 0.95*band)
-    return c,a
+def icon(kind, on=True, titled=False):
+    base=plate(on)
+    art=glyph(kind,on)
+    # Two-line Stream Deck titles occupy the lower third of titled keys.
+    if titled:
+        small=art.resize((round(SIZE*S*.77),round(SIZE*S*.77)),Image.Resampling.LANCZOS)
+        art=layer()
+        art.alpha_composite(small,(round(16.5*S),round(1*S)))
+    glow=art.filter(ImageFilter.GaussianBlur(5*S))
+    glow.putalpha(glow.getchannel('A').point(lambda a: round(a*(.65 if on else .2))))
+    base=Image.alpha_composite(base,glow)
+    return Image.alpha_composite(base,art)
 
-def dance(on):
-    def f(nx,ny):
-        c,a = grid_bg(nx,ny,None, 1.0 if on else 0.72)
-        if a<=0: return (0,0,0),0.0
-        # three sparks in a gentle arc, the middle one large
-        pts = ((-0.46,0.20,0.62),(0.0,-0.06,1.0),(0.46,0.24,0.62))
-        for (cx,cy,s) in pts:
-            sc,sa = spark((nx-cx)/s*1.8, (ny-cy)/s*1.8, 1.0 if on else 0.42)
-            if sa>0: c = over(c, sc, sa)
-        return c,a
-    return f
 
-def gradient(on):
-    """Pattern icon. `on` = gradient spread across lights: three separated bars
-    each a different hue. Off = one solid block, a single shared colour. The
-    same shapes the Status key uses, so the two read as one language."""
-    def f(nx,ny):
-        c,a = grid_bg(nx,ny,None, 1.0 if on else 0.72)
-        if a<=0: return (0,0,0),0.0
-        if on:
-            for i in range(3):
-                yy = -0.40 + i*0.40
-                band = smooth(0.13,0.09,abs(ny-yy))
-                inb = band * smooth(0.62,0.58,abs(nx))
-                if inb>0:
-                    c = over(c, mix(NEON,MAG,i/2.0), 0.96*inb)
-        else:
-            blk = smooth(0.54,0.50,abs(ny)) * smooth(0.62,0.58,abs(nx))
-            if blk>0:
-                c = over(c, mix(NEON,MAG,(nx+1)/2), 0.96*blk)
-        return c,a
-    return f
+ACTIONS = [('status','Status'),('pad','Light'),('alloff','All Lights'),
+           ('palette','Palette'),('dance','Color Fade'),('gradient','Pattern'),
+           ('brightness','Brightness'),('sweep','Light Sweep')]
 
-def brightness(nx,ny):
-    c,a = grid_bg(nx,ny,None,0.8)
-    if a<=0: return (0,0,0),0.0
-    col = mix(NEON,MAG,(nx+1)/2)
-    # Three ascending bars read as "level" at 72px far better than a sun with
-    # rays, which turns to mush once the key is scaled down.
-    for i,(bx,bh) in enumerate(((-0.42,0.20),(0.0,0.36),(0.42,0.54))):
-        inb = smooth(0.155,0.115,abs(nx-bx)) * smooth(0.02,-0.03, ny-0.46) * smooth(-0.02,0.03, ny-(0.46-2*bh))
-        if inb>0:
-            shade = mix(col,(255,255,255),0.10+0.18*i)
-            c = over(c, shade, 0.94*inb)
-    return c,a
 
-def logo(nx,ny):
-    c,a = grid_bg(nx,ny,None,1.0)
-    if a<=0: return (0,0,0),0.0
-    sc,sa = spark(nx*1.35, ny*1.35)
-    if sa>0: c = over(c, sc, sa)
-    return c,a
+def main():
+    targets={f'actions/{kind}':icon(kind) for kind,_ in ACTIONS}
+    for kind in ('status','palette','brightness'):
+        targets[f'actions/{kind}-key']=icon(kind)
+    for name,kind in (('pad','pad'),('dance','dance'),('gradient','gradient')):
+        for on in (False,True):
+            targets[f'actions/{name}-{"on" if on else "off"}']=icon(kind,on,titled=True)
+    targets['actions/alloff-key']=icon('alloff',False,True)
+    targets['actions/allon-key']=icon('alloff',True,True)
+    targets['plugin']=icon('logo')
+    targets['category']=icon('logo')
+    for name,im in targets.items():
+        path=OUT/name
+        path.parent.mkdir(parents=True,exist_ok=True)
+        for suffix,size in (('',72),('@2x',144)):
+            im.resize((size,size),Image.Resampling.LANCZOS).save(f'{path}{suffix}.png')
 
-targets=[("actions/pad-off",pad(False)),("actions/pad-on",pad(True)),("actions/pad",pad(True)),
- ("actions/alloff",lambda x,y: power(x,y,False)),
- ("actions/alloff-key",lambda x,y: power(x,y,False)),
- ("actions/allon-key",lambda x,y: power(x,y,True)),
- ("actions/palette",palette),("actions/palette-key",palette),
- ("actions/dance",dance(True)),("actions/dance-off",dance(False)),("actions/dance-on",dance(True)),
- ("actions/brightness",brightness),("actions/brightness-key",brightness),
- ("actions/gradient",gradient(True)),
- ("actions/gradient-off",gradient(False)),("actions/gradient-on",gradient(True)),
- ("plugin",logo),("category",logo)]
-os.makedirs("actions",exist_ok=True)
-for name,fn in targets:
-    render(f"{name}.png",72,fn); render(f"{name}@2x.png",144,fn)
-print("rendered",len(targets)*2,"icons at",SS,"x supersampling")
+    # Review at actual key sizes, with titles to check the reserved text area.
+    sheet=Image.new('RGB',(1000,550),'#0a0612')
+    d=ImageDraw.Draw(sheet)
+    font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc',16) if Path('/System/Library/Fonts/Helvetica.ttc').exists() else ImageFont.load_default(size=16)
+    d.text((24,18),'LIGHTWAVE / STREAM DECK',fill=ICE,font=font)
+    for i,(kind,label) in enumerate(ACTIONS):
+        x=24+i*122
+        im=targets[f'actions/{kind}'].resize((100,100),Image.Resampling.LANCZOS)
+        sheet.paste(im,(x,60),im)
+        d.text((x,172),label,fill=ICE,font=font)
+        im=targets[f'actions/{kind}'].resize((72,72),Image.Resampling.LANCZOS)
+        sheet.paste(im,(x+14,205),im)
+    d.text((24,306),'KEY STATES / TITLE SAFE AREA',fill=ICE,font=font)
+    names=[('pad-off','Desk Strip'),('pad-on','Desk Strip'),('alloff-key','All Lights'),('allon-key','All Lights'),('dance-off','Start\nFade'),('dance-on','Stop\nFade'),('gradient-off','Use\nGradient'),('gradient-on','Use\nSolid')]
+    for i,(name,label) in enumerate(names):
+        x=24+i*122
+        im=targets[f'actions/{name}'].resize((100,100),Image.Resampling.LANCZOS)
+        sheet.paste(im,(x,345),im)
+        d.multiline_text((x+50,409),label,fill='white',font=font,anchor='ma',align='center',spacing=0)
+        d.text((x,467),'ON' if i%2 else 'OFF',fill=ICE if i%2 else DIM,font=font)
+    sheet.save(ROOT.parent/'docs/img/action-icons.png')
+    print(f'Rendered {len(targets)*2} PNGs and docs/img/action-icons.png')
+
+
+if __name__ == '__main__':
+    main()

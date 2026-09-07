@@ -24,7 +24,7 @@ def sock_path():
 PALETTES = [
     "Warm Whites", "Soft Ambers", "Deep Oranges", "Reds", "Purples",
     "Ocean", "Fall Leaves", "Sunset", "Sage", "Lavender Mist",
-    "Candlelight", "Morning Haze", "Blush", "Ivory",
+    "Candlelight", "Morning Haze", "Blush", "Ivory", "Pure White",
 ]
 
 def lightwave_state():

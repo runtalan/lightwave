@@ -200,6 +200,31 @@ var Palettes = []Palette{
 			{R: 255, G: 239, B: 201, Kelvin: 3650},
 		},
 	},
+	{
+		// The brightest thing the pool can do: every channel at or near full,
+		// so all three colour diodes run at maximum duty.
+		//
+		// Deliberately Kelvin-free, unlike the other white palettes. Kelvin is
+		// what makes Warm Whites and Ivory look right on a LAN bulb, but
+		// sendBLEColor has no colour-temperature opcode and drops it, leaving a
+		// BLE lamp to approximate warm white from partially-driven diodes —
+		// R at full, G near two-thirds, B near a third, and the white emitters
+		// dark. That approximation is the dim one. Plain RGB white asks for
+		// every diode at once and travels identically over both transports.
+		//
+		// The centre swatch is exactly 255/255/255 because SceneColors picks
+		// the centre in single-colour mode, which is the common case; the
+		// neighbours carry the faintest warm/cool cast so gradient scenes and
+		// the drift control still have somewhere to travel.
+		Name: "Pure White",
+		Colors: []RGBK{
+			{R: 255, G: 244, B: 229},
+			{R: 255, G: 250, B: 242},
+			{R: 255, G: 255, B: 255},
+			{R: 247, G: 251, B: 255},
+			{R: 237, G: 246, B: 255},
+		},
+	},
 }
 
 // Names lists every palette in cycle order, for UIs that offer direct
