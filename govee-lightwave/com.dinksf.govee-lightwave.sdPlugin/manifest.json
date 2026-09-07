@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Name": "Govee Lightwave",
+  "UUID": "com.dinksf.govee-lightwave",
+  "Author": "DinkSF",
+  "Version": "0.1.0",
+  "Description": "A direct LAN controller for Govee lights.",
+  "Category": "Govee Lightwave",
+  "CategoryIcon": "imgs/category.svg",
+  "Icon": "imgs/plugin.svg",
+  "CodePath": "bin/govee-lightwave",
+  "CodePathWin": "bin/govee-lightwave.exe",
+  "SDKVersion": 3,
+  "Software": { "MinimumVersion": "6.9" },
+  "OS": [{"Platform":"mac","MinimumVersion":"13"},{"Platform":"windows","MinimumVersion":"11"}],
+  "Actions": [
+    {"UUID":"com.dinksf.govee-lightwave.power","Name":"Power","Icon":"imgs/action.svg","Tooltip":"Turn a device or room on or off.","Controllers":["Keypad"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg","TitleAlignment":"bottom"},{"Image":"imgs/key-on.svg","TitleAlignment":"bottom"}]},
+    {"UUID":"com.dinksf.govee-lightwave.brightness","Name":"Brightness","Icon":"imgs/action.svg","Tooltip":"Set brightness for a device or room.","Controllers":["Keypad","Encoder"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.color","Name":"Color","Icon":"imgs/action.svg","Tooltip":"Set a custom color.","Controllers":["Keypad"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.temperature","Name":"White Temperature","Icon":"imgs/action.svg","Tooltip":"Set white temperature on compatible lights.","Controllers":["Keypad","Encoder"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.palette","Name":"Palette","Icon":"imgs/action.svg","Tooltip":"Apply a Lightwave palette.","Controllers":["Keypad","Encoder"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.scene","Name":"Scene","Icon":"imgs/action.svg","Tooltip":"Recall a saved scene.","Controllers":["Keypad"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.fade","Name":"Color Fade","Icon":"imgs/action.svg","Tooltip":"Apply a palette across your room.","Controllers":["Keypad"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.sweep","Name":"Light Sweep","Icon":"imgs/action.svg","Tooltip":"Set room brightness from a key or dial.","Controllers":["Keypad","Encoder"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]},
+    {"UUID":"com.dinksf.govee-lightwave.status","Name":"Status","Icon":"imgs/action.svg","Tooltip":"Show and toggle a room's lighting state.","Controllers":["Keypad"],"PropertyInspectorPath":"ui/action.html","States":[{"Image":"imgs/key-off.svg"},{"Image":"imgs/key-on.svg"}]}
+  ]
+}
