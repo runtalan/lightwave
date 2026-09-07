@@ -1,5 +1,7 @@
 # Technical design
 
+Implementation update: LAN discovery has been repaired and Bluetooth discovery has been added. macOS discovery now uses a short-lived helper bundled inside the plugin for its own Bluetooth permission identity; the original single-process proposal below predates that constraint. See [Discovery repair](DISCOVERY.md) for implemented behavior and limits, and [UI/UX plan](UI-UX-PLAN.md) for the revised configuration flow. Bluetooth control remains separate work.
+
 ## Runtime decision
 
 Use a self-contained Go plugin executable plus bundled HTML/CSS/JavaScript property inspectors. This preserves useful Go rendering and color logic while avoiding a companion process, HTTP server, and Wails frontend. Go is the proposed baseline; the first packaging spike must prove current Stream Deck protocol and Marketplace protection compatibility.

@@ -1,5 +1,7 @@
 # Product and experience
 
+Scope update: Bluetooth discovery is now implemented; Bluetooth control still requires a separate implementation and device validation. The requested individual-light-first configuration flow supersedes the setup sequence below; see [UI/UX plan](UI-UX-PLAN.md). Discovery status and tested behavior are recorded in [Discovery repair](DISCOVERY.md).
+
 ## Positioning
 
 Govee Lightwave is a premium lighting instrument for Stream Deck: physical control, a coherent room palette, and useful live feedback. Target customers are creators, desk enthusiasts, and people who already own LAN-capable Govee lights and want polished controls next to their other Stream Deck actions.

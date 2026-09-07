@@ -6,7 +6,7 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info, actionIn
   socket.onopen = () => {
     socket.send(JSON.stringify({ event: registerEvent, uuid }));
     document.dispatchEvent(new CustomEvent('lw-ready', { detail: settings }));
-    socket.send(JSON.stringify({ event: 'sendToPlugin', context, action, payload: { request: 'catalog' } }));
+    socket.send(JSON.stringify({ event: 'sendToPlugin', context, action, payload: { request: 'scan' } }));
   };
   socket.onmessage = e => { try { const m=JSON.parse(e.data); if (m.event === 'sendToPropertyInspector') document.dispatchEvent(new CustomEvent('lw-catalog',{detail:m.payload})); } catch (_) {} };
 }

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"govee-lightwave/internal/discovery"
 )
 
 const pluginID = "com.dinksf.govee-lightwave"
@@ -38,6 +41,7 @@ type event struct {
 	Payload                struct {
 		Settings json.RawMessage `json:"settings"`
 		Ticks    int             `json:"ticks"`
+		Request  string          `json:"request"`
 	} `json:"payload"`
 }
 type conn struct {
@@ -167,7 +171,7 @@ func (w *conn) state(ctx string, n int) {
 }
 func (w *conn) alert(ctx string) { _ = w.send(map[string]string{"event": "showAlert", "context": ctx}) }
 func (w *conn) pi(ctx, act string, p any) {
-	_ = w.send(map[string]any{"event": "sendToPropertyInspector", "context": ctx, "payload": p})
+	_ = w.send(map[string]any{"event": "sendToPropertyInspector", "context": ctx, "action": act, "payload": p})
 }
 
 type Device struct {
@@ -219,8 +223,14 @@ type app struct {
 		action string
 		s      settings
 	}
-	udp   *net.UDPConn
-	fades map[string]chan struct{}
+	lan             *discovery.LAN
+	inspectors      map[string]string
+	discoveryStatus string
+	bleStatus       string
+	bleDevices      map[string]discovery.BluetoothDevice
+	bleScanning     bool
+	lifetime        context.Context
+	fades           map[string]chan struct{}
 }
 
 func configPath() string {
@@ -260,80 +270,47 @@ func normalize(s string) string {
 	return strings.ToUpper(strings.NewReplacer(":", "", "-", "", " ", "").Replace(s))
 }
 func (a *app) start() error {
-	c, e := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 4002})
-	if e != nil {
-		return e
-	}
-	a.udp = c
-	go a.receive()
+	a.lan = discovery.NewLAN(a.onLANDevice, a.onLANStatus)
 	return nil
 }
-func (a *app) receive() {
-	b := make([]byte, 4096)
-	for {
-		n, from, e := a.udp.ReadFromUDP(b)
-		if e != nil {
-			return
-		}
-		var x struct {
-			Msg struct {
-				Cmd  string          `json:"cmd"`
-				Data json.RawMessage `json:"data"`
-			} `json:"msg"`
-		}
-		if json.Unmarshal(b[:n], &x) != nil {
-			continue
-		}
-		switch x.Msg.Cmd {
-		case "scan":
-			var d struct{ Device, SKU, IP string }
-			if json.Unmarshal(x.Msg.Data, &d) != nil {
-				continue
-			}
-			id := normalize(d.Device)
-			if id == "" {
-				continue
-			}
-			a.mu.Lock()
-			old := a.db.Devices[id]
-			old.ID = id
-			old.Model = d.SKU
-			old.IP = d.IP
-			if old.Name == "" {
-				old.Name = d.SKU
-			}
-			old.Seen = time.Now()
-			a.db.Devices[id] = old
-			a.save()
-			a.mu.Unlock()
-		case "devStatus":
-			var s struct {
-				OnOff      int `json:"onOff"`
-				Brightness int `json:"brightness"`
-			}
-			if json.Unmarshal(x.Msg.Data, &s) != nil {
-				continue
-			}
-			a.mu.Lock()
-			for id, d := range a.db.Devices {
-				if d.IP == from.IP.String() {
-					d.On = s.OnOff == 1
-					d.Brightness = s.Brightness
-					d.Seen = time.Now()
-					a.db.Devices[id] = d
-				}
-			}
-			a.mu.Unlock()
-			a.refresh()
+func (a *app) onLANDevice(found discovery.LANDevice) {
+	a.mu.Lock()
+	id := normalize(found.ID)
+	d := a.db.Devices[id]
+	d.ID, d.Model, d.IP, d.Seen = id, found.Model, found.IP, time.Now()
+	if d.Name == "" {
+		d.Name = found.Model
+	}
+	a.db.Devices[id] = d
+	a.save()
+	a.mu.Unlock()
+	a.publishCatalog()
+	a.refresh()
+}
+func (a *app) onLANStatus(ip string, on bool, brightness int) {
+	a.mu.Lock()
+	for id, d := range a.db.Devices {
+		if d.IP == ip {
+			d.On, d.Brightness, d.Seen = on, brightness, time.Now()
+			a.db.Devices[id] = d
 		}
 	}
+	a.mu.Unlock()
+	a.refresh()
 }
 func (a *app) scan() {
-	p := []byte(`{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}`)
-	targets := []*net.UDPAddr{{IP: net.IPv4(239, 255, 255, 250), Port: 4001}, {IP: net.IPv4bcast, Port: 4001}}
-	for _, t := range targets {
-		_, _ = a.udp.WriteToUDP(p, t)
+	if a.lan == nil {
+		return
 	}
+	err := a.lan.Scan()
+	a.mu.Lock()
+	a.discoveryStatus = "Listening for LAN lights. Enable LAN Control in Govee Home if none appear."
+	if err != nil {
+		a.discoveryStatus = err.Error()
+		log.Printf("LAN discovery: %v", err)
+	}
+	a.mu.Unlock()
+	a.publishCatalog()
 }
 func (a *app) send(ip, cmd string) {
 	if net.ParseIP(ip) == nil {
@@ -359,6 +336,10 @@ func (a *app) members(target string) []Device {
 			}
 		}
 		return out
+	}
+	// An unavailable or discovery-only Bluetooth ID must never mean all lights.
+	if target != "" {
+		return nil
 	}
 	out := []Device{}
 	for _, d := range a.db.Devices {
@@ -482,6 +463,9 @@ func (a *app) toggleFade(target, palette string) {
 	}()
 }
 func (a *app) refresh() {
+	if a.sd == nil {
+		return
+	}
 	a.mu.Lock()
 	cs := make(map[string]struct {
 		action string
@@ -537,9 +521,55 @@ func (a *app) sendInspector(ctx, act string) {
 	for _, r := range a.db.Rooms {
 		rs = append(rs, r)
 	}
+	ble := make([]discovery.BluetoothDevice, 0, len(a.bleDevices))
+	for _, d := range a.bleDevices {
+		ble = append(ble, d)
+	}
+	lanStatus, bleStatus := a.discoveryStatus, a.bleStatus
 	a.mu.Unlock()
 	sort.Slice(ds, func(i, j int) bool { return ds[i].Name < ds[j].Name })
-	a.sd.pi(ctx, act, map[string]any{"devices": ds, "rooms": rs, "palettes": []string{"Ocean", "Sunset", "Candlelight", "Sage"}})
+	sort.Slice(ble, func(i, j int) bool { return ble[i].ID < ble[j].ID })
+	if a.sd != nil {
+		a.sd.pi(ctx, act, map[string]any{"devices": ds, "rooms": rs, "bluetoothDevices": ble, "discoveryStatus": lanStatus, "bluetoothStatus": bleStatus, "palettes": []string{"Ocean", "Sunset", "Candlelight", "Sage"}})
+	}
+}
+
+func (a *app) publishCatalog() {
+	a.mu.Lock()
+	views := make(map[string]string, len(a.inspectors))
+	for ctx, action := range a.inspectors {
+		views[ctx] = action
+	}
+	a.mu.Unlock()
+	for ctx, action := range views {
+		a.sendInspector(ctx, action)
+	}
+}
+
+func (a *app) scanBluetooth() {
+	a.mu.Lock()
+	if a.bleScanning {
+		a.mu.Unlock()
+		return
+	}
+	a.bleScanning = true
+	a.mu.Unlock()
+	go func() {
+		defer func() { a.mu.Lock(); a.bleScanning = false; a.mu.Unlock() }()
+		ctx, cancel := context.WithTimeout(a.lifetime, 50*time.Second)
+		defer cancel()
+		discovery.ScanBluetooth(ctx, func(d discovery.BluetoothDevice) {
+			a.mu.Lock()
+			a.bleDevices[d.ID] = d
+			a.mu.Unlock()
+			a.publishCatalog()
+		}, func(status string) {
+			a.mu.Lock()
+			a.bleStatus = status
+			a.mu.Unlock()
+			a.publishCatalog()
+		})
+	}()
 }
 func (a *app) handle(e event) {
 	switch e.Event {
@@ -588,7 +618,21 @@ func (a *app) handle(e event) {
 		delete(a.contexts, e.Context)
 		a.mu.Unlock()
 	case "propertyInspectorDidAppear", "sendToPlugin":
+		a.mu.Lock()
+		if a.inspectors == nil {
+			a.inspectors = map[string]string{}
+		}
+		a.inspectors[e.Context] = e.Action
+		a.mu.Unlock()
 		a.sendInspector(e.Context, e.Action)
+		if e.Payload.Request == "scan" {
+			go a.scan()
+			a.scanBluetooth()
+		}
+	case "propertyInspectorDidDisappear":
+		a.mu.Lock()
+		delete(a.inspectors, e.Context)
+		a.mu.Unlock()
 	case "keyUp", "dialDown":
 		a.mu.Lock()
 		x, ok := a.contexts[e.Context]
@@ -638,7 +682,14 @@ func main() {
 	port := flag.Int("port", 0, "")
 	uuid := flag.String("pluginUUID", "", "")
 	reg := flag.String("registerEvent", "registerPlugin", "")
+	info := flag.String("info", "", "")
+	discover := flag.Bool("discover", false, "Discover LAN and Bluetooth devices without controlling them")
 	flag.Parse()
+	_ = info
+	if *discover {
+		discovery.Diagnose()
+		return
+	}
 	if *port == 0 || *uuid == "" {
 		log.Fatal("Stream Deck launch arguments missing")
 	}
@@ -651,17 +702,25 @@ func main() {
 		s      settings
 	}{}, fades: map[string]chan struct{}{}}
 	a.load()
-	if e = a.start(); e != nil {
-		log.Printf("LAN listener unavailable: %v", e)
-	} else {
+	var cancel context.CancelFunc
+	a.lifetime, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	a.bleDevices = map[string]discovery.BluetoothDevice{}
+	_ = a.start()
+	defer a.lan.Close()
+	go func() {
 		a.scan()
-		go func() {
-			t := time.NewTicker(30 * time.Second)
-			defer t.Stop()
-			for range t.C {
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-a.lifetime.Done():
+				return
+			case <-t.C:
 				a.scan()
 			}
-		}()
-	}
+		}
+	}()
+	a.scanBluetooth()
 	w.run(a.handle)
 }
