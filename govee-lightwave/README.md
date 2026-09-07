@@ -23,6 +23,8 @@ The result is `com.dinksf.govee-lightwave.sdPlugin/bin/govee-lightwave`. Run `st
 | [Product and experience](PRODUCT.md) | Launch scope, actions, setup, appearance, and product boundaries |
 | [Technical design](ARCHITECTURE.md) | Independent runtime, reuse, LAN behavior, persistence, and packaging |
 | [Delivery and launch](DELIVERY.md) | Implementation sequence, acceptance gates, commercial plan, and research |
+| [Discovery repair](DISCOVERY.md) | LAN/Bluetooth scanner behavior, validation, and current limits |
+| [UI/UX plan](UI-UX-PLAN.md) | Individual lights first, optional rooms deeper in configuration |
 
 Planning baseline: September 6, 2026. Proposed defaults are recorded so implementation can proceed without another discovery round. External platform requirements and hardware capabilities must be rechecked during implementation.
 

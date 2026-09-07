@@ -3,7 +3,7 @@
   "Name": "Govee Lightwave",
   "UUID": "com.dinksf.govee-lightwave",
   "Author": "DinkSF",
-  "Version": "0.1.0",
+  "Version": "0.2.0",
   "Description": "A direct LAN controller for Govee lights.",
   "Category": "Govee Lightwave",
   "CategoryIcon": "imgs/category.svg",
