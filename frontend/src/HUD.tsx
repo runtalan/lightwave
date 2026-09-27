@@ -3,6 +3,7 @@ import {
   ToggleAll,
   CycleColor,
   Quit,
+  SetMIDIListening,
   SetPalette,
   ToggleWarmMode,
   ToggleGradient,
@@ -241,8 +242,24 @@ export function HUD({ state }: Props) {
       {state.warmMode && <WarmnessSlider value={state.warmness} />}
 
       <footer className="hud-foot">
-        <span className={state.midiConnected ? 'ok' : 'dim'}>
-          {state.midiConnected ? `midi · ${state.midiPort}` : 'midi silent'}
+        <span className="midi-status">
+          <span className={state.midiConnected ? 'ok' : 'dim'}>
+            {!state.midiListening
+              ? 'midi stopped'
+              : state.midiConnected
+                ? `midi · ${state.midiPort}`
+                : 'midi silent'}
+          </span>
+          {/* Start also rescans, so it doubles as "look again" for a
+              controller plugged in after launch. */}
+          <button
+            type="button"
+            className="midi-toggle"
+            data-desktop-only
+            onClick={() => void SetMIDIListening(!state.midiListening)}
+          >
+            {state.midiListening ? 'stop' : 'start'}
+          </button>
         </span>
         <span className="dim">+ / − {state.warmMode ? 'warmth' : 'palette'} · / {state.gradient ? 'gradient' : 'single'} · 1–9 pool</span>
       </footer>

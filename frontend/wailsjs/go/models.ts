@@ -168,6 +168,7 @@ export namespace main {
 	    warmness: number;
 	    midiConnected: boolean;
 	    midiPort: string;
+	    midiListening: boolean;
 	    deviceCount: number;
 	    needsSetup: boolean;
 	    setupOpen: boolean;
@@ -204,6 +205,7 @@ export namespace main {
 	        this.warmness = source["warmness"];
 	        this.midiConnected = source["midiConnected"];
 	        this.midiPort = source["midiPort"];
+	        this.midiListening = source["midiListening"];
 	        this.deviceCount = source["deviceCount"];
 	        this.needsSetup = source["needsSetup"];
 	        this.setupOpen = source["setupOpen"];

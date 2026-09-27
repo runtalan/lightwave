@@ -10,6 +10,7 @@ import (
 	"lightwave/internal/config"
 
 	gomidi "gitlab.com/gomidi/midi/v2"
+	"gitlab.com/gomidi/midi/v2/drivers"
 	_ "gitlab.com/gomidi/midi/v2/drivers/rtmididrv"
 )
 
@@ -22,6 +23,7 @@ const midiPresent uint32 = 1 << 16
 type Listener struct {
 	mu    sync.Mutex
 	stop  func()
+	in    drivers.In
 	port  string
 	alive bool
 
@@ -107,6 +109,13 @@ func (l *Listener) Start() error {
 		}
 	}()
 
+	l.mu.Lock()
+	running := l.stop != nil
+	l.mu.Unlock()
+	if running {
+		return nil
+	}
+
 	ins := gomidi.GetInPorts()
 	if len(ins) == 0 {
 		log.Println("midi: no input ports (app continues without hardware)")
@@ -133,6 +142,7 @@ func (l *Listener) Start() error {
 
 	l.mu.Lock()
 	l.stop = stop
+	l.in = in
 	l.port = name
 	l.alive = true
 	cfg := l.cfgLocked()
@@ -312,22 +322,35 @@ func (l *Listener) Connected() (bool, string) {
 	return l.alive, l.port
 }
 
-func (l *Listener) Close() {
+// Stop releases the input port so Start can pick it up again later. The
+// driver stays loaded: only Close, at shutdown, tears that down.
+func (l *Listener) Stop() {
 	l.mu.Lock()
-	stop := l.stop
-	l.stop = nil
-	l.alive = false
+	stop, in := l.stop, l.in
+	l.stop, l.in = nil, nil
 	l.mu.Unlock()
-	if stop != nil {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("midi: close recovered: %v", r)
-				}
-			}()
-			stop()
-		}()
+	if stop == nil {
+		return
 	}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("midi: stop recovered: %v", r)
+			}
+		}()
+		// The stop func only cancels the callback; the port stays open until
+		// closed, and a still-open port would be skipped on the next Start.
+		stop()
+		if in != nil {
+			_ = in.Close()
+		}
+	}()
+	log.Println("midi: listener stopped")
+	l.setStatus(false, "")
+}
+
+func (l *Listener) Close() {
+	l.Stop()
 	func() {
 		defer func() { _ = recover() }()
 		gomidi.CloseDriver()

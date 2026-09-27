@@ -588,6 +588,12 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		} else {
 			log.Printf("level render: %v", err)
 		}
+		// On a Stream Deck + dial the image fills only the icon slot; the
+		// touch strip's value comes from the layout, as with the other dials.
+		p.sd.SetFeedback(inst.context, map[string]any{
+			"title": "Brightness",
+			"value": strconv.Itoa(st.Brightness) + "%",
+		})
 	case actSweep:
 		// The dial reports how far through the room the knob has walked, as a
 		// count and as the same arc gauge the brightness dial uses.

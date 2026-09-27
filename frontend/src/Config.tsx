@@ -16,6 +16,7 @@ import {
   ScanLAN,
   SetConfigAPIKey,
   SetLaunchAtLogin,
+  SetMIDIListening,
   SetWebEnabled,
   SetWebConfig,
 } from '../wailsjs/go/main/App'
@@ -714,11 +715,33 @@ function MidiPane({
     </label>
   )
 
+  const [midiBusy, setMidiBusy] = useState(false)
+  function toggleMidi(on: boolean) {
+    setMidiBusy(true)
+    setErr('')
+    SetMIDIListening(on)
+      .catch((e) => setErr(String(e)))
+      .finally(() => setMidiBusy(false))
+  }
+
   return (
     <div className="pane form-pane">
+      <div className={`key-badge ${state.midiListening ? 'ok' : 'bad'}`}>
+        {state.midiListening ? 'listening' : 'stopped'}
+      </div>
       <p className="lede">
-        {state.midiConnected ? `Listening · ${state.midiPort}` : 'No MIDI port — keyboard still drives the HUD.'}
+        {!state.midiListening
+          ? 'MIDI listener stopped — the controller is released and ignored.'
+          : state.midiConnected
+            ? `Listening · ${state.midiPort}`
+            : 'No MIDI port — keyboard still drives the HUD.'}
       </p>
+      <footer className="actions">
+        <button type="button" className={state.midiListening ? 'ghost' : 'primary'} disabled={midiBusy}
+          onClick={() => toggleMidi(!state.midiListening)}>
+          {state.midiListening ? 'Stop listening' : 'Start listening'}
+        </button>
+      </footer>
 
       <section className="group">
         <h3 className="group-title">Brightness</h3>

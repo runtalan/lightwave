@@ -88,6 +88,8 @@ export function SetIPCServer(arg1:ipc.Server):Promise<void>;
 
 export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 
+export function SetMIDIListening(arg1:boolean):Promise<void>;
+
 export function SetPalette(arg1:number):Promise<main.HUDState>;
 
 export function SetSlotTrim(arg1:number,arg2:number):Promise<main.HUDState>;

@@ -828,6 +828,27 @@ a,
   justify-content: space-between;
 }
 
+.midi-status {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.midi-toggle {
+  background: none;
+  border: 0;
+  color: var(--magenta);
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  text-transform: inherit;
+}
+
+.midi-toggle:hover {
+  color: var(--neon);
+}
+
 .ok {
   color: var(--neon);
 }

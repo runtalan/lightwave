@@ -168,8 +168,11 @@ type Settings struct {
 	MidiChanRecall  int `json:"midiChanRecall"`
 	// MidiCCMin/Max are the calibrated fader endpoints (0 and 127 when the
 	// fader has never been calibrated).
-	MidiCCMin       int    `json:"midiCCMin"`
-	MidiCCMax       int    `json:"midiCCMax"`
+	MidiCCMin int `json:"midiCCMin"`
+	MidiCCMax int `json:"midiCCMax"`
+	// MidiDisabled keeps the MIDI listener stopped, including across
+	// launches. Stored inverted so a settings file without it keeps listening.
+	MidiDisabled    bool   `json:"midiDisabled"`
 	IdleHideSeconds int    `json:"idleHideSeconds"`
 	GoveeAPIKey     string `json:"goveeApiKey,omitempty"`
 	// WebEnabled starts the phone control server at launch. Off by default:
@@ -219,6 +222,7 @@ type settingsFile struct {
 	MidiChanRecall  *int    `json:"midiChanRecall"`
 	MidiCCMin       *int    `json:"midiCCMin"`
 	MidiCCMax       *int    `json:"midiCCMax"`
+	MidiDisabled    *bool   `json:"midiDisabled"`
 	IdleHideSeconds *int    `json:"idleHideSeconds"`
 	GoveeAPIKey     *string `json:"goveeApiKey"`
 	WebEnabled      *bool   `json:"webEnabled"`
@@ -396,6 +400,9 @@ func LoadSettings() Settings {
 	}
 	if raw.LaunchAtLogin != nil {
 		s.LaunchAtLogin = *raw.LaunchAtLogin
+	}
+	if raw.MidiDisabled != nil {
+		s.MidiDisabled = *raw.MidiDisabled
 	}
 	if raw.WebEnabled != nil {
 		s.WebEnabled = *raw.WebEnabled

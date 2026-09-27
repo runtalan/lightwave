@@ -59,7 +59,7 @@
     'CloseConfig', 'CancelSetup', 'IsSetupOpen', 'HandleIPC', 'RemoteCommand',
     'SetIPCServer', 'Discover', 'ScanLAN', 'GetDevices', 'AssignSlot', 'MoveSlot',
     'RenameSlot', 'FillRemaining', 'SaveMappings', 'CommitMappings', 'SaveSettings',
-    'SetConfigAPIKey',
+    'SetConfigAPIKey', 'SetMIDIListening',
   ]
 
   var App = {}

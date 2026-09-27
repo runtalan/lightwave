@@ -113,6 +113,7 @@ type HUDState struct {
 	Warmness      int        `json:"warmness"`
 	MIDIConnected bool       `json:"midiConnected"`
 	MIDIPort      string     `json:"midiPort"`
+	MIDIListening bool       `json:"midiListening"`
 	DeviceCount   int        `json:"deviceCount"`
 	NeedsSetup    bool       `json:"needsSetup"`
 	SetupOpen     bool       `json:"setupOpen"`
@@ -220,6 +221,9 @@ type App struct {
 	midi      *midilstn.Listener
 	midiCfg   config.MIDI
 	settings  config.Settings
+	// midiCtl serialises listener Start/Stop so a quick stop-start cannot
+	// open the port twice.
+	midiCtl sync.Mutex
 
 	stop           chan struct{}
 	brightKick     chan struct{}
@@ -370,9 +374,11 @@ func (a *App) startup(ctx context.Context) {
 	go a.midiApplyLoop()
 	go a.brightnessPump()
 	startGlobalNumpad(a.handleGlobalNumpad)
-	go func() {
-		_ = a.midi.Start()
-	}()
+	if !a.settingsSnapshot().MidiDisabled {
+		go a.startMIDI()
+	} else {
+		log.Println("midi: listener left stopped (disabled in settings)")
+	}
 
 	// --hidden (login agent) must not pop a window: StartHidden already
 	// kept it off screen, and WindowShow here would undo that and pay for
@@ -517,6 +523,35 @@ func (a *App) midiApplyLoop() {
 		}
 		t.Reset(next)
 	}
+}
+
+func (a *App) startMIDI() {
+	a.midiCtl.Lock()
+	defer a.midiCtl.Unlock()
+	_ = a.midi.Start()
+}
+
+// SetMIDIListening starts or stops the MIDI listener and remembers the choice
+// across launches. Stopping releases the port, so another app can use the
+// controller; starting rescans, which also picks up a controller plugged in
+// since launch.
+func (a *App) SetMIDIListening(on bool) error {
+	if a.midi == nil {
+		return fmt.Errorf("midi: not started")
+	}
+	a.mu.Lock()
+	a.settings.MidiDisabled = !on
+	a.mu.Unlock()
+	if on {
+		a.startMIDI()
+	} else {
+		a.midiCtl.Lock()
+		a.midi.Stop()
+		a.midiCtl.Unlock()
+	}
+	err := config.SaveSettings(a.currentSettings())
+	a.emitState()
+	return err
 }
 
 // drainMIDI applies pending MIDI input and reports whether anything arrived.
@@ -1213,6 +1248,7 @@ func (a *App) snapshotLocked() HUDState {
 		Gradient:        a.gradient,
 		MIDIConnected:   ok,
 		MIDIPort:        port,
+		MIDIListening:   !a.settings.MidiDisabled,
 		DeviceCount:     len(a.catalog),
 		NeedsSetup:      a.setupOpen,
 		SetupOpen:       a.setupOpen,

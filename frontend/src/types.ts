@@ -57,6 +57,7 @@ export type HUDState = {
   warmness: number
   midiConnected: boolean
   midiPort: string
+  midiListening: boolean
   deviceCount: number
   needsSetup: boolean
   setupOpen: boolean
@@ -171,6 +172,7 @@ export function emptyState(): HUDState {
     warmness: 3000,
     midiConnected: false,
     midiPort: '',
+    midiListening: true,
     deviceCount: 0,
     needsSetup: false,
     setupOpen: false,
