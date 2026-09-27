@@ -1150,7 +1150,7 @@ func (a *App) dockReopenLoop() {
 				sawInactive = false
 				continue
 			}
-			// hideApp() plus AlwaysOnTop can bounce activation for a beat.
+			// hideApp() can bounce activation for a beat.
 			// Treat that leftover focus as part of the hide, not a Dock click.
 			if time.Since(hiddenAt) < time.Second {
 				sawInactive = false
@@ -2755,9 +2755,8 @@ func (a *App) ShowHUD() {
 	a.emit("hud:shown")
 	a.emitState()
 	runtime.WindowShow(ctx)
-	// AlwaysOnTop is set once in main.go. Re-applying it on every show —
-	// especially from the 300ms dock watcher — makes AppKit bounce a
-	// frameless window. Only raise the app when coming back from a hide.
+	// Raising on every show — especially from the 300ms dock watcher — makes
+	// AppKit bounce a frameless window. Only raise when coming back from a hide.
 	if wasHidden {
 		activateApp()
 	}

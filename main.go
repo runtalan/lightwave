@@ -82,7 +82,6 @@ func main() {
 		MinHeight:         WindowMinH,
 		StartHidden:       hidden,
 		Frameless:         true,
-		AlwaysOnTop:       true,
 		DisableResize:     true,
 		HideWindowOnClose: true,
 		BackgroundColour:  &options.RGBA{R: 10, G: 6, B: 18, A: 255},
