@@ -73,6 +73,17 @@ func (a *App) webCall(method string, args []json.RawMessage) (any, error) {
 	case "ToggleGradient":
 		a.ToggleGradient()
 		return a.webState(), nil
+	case "ToggleWarmMode":
+		a.ToggleWarmMode()
+		return a.webState(), nil
+
+	case "SetWarmness":
+		n, err := intArg(0)
+		if err != nil {
+			return nil, err
+		}
+		a.SetWarmness(n)
+		return a.webState(), nil
 
 	case "SetBrightness":
 		n, err := intArg(0)
@@ -136,10 +147,11 @@ func (a *App) startWebServer() error {
 		return nil
 	}
 	if err := a.webSrv.Start(web.Options{
-		Addr:   s.WebAddr,
-		Token:  s.WebToken,
-		Assets: a.webAssets,
-		Call:   a.webCall,
+		Addr:      s.WebAddr,
+		Token:     s.WebToken,
+		Assets:    a.webAssets,
+		Call:      a.webCall,
+		Advertise: true,
 	}); err != nil {
 		return err
 	}

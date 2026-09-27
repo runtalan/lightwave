@@ -49,6 +49,8 @@ type Options struct {
 	Assets fs.FS
 	// Call handles control calls.
 	Call CallFunc
+	// Advertise publishes the server over Bonjour so the iOS app can find it.
+	Advertise bool
 }
 
 type Server struct {
@@ -61,6 +63,8 @@ type Server struct {
 	call    CallFunc
 	subs    map[chan []byte]struct{}
 	running bool
+	// unadvertise withdraws the Bonjour record; nil when none was published.
+	unadvertise func()
 }
 
 func New() *Server {
@@ -111,8 +115,15 @@ func (s *Server) Start(o Options) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	var unadvertise func()
+	if o.Advertise {
+		if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+			unadvertise = advertise(tcp.Port)
+		}
+	}
+
 	s.mu.Lock()
-	s.srv, s.addr, s.running = srv, ln.Addr().String(), true
+	s.srv, s.addr, s.running, s.unadvertise = srv, ln.Addr().String(), true, unadvertise
 	s.mu.Unlock()
 
 	go func() {
@@ -128,11 +139,14 @@ func (s *Server) Start(o Options) error {
 // already stopped.
 func (s *Server) Stop() error {
 	s.mu.Lock()
-	srv, running := s.srv, s.running
-	s.srv, s.running = nil, false
+	srv, running, unadvertise := s.srv, s.running, s.unadvertise
+	s.srv, s.running, s.unadvertise = nil, false, nil
 	subs := s.subs
 	s.subs = map[chan []byte]struct{}{}
 	s.mu.Unlock()
+	if unadvertise != nil {
+		unadvertise()
+	}
 	for ch := range subs {
 		close(ch)
 	}

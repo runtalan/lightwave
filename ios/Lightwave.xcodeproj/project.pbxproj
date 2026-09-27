@@ -1,0 +1,335 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		021B807DBB06E51CAAC62432 /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5308A99EE7ACD240EAF72FBE /* ConnectView.swift */; };
+		39E855CF797632E631025920 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0C8A0C1F01472DF009158C5A /* Assets.xcassets */; };
+		60E44754B5F496E816E4F7BF /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 965A89606B98983DB5B9B3F2 /* Models.swift */; };
+		8262F5877F6BD885FA8F9B13 /* LightwaveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0CECDE7A5BA64170FD349E /* LightwaveApp.swift */; };
+		8F97784D0CF228C8F81F5047 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7766DB7F868E3C38AE4B9958 /* Discovery.swift */; };
+		BDA504014549B83EADD24E51 /* HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F28383C2A1BB0B9E5DCB411 /* HUDView.swift */; };
+		CC3CEDAC7EBA5EAE3396FCFC /* LightwaveClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AB920D1984E1F2677B5AE4 /* LightwaveClient.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0C8A0C1F01472DF009158C5A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4F28383C2A1BB0B9E5DCB411 /* HUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDView.swift; sourceTree = "<group>"; };
+		5308A99EE7ACD240EAF72FBE /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
+		7766DB7F868E3C38AE4B9958 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
+		965A89606B98983DB5B9B3F2 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		9FA106E63C5C79CBB477C52F /* Lightwave.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lightwave.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF0CECDE7A5BA64170FD349E /* LightwaveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightwaveApp.swift; sourceTree = "<group>"; };
+		B9AB920D1984E1F2677B5AE4 /* LightwaveClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightwaveClient.swift; sourceTree = "<group>"; };
+		E5064470A145B3C79B0BCC9B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		12406D1E0F94C06602F20C86 = {
+			isa = PBXGroup;
+			children = (
+				28EFD4D49AAF8147C7F572B3 /* Lightwave */,
+				4874F312A248A5871ECC2DB5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		28EFD4D49AAF8147C7F572B3 /* Lightwave */ = {
+			isa = PBXGroup;
+			children = (
+				0C8A0C1F01472DF009158C5A /* Assets.xcassets */,
+				5308A99EE7ACD240EAF72FBE /* ConnectView.swift */,
+				7766DB7F868E3C38AE4B9958 /* Discovery.swift */,
+				4F28383C2A1BB0B9E5DCB411 /* HUDView.swift */,
+				E5064470A145B3C79B0BCC9B /* Info.plist */,
+				AF0CECDE7A5BA64170FD349E /* LightwaveApp.swift */,
+				B9AB920D1984E1F2677B5AE4 /* LightwaveClient.swift */,
+				965A89606B98983DB5B9B3F2 /* Models.swift */,
+			);
+			path = Lightwave;
+			sourceTree = "<group>";
+		};
+		4874F312A248A5871ECC2DB5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9FA106E63C5C79CBB477C52F /* Lightwave.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		30AAA0EB5DCB5A61D8A9F5B8 /* Lightwave */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2EBD418D7EAD2B9CEBA1890 /* Build configuration list for PBXNativeTarget "Lightwave" */;
+			buildPhases = (
+				B247F2C40E060B3BF0F6F2D4 /* Sources */,
+				4D2E28D6E0C6EC57726E6BCC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Lightwave;
+			packageProductDependencies = (
+			);
+			productName = Lightwave;
+			productReference = 9FA106E63C5C79CBB477C52F /* Lightwave.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7F2DFE8B5946EF04332FFDD6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = D9CBEB274ABFA2D11B813BCD /* Build configuration list for PBXProject "Lightwave" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 12406D1E0F94C06602F20C86;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4874F312A248A5871ECC2DB5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				30AAA0EB5DCB5A61D8A9F5B8 /* Lightwave */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4D2E28D6E0C6EC57726E6BCC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				39E855CF797632E631025920 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B247F2C40E060B3BF0F6F2D4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				021B807DBB06E51CAAC62432 /* ConnectView.swift in Sources */,
+				8F97784D0CF228C8F81F5047 /* Discovery.swift in Sources */,
+				BDA504014549B83EADD24E51 /* HUDView.swift in Sources */,
+				8262F5877F6BD885FA8F9B13 /* LightwaveApp.swift in Sources */,
+				CC3CEDAC7EBA5EAE3396FCFC /* LightwaveClient.swift in Sources */,
+				60E44754B5F496E816E4F7BF /* Models.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		17A2BF5397F4B85D4EBF97B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lightwave/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Lightwave;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lightwave talks to the Lightwave app on your Mac over your local network.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.dinksf.lightwave.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2A49DEF0E11A092C9AFF1A6D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		559B15AFD0BB819DC9F79F62 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A91F42FA3EC2383A064B504C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lightwave/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Lightwave;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lightwave talks to the Lightwave app on your Mac over your local network.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.dinksf.lightwave.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D9CBEB274ABFA2D11B813BCD /* Build configuration list for PBXProject "Lightwave" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				559B15AFD0BB819DC9F79F62 /* Debug */,
+				2A49DEF0E11A092C9AFF1A6D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F2EBD418D7EAD2B9CEBA1890 /* Build configuration list for PBXNativeTarget "Lightwave" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				17A2BF5397F4B85D4EBF97B1 /* Debug */,
+				A91F42FA3EC2383A064B504C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7F2DFE8B5946EF04332FFDD6 /* Project object */;
+}
