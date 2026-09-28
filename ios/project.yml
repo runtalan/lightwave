@@ -1,6 +1,6 @@
 name: Lightwave
 options:
-  bundleIdPrefix: com.dinksf
+  bundleIdPrefix: com.runtalan
   deploymentTarget:
     iOS: "17.0"
 settings:
@@ -15,7 +15,9 @@ targets:
     sources: [Lightwave]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.dinksf.lightwave.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.runtalan.lightwave.ios
+        DEVELOPMENT_TEAM: HAAM8XTMTA
+        CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES

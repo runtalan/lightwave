@@ -225,10 +225,13 @@ type App struct {
 	// open the port twice.
 	midiCtl sync.Mutex
 
-	stop           chan struct{}
-	brightKick     chan struct{}
-	pendingBright  atomic.Int32
-	emitPending    atomic.Uint32
+	stop          chan struct{}
+	brightKick    chan struct{}
+	pendingBright atomic.Int32
+	emitPending   atomic.Uint32
+	// midiLastCC is the last fader reading applied, packed as
+	// 1<<16 | cc<<8 | value (0 = none yet). Repeats of it are dropped.
+	midiLastCC     atomic.Uint32
 	lastSentBright int
 	// trimDirty forces the next brightnessPump cycle to resend even if the
 	// slider value (lastSentBright) hasn't moved, so a trim change applied
@@ -528,6 +531,9 @@ func (a *App) midiApplyLoop() {
 func (a *App) startMIDI() {
 	a.midiCtl.Lock()
 	defer a.midiCtl.Unlock()
+	// A fresh port's first reading must apply even if it matches the last
+	// one seen before the stop.
+	a.midiLastCC.Store(0)
 	_ = a.midi.Start()
 }
 
@@ -576,10 +582,17 @@ func (a *App) drainMIDI() bool {
 		a.emitState()
 		activity = true
 	}
-	if _, val, ok := a.midi.TakeCC(); ok {
-		// Brightness only. Never ShowHUD/HideHUD/ToggleWindow from MIDI.
-		a.applyBrightness(midilstn.CCToPercent(val))
-		activity = true
+	if cc, val, ok := a.midi.TakeCC(); ok {
+		// A controller that re-sends a parked fader's position would otherwise
+		// re-apply it on every poll: a full state push to the HUD, Stream Deck
+		// and web clients each time, the poll pinned at its fast rate, and the
+		// fader overriding every other brightness source. Only a new reading
+		// counts as input.
+		if a.newFaderReading(cc, val) {
+			// Brightness only. Never ShowHUD/HideHUD/ToggleWindow from MIDI.
+			a.applyBrightness(midilstn.CCToPercent(val))
+			activity = true
+		}
 	}
 	if note, viaCC, recall, ok := a.midi.TakeNote(); ok {
 		a.mu.Lock()
@@ -601,6 +614,13 @@ func (a *App) drainMIDI() bool {
 		activity = true
 	}
 	return activity
+}
+
+// newFaderReading records cc/val as the latest fader reading and reports
+// whether it differs from the one before it.
+func (a *App) newFaderReading(cc, val uint8) bool {
+	packed := 1<<16 | uint32(cc)<<8 | uint32(val)
+	return a.midiLastCC.Swap(packed) != packed
 }
 
 func (a *App) scheduleStateEmit() {

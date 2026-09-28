@@ -90,6 +90,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					30AAA0EB5DCB5A61D8A9F5B8 = {
+						DevelopmentTeam = HAAM8XTMTA;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = D9CBEB274ABFA2D11B813BCD /* Build configuration list for PBXProject "Lightwave" */;
@@ -144,6 +148,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = HAAM8XTMTA;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lightwave/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Lightwave;
@@ -156,7 +162,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.dinksf.lightwave.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.runtalan.lightwave.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -290,6 +296,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = HAAM8XTMTA;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lightwave/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Lightwave;
@@ -302,7 +310,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.dinksf.lightwave.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.runtalan.lightwave.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

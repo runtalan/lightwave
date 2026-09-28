@@ -393,6 +393,29 @@ a,
     radial-gradient(circle at 50% 30%, rgba(255, 46, 200, 0.35), transparent 42%),
     radial-gradient(circle at 50% 80%, rgba(176, 38, 255, 0.55), transparent 58%),
     rgba(20, 6, 36, 0.8);
+  /* The pulse layer's outer halo sits past the border; windows are fixed
+     size, so a lit tile has nothing of its own to clip. Isolation keeps the
+     z-index:-1 layer above this background and below the labels. */
+  overflow: visible;
+  isolation: isolate;
+}
+
+/* The pulse is a second glow faded in and out by opacity. Animating the tile's
+   box-shadow instead re-rasterised every blurred shadow on every frame (~55%
+   CPU with six lit pads, measured); an opacity animation runs in the
+   compositor and costs effectively nothing while the HUD sits open. */
+.tile.ignited::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px rgba(176, 38, 255, 0.35),
+    0 0 34px rgba(176, 38, 255, 0.55),
+    inset 0 0 32px rgba(255, 46, 200, 0.16);
+  opacity: 0;
   animation: plasma 1.8s ease-in-out infinite;
 }
 
@@ -510,26 +533,22 @@ a,
   right: 6px;
 }
 
-/* Glow pulse rather than filter:saturate — a CSS filter on each ignited
-   tile forced a rasterized layer and re-filtered it every frame. */
+/* Stacked on the tile's resting glow, the layer at full opacity reproduces the
+   old keyframe peak (brighter ring, 34px halo, deeper inner glow). Only
+   opacity may animate here: any paint property drops back to per-frame
+   repaints. */
 @keyframes plasma {
   0%,
   100% {
-    box-shadow:
-      0 0 0 1px rgba(176, 38, 255, 0.45),
-      0 0 22px rgba(176, 38, 255, 0.55),
-      inset 0 0 24px rgba(255, 46, 200, 0.22);
+    opacity: 0;
   }
   50% {
-    box-shadow:
-      0 0 0 1px rgba(176, 38, 255, 0.65),
-      0 0 34px rgba(176, 38, 255, 0.8),
-      inset 0 0 32px rgba(255, 46, 200, 0.34);
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tile.ignited {
+  .tile.ignited::before {
     animation: none;
   }
   .hud-shell {
