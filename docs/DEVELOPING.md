@@ -41,6 +41,8 @@ Hot reload during development is `./scripts/dev.sh` (`wails dev`), not the `.app
 
 `./scripts/build.sh` ad-hoc signs the bundle (`codesign --force --deep --sign -`) and clears quarantine xattrs so Finder does not report the app as damaged. If you ever see that dialog after a failed or interrupted build, run `./scripts/build.sh` again — do not keep opening the incomplete `.app`.
 
+Global numpad controls use existing macOS Accessibility permission. Startup checks silently and skips the global keyboard hook if access is unavailable; it never prompts or opens System Settings. To enable those controls, grant the built Lightwave app access under **System Settings → Privacy & Security → Accessibility**, then restart Lightwave.
+
 ## Config (in-app)
 
 The HUD **Config** button (also `,` / `G`, or `lightwave --config`) opens a settings deck. First launch lands on **Lights** until you save a pad map.

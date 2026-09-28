@@ -45,8 +45,9 @@ static int lw_start_global_numpad(void) {
 	__block int started = 0;
 	void (^run)(void) = ^{
 		if (lw_key_tap != NULL) { started = 1; return; }
-		NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @YES};
-		if (!AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options)) return;
+		// Startup must not open System Settings or prompt for permission. Use
+		// existing Accessibility access when available; otherwise skip the tap.
+		if (!AXIsProcessTrusted()) return;
 		CGEventMask mask = CGEventMaskBit(kCGEventKeyDown);
 		lw_key_tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap,
 			kCGEventTapOptionDefault, mask, lw_key_callback, NULL);
