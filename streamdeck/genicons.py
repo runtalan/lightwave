@@ -116,6 +116,14 @@ def glyph(kind, on=True):
             box(im,(x-8,73-i*9,x+8,94),fill=(DIM,NEON,'#d82be4',MAG)[i],radius=4)
         line(im,[(32,108),(111,108)],ICE,3)
         line(im,[(104,102),(111,108),(104,114)],ICE,3)
+    elif kind == 'mode':
+        # Warmness, Palette, Solid stacked in the order the switch cycles.
+        box(im,(28,34,92,50),fill='#ffc27a',radius=6)
+        for i,c in enumerate((NEON,'#d82be4',MAG,'#ff7a3d')):
+            box(im,(28+i*16,58,42+i*16,74),fill=c,radius=4)
+        box(im,(28,82,92,98),fill=ICE,radius=6)
+        arc(im,(96,44,124,88),-80,180,ICE if on else DIM,4)
+        ImageDraw.Draw(im).polygon([(103*S,40*S),(115*S,43*S),(106*S,52*S)],fill=ICE if on else DIM)
     elif kind == 'status':
         box(im,(29,31,115,98),outline=ICE,width=3,radius=9)
         line(im,[(39,68),(50,68),(59,49),(72,82),(82,60),(105,60)],MAG,3)
@@ -141,13 +149,13 @@ def icon(kind, on=True, titled=False):
 
 
 ACTIONS = [('status','Status'),('pad','Light'),('alloff','All Lights'),
-           ('palette','Palette'),('dance','Color Fade'),('gradient','Pattern'),
+           ('palette','Palette'),('mode','Color Mode'),('dance','Color Fade'),('gradient','Pattern'),
            ('brightness','Brightness'),('sweep','Light Sweep')]
 
 
 def main():
     targets={f'actions/{kind}':icon(kind) for kind,_ in ACTIONS}
-    for kind in ('status','palette','brightness'):
+    for kind in ('status','palette','brightness','mode'):
         targets[f'actions/{kind}-key']=icon(kind)
     for name,kind in (('pad','pad'),('dance','dance'),('gradient','gradient')):
         for on in (False,True):
@@ -163,7 +171,7 @@ def main():
             im.resize((size,size),Image.Resampling.LANCZOS).save(f'{path}{suffix}.png')
 
     # Review at actual key sizes, with titles to check the reserved text area.
-    sheet=Image.new('RGB',(1000,550),'#0a0612')
+    sheet=Image.new('RGB',(1120,550),'#0a0612')
     d=ImageDraw.Draw(sheet)
     font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc',16) if Path('/System/Library/Fonts/Helvetica.ttc').exists() else ImageFont.load_default(size=16)
     d.text((24,18),'LIGHTWAVE / STREAM DECK',fill=ICE,font=font)

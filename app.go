@@ -2049,6 +2049,78 @@ func (a *App) ToggleWarmMode() HUDState {
 	return a.snapshot()
 }
 
+// Colour modes as controllers name them. Palette and Solid are the two
+// patterns of LightWave mode (gradient on or off); Warmness is one white.
+const (
+	ModeWarmness = "warmness"
+	ModePalette  = "palette"
+	ModeSolid    = "solid"
+)
+
+var colorModes = []string{ModeWarmness, ModePalette, ModeSolid}
+
+// colorModeLocked reports the current mode. Caller holds a.mu.
+func (a *App) colorModeLocked() string {
+	switch {
+	case a.warmMode:
+		return ModeWarmness
+	case a.gradient:
+		return ModePalette
+	}
+	return ModeSolid
+}
+
+// StepColorMode moves through Warmness -> Palette -> Solid and round again.
+func (a *App) StepColorMode(direction int) HUDState {
+	a.mu.Lock()
+	cur := a.colorModeLocked()
+	a.mu.Unlock()
+	i := 0
+	for j, m := range colorModes {
+		if m == cur {
+			i = j
+		}
+	}
+	n := len(colorModes)
+	return a.SetColorMode(colorModes[((i+direction)%n+n)%n])
+}
+
+// SetColorMode switches straight to one mode with a single repaint, where
+// toggling warm mode and then the gradient would paint the room twice.
+func (a *App) SetColorMode(mode string) HUDState {
+	a.recordUserActivity()
+	a.mu.Lock()
+	warm := mode == ModeWarmness
+	grad := a.gradient
+	if !warm {
+		grad = mode == ModePalette
+	}
+	if warm == a.warmMode && grad == a.gradient {
+		a.mu.Unlock()
+		return a.snapshot()
+	}
+	a.warmMode, a.gradient = warm, grad
+	if warm {
+		a.dancing = false
+		a.danceGen++
+	}
+	dancing := a.dancing
+	s := a.settings
+	s.WarmMode, s.Gradient, s.Warmness = warm, grad, a.warmness
+	a.settings = s
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist colour mode: %v", err)
+	}
+	// While dancing, the animation loop owns the colours and picks the new
+	// pattern up on its next tick.
+	if !dancing {
+		a.paintScene(true)
+	}
+	a.emitState()
+	return a.snapshot()
+}
+
 // SetWarmness sets a native white temperature in Kelvin.
 func (a *App) SetWarmness(kelvin int) HUDState {
 	a.recordUserActivity()

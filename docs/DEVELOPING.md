@@ -123,11 +123,20 @@ hold that permission.
 # Windows: .\streamdeck\build.ps1 -Install
 ```
 
-Actions: **Light** (toggle one pad, key shows the light's name and lights up when
-on), **All Lights** (everything off, or back on), **Palette**, **Color Fade**, **Brightness** (key nudge, or the
-dial on Stream Deck +), **Light Sweep** (a Stream Deck + dial that walks the
-lights on in pad order and back off in reverse, one every 300ms). Keys track state pushed from Lightwave, so they stay
-correct when lights are changed from the HUD, the numpad, or the Govee app.
+Actions: **Status**, **Light** (toggle one pad, key shows the light's name and
+lights up when on), **All Lights** (everything off, or back on), **Palette**
+(next/previous or jump to one; warmer/cooler in Warmness mode; on a Stream Deck +
+dial the touch strip shows the current palette or temperature and a push switches
+mode), **Color Mode** (Warmness → Palette → Solid Color, over the `MODE` socket
+verb), **Color Fade**, **Pattern**, **Brightness** (read-only key, or the dial on
+Stream Deck +), **Light Sweep** (a Stream Deck + dial that walks the lights on in
+pad order and back off in reverse, one every 300ms). Keys track state pushed
+from Lightwave, so they stay correct when lights are changed from the HUD, the
+numpad, or the Govee app.
+
+The palette and mode dials draw their touch strip with the custom layout in
+`com.dinksf.lightwave.sdPlugin/layouts/dial.json`; the plugin fills its `strip`
+pixmap with PNGs from `plugin/internal/render/dial.go`.
 
 Lightwave must be running; a key press when it is not shows an alert, and the
 plugin reconnects on its own once the app is back. Plugin log: `~/Library/Logs/Lightwave/streamdeck-plugin.log` on macOS,
@@ -136,8 +145,9 @@ plugin reconnects on its own once the app is back. Plugin log: `~/Library/Logs/L
 ### Profile
 
 `streamdeck/Lightwave.streamDeckProfile` is a ready-made two-page layout — open
-it to import. Page 1 holds four lights plus All Lights / Dimmer / Brighter / Color
-Fade; page 2 holds the rest plus the palette controls.
+it to import. Page 1 holds four lights plus Status / All Lights / Pattern / Color
+Fade; page 2 holds the rest plus Palette −/+, Color Mode and All Lights; the
+pages after that jump straight to each palette.
 
 Regenerate it after rebinding pads (it reads the live pad map, so keys carry
 your real light names):

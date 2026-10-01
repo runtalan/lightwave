@@ -47,6 +47,12 @@ type State struct {
 	WarmMode   bool    `json:"warmMode"`
 	Warmness   int     `json:"warmness"`
 	Swatches   []Color `json:"swatches"`
+	// Every palette name in cycle order, so a dial can jump several palettes
+	// per turn and the Property Inspector can list them.
+	Palettes []string `json:"palettes"`
+	// Mode is "warmness", "palette" or "solid". Older Lightwave builds do not
+	// send it; ColorMode derives it from the flags instead.
+	Mode string `json:"mode"`
 	// Palettes either side of the current one, so the next/previous keys can
 	// show their destination rather than the palette already in play.
 	PrevPalette  string  `json:"prevPalette"`
@@ -63,6 +69,73 @@ type Color struct {
 	R int `json:"r"`
 	G int `json:"g"`
 	B int `json:"b"`
+}
+
+// Colour modes, in the order a mode switch steps through them.
+const (
+	ModeWarmness = "warmness"
+	ModePalette  = "palette"
+	ModeSolid    = "solid"
+)
+
+var Modes = []string{ModeWarmness, ModePalette, ModeSolid}
+
+// ColorMode reports the current colour mode.
+func (s State) ColorMode() string {
+	switch {
+	case s.Mode != "":
+		return s.Mode
+	case s.WarmMode:
+		return ModeWarmness
+	case s.Gradient:
+		return ModePalette
+	}
+	return ModeSolid
+}
+
+// StepMode returns the mode n steps away from the current one, wrapping.
+func (s State) StepMode(n int) string {
+	cur := s.ColorMode()
+	i := 0
+	for j, m := range Modes {
+		if m == cur {
+			i = j
+		}
+	}
+	k := len(Modes)
+	return Modes[((i+n)%k+k)%k]
+}
+
+// ModeLabel is how a mode is named on a key or the touch strip.
+func ModeLabel(m string) string {
+	switch m {
+	case ModeWarmness:
+		return "Warmness"
+	case ModePalette:
+		return "Palette"
+	case ModeSolid:
+		return "Solid Color"
+	}
+	return m
+}
+
+// LeadSwatch is the one colour every light shares in solid mode: the palette's
+// centre swatch, as Lightwave picks it.
+func (s State) LeadSwatch() (Color, bool) {
+	if len(s.Swatches) == 0 {
+		return Color{}, false
+	}
+	return s.Swatches[len(s.Swatches)/2], true
+}
+
+// PaletteIndex returns the current palette's position in Palettes, or -1.
+func (s State) PaletteIndex() int {
+	for i, name := range s.Palettes {
+		if name == s.Palette {
+			return i
+		}
+	}
+	return -1
 }
 
 // CountOn returns how many lights are lit and how many are bound.

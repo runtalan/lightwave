@@ -1,38 +1,64 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
 <body>
-  <div class="row">
-    <label for="dir">Palette</label>
-    <!-- Values "next"/"prev" cycle; "set:<name>" jumps straight to that
-         palette. The list mirrors Palettes in internal/color/engine.go — the
-         plugin has no back-channel to ask the app, so keep the two in step
-         when palettes change. -->
-    <select id="dir">
-      <option value="next">Next palette</option>
-      <option value="prev">Previous palette</option>
-      <optgroup label="Jump straight to">
-        <option value="set:Warm Whites">Warm Whites</option>
-        <option value="set:Soft Ambers">Soft Ambers</option>
-        <option value="set:Deep Oranges">Deep Oranges</option>
-        <option value="set:Reds">Reds</option>
-        <option value="set:Purples">Purples</option>
-        <option value="set:Ocean">Ocean</option>
-        <option value="set:Fall Leaves">Fall Leaves</option>
-        <option value="set:Sunset">Sunset</option>
-        <option value="set:Sage">Sage</option>
-        <option value="set:Lavender Mist">Lavender Mist</option>
-        <option value="set:Candlelight">Candlelight</option>
-        <option value="set:Morning Haze">Morning Haze</option>
-        <option value="set:Blush">Blush</option>
-        <option value="set:Ivory">Ivory</option>
-        <option value="set:Pure White">Pure White</option>
-      </optgroup>
-    </select>
+  <div id="key">
+    <div class="row">
+      <label for="dir">Palette</label>
+      <!-- Values "next"/"prev" cycle; "set:<name>" jumps straight to that
+           palette. The plugin replaces the list below with the palettes the
+           running Lightwave has; this copy of Palettes in
+           internal/color/engine.go is only the fallback when it is not up. -->
+      <select id="dir">
+        <option value="next">Next palette (warmer)</option>
+        <option value="prev">Previous palette (cooler)</option>
+        <optgroup label="Jump straight to" id="jump">
+          <option value="set:Warm Whites">Warm Whites</option>
+          <option value="set:Soft Ambers">Soft Ambers</option>
+          <option value="set:Deep Oranges">Deep Oranges</option>
+          <option value="set:Reds">Reds</option>
+          <option value="set:Purples">Purples</option>
+          <option value="set:Ocean">Ocean</option>
+          <option value="set:Fall Leaves">Fall Leaves</option>
+          <option value="set:Sunset">Sunset</option>
+          <option value="set:Sage">Sage</option>
+          <option value="set:Lavender Mist">Lavender Mist</option>
+          <option value="set:Candlelight">Candlelight</option>
+          <option value="set:Morning Haze">Morning Haze</option>
+          <option value="set:Blush">Blush</option>
+          <option value="set:Ivory">Ivory</option>
+          <option value="set:Pure White">Pure White</option>
+        </optgroup>
+      </select>
+    </div>
+    <p class="hint">Next/Previous step through palettes — the key shows the palette you will land on. In Warmness mode they go warmer/cooler instead, and the key shows the temperature. A jump key always goes to its palette, leaving Warmness mode if needed.</p>
   </div>
-  <p class="hint">Cycle with Next/Previous — the key shows the palette you will land on, with its colors — or pick one palette for this key to jump straight to it.</p>
+  <p class="hint" id="dial" hidden>Turn to step through palettes, or warmer/cooler in Warmness mode. The touch strip shows the current palette or temperature. Push the dial or tap the strip to switch between Warmness, Palette and Solid Color.</p>
   <script>
-    const sel = document.getElementById('dir');
-    document.addEventListener('pi-ready', (e) => { if (e.detail.direction) sel.value = e.detail.direction; });
+    const sel = document.getElementById('dir'), jump = document.getElementById('jump');
+    let chosen = null;
+    document.addEventListener('pi-ready', (e) => {
+      if (controller === 'Encoder') {
+        document.getElementById('key').hidden = true;
+        document.getElementById('dial').hidden = false;
+        return;
+      }
+      if (e.detail.direction) { chosen = e.detail.direction; sel.value = chosen; }
+      askPlugin({ want: 'palettes' });
+    });
+    // The running Lightwave's own list, so new palettes appear without an
+    // inspector update.
+    document.addEventListener('pi-data', (e) => {
+      const names = e.detail && e.detail.palettes;
+      if (!Array.isArray(names) || !names.length) return;
+      jump.innerHTML = '';
+      for (const n of names) {
+        const o = document.createElement('option');
+        o.value = 'set:' + n; o.textContent = n;
+        jump.appendChild(o);
+      }
+      if (chosen) sel.value = chosen;
+    });
+    sel.addEventListener('change', () => { chosen = sel.value; });
     bindField(sel, 'direction');
   </script>
 </body></html>

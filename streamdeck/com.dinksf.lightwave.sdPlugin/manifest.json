@@ -3,7 +3,7 @@
   "Name": "Lightwave",
   "UUID": "com.dinksf.lightwave",
   "Author": "Paul",
-  "Version": "1.0.0.0",
+  "Version": "1.1.0.0",
   "Description": "Control Govee lights over LAN and Bluetooth through the Lightwave app.",
   "Category": "Lightwave",
   "CategoryIcon": "imgs/category",
@@ -29,7 +29,7 @@
       "UUID": "com.dinksf.lightwave.status",
       "Name": "Status",
       "Icon": "imgs/actions/status",
-      "Tooltip": "Live display of what is on, brightness, palette, pattern, and the color fade. Press to turn everything off, or bring back the lights that were on last.",
+      "Tooltip": "Live display of what is on, brightness, palette or warmness, pattern, and the color fade. Press to turn everything off, or bring back the lights that were on last.",
       "Controllers": [
         "Keypad"
       ],
@@ -84,16 +84,17 @@
       "UUID": "com.dinksf.lightwave.palette",
       "Name": "Palette / Warmness",
       "Icon": "imgs/actions/palette",
-      "Tooltip": "Step through palettes in LightWave mode, or adjust warmness in Warmness mode.",
+      "Tooltip": "Step through palettes, or warmer/cooler in Warmness mode. Keys show where a press lands; on Stream Deck + the dial shows the current palette or temperature, and pushing it switches mode.",
       "Controllers": [
         "Keypad",
         "Encoder"
       ],
       "Encoder": {
-        "layout": "$B1",
+        "layout": "layouts/dial.json",
         "TriggerDescription": {
           "Rotate": "Palette / warmth",
-          "Push": "Palette / warmth"
+          "Push": "Switch mode",
+          "Touch": "Switch mode"
         }
       },
       "PropertyInspectorPath": "ui/palette.html",
@@ -106,10 +107,35 @@
       "UserTitleEnabled": false
     },
     {
+      "UUID": "com.dinksf.lightwave.mode",
+      "Name": "Color Mode",
+      "Icon": "imgs/actions/mode",
+      "Tooltip": "Switch between Warmness, Palette (a gradient across your lights) and Solid Color (one shared color). The key shows the current mode and which one a press moves to.",
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/dial.json",
+        "TriggerDescription": {
+          "Rotate": "Change mode",
+          "Push": "Next mode",
+          "Touch": "Next mode"
+        }
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/mode-key",
+          "ShowTitle": false
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
       "UUID": "com.dinksf.lightwave.dance",
       "Name": "Color Fade",
       "Icon": "imgs/actions/dance",
-      "Tooltip": "Start or stop the slow color fade. The key says which it will do.",
+      "Tooltip": "Start or stop the slow color fade. The key says which it will do; starting it from Warmness mode switches back to your palette first.",
       "Controllers": [
         "Keypad"
       ],
@@ -128,7 +154,7 @@
       "UUID": "com.dinksf.lightwave.gradient",
       "Name": "Pattern",
       "Icon": "imgs/actions/gradient",
-      "Tooltip": "Switch between one shared color and a gradient across your lights. The key says which it will do.",
+      "Tooltip": "Switch between one shared color and a gradient across your lights. The key says which it will do; in Warmness mode it switches back to colors.",
       "Controllers": [
         "Keypad"
       ],

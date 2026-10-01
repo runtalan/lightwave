@@ -47,7 +47,7 @@ def action(uuid_suffix, name, settings=None, states=1):
         "ActionID": str(uuid.uuid4()),
         "LinkedTitle": False,
         "Name": name,
-        "Plugin": {"Name": "Lightwave", "UUID": PLUGIN, "Version": "1.0.0.0"},
+        "Plugin": {"Name": "Lightwave", "UUID": PLUGIN, "Version": "1.1.0.0"},
         "Resources": None,
         "Settings": settings or {},
         "State": 0,
@@ -82,13 +82,13 @@ def build(dest_dir, out_file, personal=False):
     p1["3,1"] = action("dance", "Color Fade", states=2)
 
     # Page 2 is the scene page: remaining lights up top, then the palette
-    # controls, the brightness readout, and an All Lights within reach so an
-    # emergency off never needs a page turn.
+    # controls, the colour mode switch, and an All Lights within reach so an
+    # emergency off never needs a page turn. Brightness is on the Status key.
     for i, pad in enumerate(rest[:4]):
         p2[f"{i},0"] = action("pad", pad["name"], {"pad": pad["n"]}, states=2)
     p2["0,1"] = action("palette", "Palette −", {"direction": "prev"})
     p2["1,1"] = action("palette", "Palette +", {"direction": "next"})
-    p2["2,1"] = action("brightness", "Brightness")
+    p2["2,1"] = action("mode", "Color Mode")
     p2["3,1"] = action("alloff", "All Lights", states=2)
 
     # Pages 3+: one key per palette, jumping straight to it. The live app is
@@ -143,7 +143,7 @@ def build(dest_dir, out_file, personal=False):
     print(f"profile: {out_file}")
     print(f"  page 1: {', '.join(n for n in names[:4])} + Status, All Lights, Pattern, Color Fade")
     if rest:
-        print(f"  page 2: {', '.join(n for n in names[4:8])} + Palette -/+, Brightness, All Lights")
+        print(f"  page 2: {', '.join(n for n in names[4:8])} + Palette -/+, Color Mode, All Lights")
     for i, pg in enumerate(palette_pages):
         start = i * per_page
         chunk = palettes[start:start + per_page]

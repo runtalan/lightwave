@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
 	"time"
 
 	"lightwave-sd/internal/lw"
@@ -38,7 +37,11 @@ const (
 	actBrightness = "com.dinksf.lightwave.brightness"
 	actStatus     = "com.dinksf.lightwave.status"
 	actSweep      = "com.dinksf.lightwave.sweep"
+	actMode       = "com.dinksf.lightwave.mode"
 )
+
+// Controller kinds Stream Deck reports for an action instance.
+const encoder = "Encoder"
 
 // Sweep pacing. One light per step is the whole point of the knob — the room
 // should fill and empty visibly rather than all at once — and the gap also
@@ -118,6 +121,12 @@ type instance struct {
 	action   string
 	context  string
 	settings settings
+	// controller is "Keypad" or "Encoder". A dial draws into its touch-strip
+	// layout rather than a key image, so the same action renders differently.
+	controller string
+	// offline is set while the key shows the "Lightwave offline" title, so the
+	// first real state clears it.
+	offline bool
 	// custom is set once the user types their own key title in Stream Deck.
 	// Long lamp names ("ClaudiaBulbH6001-C883") do not wrap onto a 72px key,
 	// so the light name is only a starting point: the plugin seeds it, and
@@ -130,9 +139,7 @@ type instance struct {
 
 type settings struct {
 	Pad       int    `json:"pad,omitempty"`
-	Step      int    `json:"step,omitempty"`
 	Direction string `json:"direction,omitempty"`
-	Mode      string `json:"mode,omitempty"`
 }
 
 type plugin struct {
@@ -169,15 +176,15 @@ func (p *plugin) onEvent(ev sd.Event) {
 		p.onTitleChanged(ev)
 	case "propertyInspectorDidAppear", "sendToPlugin":
 		// The inspector cannot reach Lightwave itself, so hand it the current
-		// pads as soon as it opens (and again if it asks).
-		p.sendPads(ev)
+		// pads or palettes as soon as it opens (and again if it asks).
+		p.sendInspector(ev)
 	case "keyUp":
 		p.trackContext(ev)
 		p.press(ev)
 	case "dialRotate":
 		p.trackContext(ev)
 		p.rotate(ev)
-	case "dialDown":
+	case "dialDown", "touchTap":
 		p.trackContext(ev)
 		p.press(ev)
 	}
@@ -190,13 +197,10 @@ type padOption struct {
 	Bound bool   `json:"bound"`
 }
 
-// sendPads hands the Property Inspector the nine pads with whatever Lightwave
-// currently has bound to them, so the dropdown can offer real device names
-// instead of "Pad 8". Falls back to the bare pad numbers when the daemon is not
-// reachable — an inspector that lists nothing would be worse than one that
-// lists numbers.
-func (p *plugin) sendPads(ev sd.Event) {
-	if ev.Action != actPad {
+// sendInspector hands the Property Inspector what its dropdown needs from
+// Lightwave: the bound lights for a pad key, the palette list for a palette key.
+func (p *plugin) sendInspector(ev sd.Event) {
+	if ev.Action != actPad && ev.Action != actPalette {
 		return
 	}
 	p.mu.Lock()
@@ -208,6 +212,22 @@ func (p *plugin) sendPads(ev sd.Event) {
 			st, have = fresh, true
 		}
 	}
+	if ev.Action == actPalette {
+		// Without Lightwave the inspector keeps its built-in list.
+		if have && len(st.Palettes) > 0 {
+			p.sd.SendToPropertyInspector(ev.Context, ev.Action, map[string]any{"palettes": st.Palettes})
+		}
+		return
+	}
+	p.sendPads(ev, st, have)
+}
+
+// sendPads hands the Property Inspector the nine pads with whatever Lightwave
+// currently has bound to them, so the dropdown can offer real device names
+// instead of "Pad 8". Falls back to the bare pad numbers when the daemon is not
+// reachable — an inspector that lists nothing would be worse than one that
+// lists numbers.
+func (p *plugin) sendPads(ev sd.Event, st lw.State, have bool) {
 	opts := make([]padOption, 0, 9)
 	for n := 1; n <= 9; n++ {
 		o := padOption{Pad: n, Name: "Pad " + strconv.Itoa(n)}
@@ -260,19 +280,31 @@ func (p *plugin) trackContext(ev sd.Event) {
 	}
 	// Keep the title bookkeeping: only action and settings come from the event.
 	inst.action, inst.settings = ev.Action, s
+	// Only appearance and settings events name the controller; key and dial
+	// events that omit it must not wipe it.
+	if ev.Payload.Controller != "" {
+		inst.controller = ev.Payload.Controller
+	}
 	p.mu.Unlock()
 }
 
-// press handles a key release (and dial push).
+// press handles a key release, a dial push, and a tap on the touch strip.
 func (p *plugin) press(ev sd.Event) {
 	p.mu.Lock()
 	inst := p.contexts[ev.Context]
+	st, have := p.state, p.haveState
 	p.mu.Unlock()
 	if inst == nil {
 		return
 	}
+	warm := have && st.WarmMode
+	// Leaving Warmness mode returns to whichever pattern was last in use.
+	backToColors := "MODE " + lw.ModeSolid
+	if st.Gradient {
+		backToColors = "MODE " + lw.ModePalette
+	}
 
-	var cmd string
+	var cmds []string
 	switch inst.action {
 	case actPad:
 		if inst.settings.Pad < 1 || inst.settings.Pad > 9 {
@@ -280,45 +312,58 @@ func (p *plugin) press(ev sd.Event) {
 			log.Printf("pad action on %s has no pad configured", ev.Context)
 			return
 		}
-		cmd = "TOGGLE_SLOT " + strconv.Itoa(inst.settings.Pad)
+		cmds = []string{"TOGGLE_SLOT " + strconv.Itoa(inst.settings.Pad)}
 	case actAllOff:
-		cmd = "ALL_TOGGLE"
+		cmds = []string{"ALL_TOGGLE"}
 	case actDance:
-		cmd = "DANCE"
-	case actGradient:
-		cmd = "GRADIENT"
-	case actPalette:
-		p.mu.Lock()
-		warm := p.haveState && p.state.WarmMode
-		p.mu.Unlock()
+		// The fade does not run on a white, so starting it from Warmness mode
+		// goes back to the palette first rather than doing nothing.
 		if warm {
-			if inst.settings.Direction == "prev" {
-				cmd = "PALETTE -1"
-			} else {
-				cmd = "PALETTE +1"
-			}
+			cmds = append(cmds, backToColors)
+		}
+		cmds = append(cmds, "DANCE")
+	case actGradient:
+		if warm {
+			// The key reads "Use Colors" here: pattern means nothing on a white.
+			cmds = []string{backToColors}
+		} else {
+			cmds = []string{"GRADIENT"}
+		}
+	case actMode:
+		cmds = []string{"MODE next"}
+	case actPalette:
+		if inst.controller == encoder {
+			// The dial turns through palettes or temperatures; pushing it is
+			// how one dial reaches all three modes.
+			cmds = []string{"MODE next"}
 			break
 		}
 		// "set:<name>" jumps straight to one palette; anything else keeps the
 		// original prev/next cycling, so profiles saved before direct select
 		// existed still work.
 		if name, ok := strings.CutPrefix(inst.settings.Direction, "set:"); ok && name != "" {
-			cmd = "PALETTE SET " + name
+			cmds = []string{"PALETTE SET " + name}
+			if warm {
+				// Picking a palette means wanting to see it. Set it first so
+				// leaving Warmness mode paints the room once, in that palette.
+				cmds = append(cmds, backToColors)
+			}
 		} else if inst.settings.Direction == "prev" {
-			cmd = "PALETTE -1"
+			// In Warmness mode Lightwave reads these as cooler/warmer.
+			cmds = []string{"PALETTE -1"}
 		} else {
-			cmd = "PALETTE +1"
+			cmds = []string{"PALETTE +1"}
 		}
 	case actSweep:
 		// Pushing the knob is the shortcut past the slow walk: everything off,
 		// or everything back on. The next turn re-anchors from there.
-		cmd = "ALL_TOGGLE"
+		cmds = []string{"ALL_TOGGLE"}
 	case actStatus:
 		// The status key is the "is anything on?" key, so pressing it answers
 		// that: turn the room off, or bring back exactly the lights that were
 		// on last time. Palette cycling lives on its own keys, which show
 		// where they land — doing it from here was a hidden side effect.
-		cmd = "RECALL_TOGGLE"
+		cmds = []string{"RECALL_TOGGLE"}
 	case actBrightness:
 		// Deliberately inert: brightness belongs to the app's slider, and this
 		// key is only a readout. Dial rotation still adjusts it — see rotate() —
@@ -327,14 +372,21 @@ func (p *plugin) press(ev sd.Event) {
 	default:
 		return
 	}
+	p.run(ev.Context, cmds...)
+}
 
-	st, err := p.client.Command(cmd)
-	if err != nil {
-		log.Printf("command %q: %v", cmd, err)
-		p.sd.ShowAlert(ev.Context)
-		return
+// run sends commands in order, stopping at the first failure, and repaints
+// from the last reply.
+func (p *plugin) run(context string, cmds ...string) {
+	for _, cmd := range cmds {
+		st, err := p.client.Command(cmd)
+		if err != nil {
+			log.Printf("command %q: %v", cmd, err)
+			p.sd.ShowAlert(context)
+			return
+		}
+		p.applyState(st)
 	}
-	p.applyState(st)
 }
 
 // rotate handles a Stream Deck + dial.
@@ -350,25 +402,58 @@ func (p *plugin) rotate(ev sd.Event) {
 		p.rotatePalette(ev)
 		return
 	}
+	if inst != nil && inst.action == actMode {
+		p.rotateMode(ev)
+		return
+	}
 	p.rotateBrightness(ev)
 }
 
-// rotatePalette sends the published palette command. Lightwave turns that
-// into warmer/cooler 100K steps whenever Warmness mode is active.
+// rotatePalette turns through palettes, or through temperatures in Warmness
+// mode, one step per detent. Clockwise is the next palette, or warmer.
 func (p *plugin) rotatePalette(ev sd.Event) {
-	if ev.Payload.Ticks == 0 {
+	ticks := ev.Payload.Ticks
+	if ticks == 0 {
 		return
 	}
-	dir := "+1"
-	if ev.Payload.Ticks < 0 {
-		dir = "-1"
+	p.mu.Lock()
+	st, have := p.state, p.haveState
+	p.mu.Unlock()
+	var cmd string
+	switch {
+	case have && st.WarmMode:
+		cmd = "WARMNESS " + strconv.Itoa(st.Warmness-ticks*100)
+	case have && st.PaletteIndex() >= 0:
+		// Jump by the whole turn at once: a fast spin arrives as one event
+		// with several ticks, and PALETTE +1 would only move one.
+		n := len(st.Palettes)
+		i := ((st.PaletteIndex()+ticks)%n + n) % n
+		cmd = "PALETTE SET " + strconv.Itoa(i)
+	case ticks < 0:
+		cmd = "PALETTE -1"
+	default:
+		cmd = "PALETTE +1"
 	}
-	st, err := p.client.Command("PALETTE " + dir)
-	if err != nil {
-		log.Printf("dial palette/warmness: %v", err)
+	p.run(ev.Context, cmd)
+}
+
+// rotateMode steps through Warmness, Palette and Solid.
+func (p *plugin) rotateMode(ev sd.Event) {
+	ticks := ev.Payload.Ticks
+	if ticks == 0 {
 		return
 	}
-	p.applyState(st)
+	p.mu.Lock()
+	st, have := p.state, p.haveState
+	p.mu.Unlock()
+	switch {
+	case have:
+		p.run(ev.Context, "MODE "+st.StepMode(ticks))
+	case ticks < 0:
+		p.run(ev.Context, "MODE prev")
+	default:
+		p.run(ev.Context, "MODE next")
+	}
 }
 
 // rotateBrightness maps a dial to the pool brightness.
@@ -538,6 +623,13 @@ func (p *plugin) refreshOne(context string) {
 			p.applyState(fresh)
 			return
 		}
+		p.mu.Lock()
+		inst.offline = true
+		p.mu.Unlock()
+		if inst.controller == encoder {
+			p.sd.SetFeedback(context, map[string]any{"title": "Lightwave", "value": "Offline"})
+			return
+		}
 		p.sd.SetTitle(context, "Lightwave\noffline")
 		return
 	}
@@ -546,6 +638,15 @@ func (p *plugin) refreshOne(context string) {
 
 // render paints one key from the current Lightwave state.
 func (p *plugin) render(inst *instance, st lw.State) {
+	p.mu.Lock()
+	wasOffline := inst.offline
+	inst.offline = false
+	dial := inst.controller == encoder
+	p.mu.Unlock()
+	if wasOffline && !dial {
+		// An empty title hands the key back to whatever the user typed.
+		p.sd.SetTitle(inst.context, "")
+	}
 	switch inst.action {
 	case actPad:
 		pad := st.Pad(inst.settings.Pad)
@@ -590,10 +691,13 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		}
 		// On a Stream Deck + dial the image fills only the icon slot; the
 		// touch strip's value comes from the layout, as with the other dials.
-		p.sd.SetFeedback(inst.context, map[string]any{
-			"title": "Brightness",
-			"value": strconv.Itoa(st.Brightness) + "%",
-		})
+		if dial {
+			p.sd.SetFeedback(inst.context, map[string]any{
+				"title":     "Brightness",
+				"value":     strconv.Itoa(st.Brightness) + "%",
+				"indicator": st.Brightness,
+			})
+		}
 	case actSweep:
 		// The dial reports how far through the room the knob has walked, as a
 		// count and as the same arc gauge the brightness dial uses.
@@ -608,50 +712,18 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			log.Printf("sweep render: %v", err)
 		}
 		p.sd.SetFeedback(inst.context, map[string]any{
-			"title": "Lights",
-			"value": strconv.Itoa(on) + "/" + strconv.Itoa(total),
+			"title":     "Lights",
+			"value":     strconv.Itoa(on) + "/" + strconv.Itoa(total),
+			"indicator": pct,
 		})
 	case actPalette:
-		if st.WarmMode {
-			warmth := (6500 - st.Warmness) * 100 / 4500
-			p.sd.SetTitle(inst.context, "Warmth\n"+strconv.Itoa(warmth)+"%\n"+strconv.Itoa(st.Warmness)+"K")
-			p.sd.SetFeedback(inst.context, map[string]any{"title": "Warmth", "value": strconv.Itoa(warmth) + "%"})
+		if dial {
+			p.renderPaletteDial(inst, st)
 			break
 		}
-		if name, ok := strings.CutPrefix(inst.settings.Direction, "set:"); ok && name != "" {
-			// A fixed jump target: show that palette itself, not a direction.
-			sw, known := st.PaletteSwatches[name]
-			if !known {
-				// Older Lightwave that does not send the full catalog: fall
-				// back to the name rather than painting an empty key.
-				p.sd.SetTitle(inst.context, wrapTitle(name))
-				break
-			}
-			if img, err := render.PaletteKey(name, swatches(sw)); err == nil {
-				p.sd.SetImage(inst.context, img)
-			} else {
-				log.Printf("palette render: %v", err)
-			}
-			break
-		}
-		// Show where a press lands, not the palette already showing.
-		nav := render.Nav{Forward: inst.settings.Direction != "prev"}
-		if nav.Forward {
-			nav.Name, nav.Swatches = st.NextPalette, swatches(st.NextSwatches)
-		} else {
-			nav.Name, nav.Swatches = st.PrevPalette, swatches(st.PrevSwatches)
-		}
-		if nav.Name == "" {
-			// Older Lightwave that does not send neighbours: fall back to the
-			// current name rather than painting an empty key.
-			p.sd.SetTitle(inst.context, wrapTitle(st.Palette))
-			break
-		}
-		if img, err := render.NavKey(nav); err == nil {
-			p.sd.SetImage(inst.context, img)
-		} else {
-			log.Printf("nav render: %v", err)
-		}
+		p.renderPaletteKey(inst, st)
+	case actMode:
+		p.renderMode(inst, st, dial)
 	case actDance:
 		// Title names the action, not the state: the key says what it will do.
 		if st.Dancing {
@@ -662,7 +734,11 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			p.sd.SetTitle(inst.context, "Start\nFade")
 		}
 	case actGradient:
-		if st.Gradient {
+		if st.WarmMode {
+			// Pattern only applies to colours; from a white the key goes back.
+			p.sd.SetState(inst.context, 0)
+			p.sd.SetTitle(inst.context, "Use\nColors")
+		} else if st.Gradient {
 			p.sd.SetState(inst.context, 1)
 			p.sd.SetTitle(inst.context, "Use\nSolid")
 		} else {
@@ -679,6 +755,113 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			p.sd.SetState(inst.context, 0)
 		}
 	}
+}
+
+// renderPaletteDial fills the palette dial's touch strip with what it is
+// turning: the current palette and its colours, or the current temperature.
+func (p *plugin) renderPaletteDial(inst *instance, st lw.State) {
+	fb := map[string]any{"title": lw.ModeLabel(st.ColorMode())}
+	var strip string
+	var err error
+	switch st.ColorMode() {
+	case lw.ModeWarmness:
+		fb["value"] = strconv.Itoa(st.Warmness) + "K · " + strconv.Itoa(warmthPct(st.Warmness)) + "% warm"
+		strip, err = render.WarmStrip(st.Warmness)
+	case lw.ModeSolid:
+		fb["value"] = st.Palette
+		if c, ok := st.LeadSwatch(); ok {
+			strip, err = render.SolidStrip(swatches([]lw.Color{c})[0])
+		}
+	default:
+		fb["value"] = st.Palette
+		strip, err = render.SwatchStrip(swatches(st.Swatches))
+	}
+	if err != nil {
+		log.Printf("palette strip render: %v", err)
+	} else if strip != "" {
+		fb["strip"] = strip
+	}
+	p.sd.SetFeedback(inst.context, fb)
+}
+
+// renderPaletteKey draws a palette key: where a press lands, or in Warmness
+// mode the temperature it will set.
+func (p *plugin) renderPaletteKey(inst *instance, st lw.State) {
+	var img string
+	var err error
+	name, fixed := strings.CutPrefix(inst.settings.Direction, "set:")
+	fixed = fixed && name != ""
+	switch {
+	case fixed:
+		// A fixed jump target shows that palette itself, in any mode: pressing
+		// it from Warmness mode goes straight to it.
+		sw, known := st.PaletteSwatches[name]
+		if !known {
+			// Older Lightwave that does not send the full catalog: fall back
+			// to the name rather than painting an empty key.
+			p.sd.SetTitle(inst.context, wrapTitle(name))
+			return
+		}
+		img, err = render.PaletteKey(name, swatches(sw))
+	case st.WarmMode:
+		// Next is warmer, previous cooler, matching Lightwave's own keys.
+		warmer := inst.settings.Direction != "prev"
+		k := st.Warmness + 100
+		if warmer {
+			k = st.Warmness - 100
+		}
+		img, err = render.WarmKey(clampInt(k, render.MinKelvin, render.MaxKelvin), warmer)
+	default:
+		// Show where a press lands, not the palette already showing.
+		nav := render.Nav{Forward: inst.settings.Direction != "prev"}
+		if nav.Forward {
+			nav.Name, nav.Swatches = st.NextPalette, swatches(st.NextSwatches)
+		} else {
+			nav.Name, nav.Swatches = st.PrevPalette, swatches(st.PrevSwatches)
+		}
+		if nav.Name == "" {
+			// Older Lightwave that does not send neighbours: fall back to the
+			// current name rather than painting an empty key.
+			p.sd.SetTitle(inst.context, wrapTitle(st.Palette))
+			return
+		}
+		img, err = render.NavKey(nav)
+	}
+	if err != nil {
+		log.Printf("palette render: %v", err)
+		return
+	}
+	p.sd.SetImage(inst.context, img)
+	// The image carries the text; clear any fallback title left from before.
+	p.sd.SetTitle(inst.context, "")
+}
+
+// renderMode draws the mode switch on a key or a dial.
+func (p *plugin) renderMode(inst *instance, st lw.State, dial bool) {
+	mode := st.ColorMode()
+	sw := swatches(st.Swatches)
+	if dial {
+		fb := map[string]any{"title": "Color Mode", "value": lw.ModeLabel(mode)}
+		if strip, err := render.ModeStrip(mode, sw, st.Warmness); err == nil {
+			fb["strip"] = strip
+		} else {
+			log.Printf("mode strip render: %v", err)
+		}
+		p.sd.SetFeedback(inst.context, fb)
+		return
+	}
+	img, err := render.ModeKey(mode, st.StepMode(1), sw, st.Warmness)
+	if err != nil {
+		log.Printf("mode render: %v", err)
+		return
+	}
+	p.sd.SetImage(inst.context, img)
+}
+
+// warmthPct expresses a temperature as how warm it is across Lightwave's range:
+// 0% at the coolest white, 100% at the warmest.
+func warmthPct(k int) int {
+	return clampInt((render.MaxKelvin-k)*100/(render.MaxKelvin-render.MinKelvin), 0, 100)
 }
 
 // wrapTitle keeps long lamp names readable on a 72px key.
@@ -716,18 +899,19 @@ func wrapTitle(s string) string {
 // state, and how many lights are lit.
 func (p *plugin) renderStatus(inst *instance, st lw.State) {
 	on, total := st.CountOn()
-	sw := make([]render.Swatch, 0, len(st.Swatches))
-	for _, c := range st.Swatches {
-		sw = append(sw, render.Swatch{R: c.R, G: c.G, B: c.B})
+	name, sw, grad := st.Palette, swatches(st.Swatches), st.Gradient
+	if st.WarmMode {
+		// A white has no palette: show the temperature and its colour.
+		name, sw, grad = strconv.Itoa(st.Warmness)+"K", []render.Swatch{render.KelvinRGB(st.Warmness)}, false
 	}
 	p.mu.Lock()
 	phase := p.phase
 	p.mu.Unlock()
 	img, err := render.Indicator(render.Status{
-		Palette:    st.Palette,
+		Palette:    name,
 		Swatches:   sw,
 		Dancing:    st.Dancing,
-		Gradient:   st.Gradient,
+		Gradient:   grad,
 		Brightness: st.Brightness,
 		OnNames:    st.OnNames(),
 		LightsOn:   on,

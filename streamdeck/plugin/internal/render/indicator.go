@@ -375,14 +375,22 @@ func drawPattern(img *image.RGBA, st Status) {
 		}
 		return
 	}
-	fillRect(img, x0, y0, w, 3*barH+2*gap, pick(0.5), 0.98)
+	// Solid mode shows the centre swatch, the one Lightwave actually sends.
+	lead := lerp(neon, magenta, 0.5)
+	if n := len(st.Swatches); n > 0 {
+		c := st.Swatches[n/2]
+		lead = color.RGBA{uint8(c.R), uint8(c.G), uint8(c.B), 255}
+	}
+	fillRect(img, x0, y0, w, 3*barH+2*gap, lead, 0.98)
 }
 
-// fillRect paints a solid run of pixels, clipped to the key.
+// fillRect paints a solid run of pixels, clipped to the image, which may be a
+// key or a wider touch-strip pixmap.
 func fillRect(img *image.RGBA, x, y, w, h int, col color.RGBA, a float64) {
+	b := img.Bounds()
 	for py := y; py < y+h; py++ {
 		for px := x; px < x+w; px++ {
-			if px < 0 || py < 0 || px >= Size || py >= Size {
+			if !(image.Point{px, py}).In(b) {
 				continue
 			}
 			img.Set(px, py, blend(img.RGBAAt(px, py), col, a))

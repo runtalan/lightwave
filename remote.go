@@ -33,6 +33,9 @@ import (
 //	                      either side, so a key can show where it will land
 //	PALETTE SET <name|index> -> jump straight to one palette
 //	WARM_MODE          -> switch between palette and warmness mode
+//	MODE <warmness|palette|solid|next|prev>
+//	                   -> switch colour mode in one step; palette and solid
+//	                      are LightWave mode with the gradient on or off
 //	WARMNESS <kelvin>  -> set a white temperature from 2000 to 6500K
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
@@ -131,6 +134,19 @@ func (a *App) RemoteCommand(cmd string) string {
 		a.ToggleWarmMode()
 		return a.remoteState()
 
+	case "MODE":
+		switch m := strings.ToLower(arg); m {
+		case ModeWarmness, ModePalette, ModeSolid:
+			a.SetColorMode(m)
+		case "next", "+1":
+			a.StepColorMode(1)
+		case "prev", "-1":
+			a.StepColorMode(-1)
+		default:
+			return "ERR mode must be warmness, palette, solid, next or prev"
+		}
+		return a.remoteState()
+
 	case "WARMNESS":
 		k, err := strconv.Atoi(arg)
 		if err != nil {
@@ -178,15 +194,18 @@ func (a *App) RemoteCommand(cmd string) string {
 // smaller than HUDState: a key controller needs pad labels and on/off, not the
 // whole device catalog.
 type RemoteState struct {
-	Pads       []RemotePad   `json:"pads"`
-	Brightness int           `json:"brightness"`
-	Palette    string        `json:"palette"`
-	Palettes   []string      `json:"palettes"`
-	Dancing    bool          `json:"dancing"`
-	Gradient   bool          `json:"gradient"`
-	WarmMode   bool          `json:"warmMode"`
-	Warmness   int           `json:"warmness"`
-	Swatches   []RemoteColor `json:"swatches"`
+	Pads       []RemotePad `json:"pads"`
+	Brightness int         `json:"brightness"`
+	Palette    string      `json:"palette"`
+	Palettes   []string    `json:"palettes"`
+	Dancing    bool        `json:"dancing"`
+	Gradient   bool        `json:"gradient"`
+	WarmMode   bool        `json:"warmMode"`
+	Warmness   int         `json:"warmness"`
+	// Mode is "warmness", "palette" or "solid": the two flags above folded
+	// into the one choice a mode switch presents.
+	Mode     string        `json:"mode"`
+	Swatches []RemoteColor `json:"swatches"`
 	// Every palette's colours, keyed by name, so a controller with a
 	// jump-straight-to-palette key can draw the palette it targets rather
 	// than only the one currently playing or its immediate neighbours.
@@ -229,6 +248,7 @@ func (a *App) remoteState() string {
 		Gradient:        a.gradient,
 		WarmMode:        a.warmMode,
 		Warmness:        a.warmness,
+		Mode:            a.colorModeLocked(),
 		Swatches:        make([]RemoteColor, 0, len(pal.Colors)),
 		PaletteSwatches: make(map[string][]RemoteColor, len(color.Palettes)),
 	}

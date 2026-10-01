@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/layout.json",
+  "id": "com.dinksf.lightwave.dial",
+  "items": [
+    {
+      "key": "strip",
+      "type": "pixmap",
+      "rect": [0, 0, 200, 100],
+      "zOrder": 0
+    },
+    {
+      "key": "title",
+      "type": "text",
+      "rect": [12, 6, 176, 18],
+      "zOrder": 1,
+      "font": { "size": 13, "weight": 500 },
+      "color": "#b89ad6",
+      "alignment": "left"
+    },
+    {
+      "key": "value",
+      "type": "text",
+      "rect": [12, 26, 176, 28],
+      "zOrder": 1,
+      "font": { "size": 20, "weight": 600 },
+      "color": "#f3eaff",
+      "alignment": "left",
+      "text-overflow": "ellipsis"
+    }
+  ]
+}

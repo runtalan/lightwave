@@ -227,12 +227,13 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 
 | Action | What it does |
 |---|---|
-| **Status** | Live display: what's on, brightness, palette and its colors, pattern, and fade state |
+| **Status** | Live display: what's on, brightness, palette (or warmness) and its colors, pattern, and fade state. Press to turn everything off, or bring back the lights that were on last |
 | **Light** | Toggle one light; the key shows its name and lights up when on. Rename it in Stream Deck if the light's own name is too long for a key |
 | **All Lights** | Everything off — or back on when all are off |
 | **Brightness** | A read-only readout of the current level. Set brightness with the app's slider; on **Stream Deck +**, the dial adjusts it |
-| **Palette** | Step to the next or previous palette. Each key shows the palette you'll land on, with its colors |
-| **Color Fade** | Start or stop the slow fade — the key says which it will do |
+| **Palette** | Step to the next or previous palette — or warmer/cooler in Warmness mode. Each key shows where you'll land. A key can also jump straight to one palette. On **Stream Deck +** the dial turns through palettes or temperatures, the touch strip shows the current one, and pushing it switches mode |
+| **Color Mode** | Switch between **Warmness** (one adjustable white), **Palette** (a gradient across your lights) and **Solid Color** (one shared color). The key shows the current mode, its colors, and which mode a press moves to. Works as a key or a **Stream Deck +** dial |
+| **Color Fade** | Start or stop the slow fade — the key says which it will do. Starting it from Warmness mode returns to your palette first |
 | **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
 
@@ -250,7 +251,7 @@ A live, animated readout of your lighting, drawn in the Lightwave style — neon
 - **Fader, along the bottom** — the pool's brightness; it dims when every light is off, since the level is then only what the lights will return to
 - **The wave** drifts gently behind it all, and speeds up while the fade is running
 
-Press it to cycle palettes.
+Press it to turn everything off, or bring back the lights that were on last. In Warmness mode it shows the temperature in place of the palette.
 
 ### Install
 

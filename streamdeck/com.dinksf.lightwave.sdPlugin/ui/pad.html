@@ -37,7 +37,6 @@
         // Keep the pad number alongside the name: it is how the light is
         // addressed everywhere else (numpad, HUD, wire protocol).
         o.textContent = p.bound ? p.name + '  ·  pad ' + n : 'Pad ' + n + '  ·  unbound';
-        if (!p.bound) o.disabled = false;
         if (p.bound) anyBound = true;
         sel.appendChild(o);
       }

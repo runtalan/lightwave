@@ -30,9 +30,12 @@ type Event struct {
 
 type Payload struct {
 	Settings json.RawMessage `json:"settings"`
-	Ticks    int             `json:"ticks"`
-	Pressed  bool            `json:"pressed"`
-	State    int             `json:"state"`
+	// Controller is "Keypad" or "Encoder": the same action can sit on a key or
+	// a Stream Deck + dial, and the two are drawn differently.
+	Controller string `json:"controller"`
+	Ticks      int    `json:"ticks"`
+	Pressed    bool   `json:"pressed"`
+	State      int    `json:"state"`
 	// Title carries what Stream Deck is currently showing on the key, and
 	// TitleParameters.ShowTitle whether the user has the title enabled. Both
 	// arrive with titleParametersDidChange, which is how the plugin learns the

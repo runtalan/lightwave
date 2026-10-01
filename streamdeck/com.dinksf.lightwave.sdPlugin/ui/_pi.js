@@ -1,11 +1,13 @@
 // Shared Property Inspector plumbing: connect, then persist form fields as
 // action settings. Stream Deck calls connectElgatoStreamDeckSocket on load.
-let ws, ctx, action, current = {};
+let ws, ctx, action, controller, current = {};
 
 function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info, actionInfo) {
   ctx = uuid;
   try { current = JSON.parse(actionInfo).payload.settings || {}; } catch (e) { current = {}; }
   try { action = JSON.parse(actionInfo).action; } catch (e) { action = ''; }
+  // "Keypad" or "Encoder": a dial ignores key-only settings, so say so.
+  try { controller = JSON.parse(actionInfo).payload.controller || 'Keypad'; } catch (e) { controller = 'Keypad'; }
   ws = new WebSocket('ws://127.0.0.1:' + port);
   ws.onopen = () => {
     ws.send(JSON.stringify({ event: registerEvent, uuid }));
