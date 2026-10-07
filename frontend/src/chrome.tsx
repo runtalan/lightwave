@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EndWindowDrag, HideWindow, PingActivity, PingMotion, Quit, SetBrightness, SetWarmness, StartWindowDrag } from '../wailsjs/go/main/App'
+import { EndWindowDrag, HideWindow, PingActivity, PingMotion, Quit, SetBrightness, SetFrontWarmth, SetWarmness, StartWindowDrag } from '../wailsjs/go/main/App'
 
 declare global {
   interface Window {
@@ -152,6 +152,25 @@ export function WarmnessSlider({ value }: { value: number }) {
           value={shown} aria-label="Warmness" aria-valuetext={`${percent}% warm, ${shown} Kelvin`}
           onPointerDown={(e) => e.stopPropagation()} onPointerUp={() => setLive(null)} onPointerCancel={() => setLive(null)}
           onChange={(e) => { const next = Number(e.target.value); setLive(next); void SetWarmness(next) }} />
+      </div>
+      <span className="meter-val">{percent}% · {shown}K</span>
+    </div>
+  )
+}
+
+export function FrontWarmthSlider({ value }: { value: number }) {
+  const incoming = Math.min(6500, Math.max(2700, Math.round(value)))
+  const [live, setLive] = useState<number | null>(null)
+  const shown = live ?? incoming
+  const percent = Math.round((6500 - shown) * 100 / 3800)
+  return (
+    <div className="meter warmness-meter no-drag" data-no-drag style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <span className="meter-label">front</span>
+      <div className="meter-track">
+        <input className="brightness-slider" type="range" min={2700} max={6500} step={100}
+          value={shown} aria-label="Front light warmth" aria-valuetext={`${percent}% warm, ${shown} Kelvin`}
+          onPointerDown={(e) => e.stopPropagation()} onPointerUp={() => setLive(null)} onPointerCancel={() => setLive(null)}
+          onChange={(e) => { const next = Number(e.target.value); setLive(next); void SetFrontWarmth(next) }} />
       </div>
       <span className="meter-val">{percent}% · {shown}K</span>
     </div>

@@ -85,6 +85,14 @@ func (a *App) webCall(method string, args []json.RawMessage) (any, error) {
 		a.SetWarmness(n)
 		return a.webState(), nil
 
+	case "SetFrontWarmth":
+		n, err := intArg(0)
+		if err != nil {
+			return nil, err
+		}
+		a.SetFrontWarmth(n)
+		return a.webState(), nil
+
 	case "SetBrightness":
 		n, err := intArg(0)
 		if err != nil {

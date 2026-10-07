@@ -11,7 +11,7 @@ import {
   OpenConfig,
   ToggleSlot,
 } from '../wailsjs/go/main/App'
-import { BrightnessSlider, TitleBar, WarmnessSlider } from './chrome'
+import { BrightnessSlider, FrontWarmthSlider, TitleBar, WarmnessSlider } from './chrome'
 import { NUMPAD_ORDER, type HUDState } from './types'
 import { slotByNumber } from './lib'
 
@@ -240,6 +240,7 @@ export function HUD({ state }: Props) {
 
       <BrightnessSlider value={state.brightness} />
       {state.warmMode && <WarmnessSlider value={state.warmness} />}
+      {!state.warmMode && state.frontLight && <FrontWarmthSlider value={state.frontWarmth} />}
 
       <footer className="hud-foot">
         <span className="midi-status">

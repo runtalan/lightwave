@@ -65,3 +65,36 @@ func TestSweepStepCountsLightsWhereverTheyAre(t *testing.T) {
 		t.Fatalf("got pad=%d on=%v done=%v, want pad=1 on", pad, on, done)
 	}
 }
+
+func TestMonitorCmdPicksTheKnobsJob(t *testing.T) {
+	st := lw.State{
+		Warmness:    3000,
+		FrontWarmth: 4000,
+		Pads: []lw.Pad{
+			{Number: 1, Bound: true, On: true, Trim: 100},
+			{Number: 9, Bound: true, On: true, Front: true, Trim: 60},
+		},
+	}
+	for _, c := range []struct {
+		bright, warm bool
+		ticks        int
+		want         string
+	}{
+		{false, false, 2, "FRONT_WARMTH 3800"}, // clockwise is warmer
+		{false, false, -1, "FRONT_WARMTH 4100"},
+		{false, true, 1, "WARMNESS 2900"}, // Warmness mode owns the whole bar
+		{true, false, 3, "TRIM 9 66"},
+		{true, true, -40, "TRIM 9 1"}, // never 0: that would clear the trim
+		{true, false, 0, ""},
+	} {
+		st.WarmMode = c.warm
+		got, ok := monitorCmd(st, c.bright, c.ticks)
+		if !ok || got != c.want {
+			t.Fatalf("bright=%v warm=%v ticks=%d: %q ok=%v, want %q", c.bright, c.warm, c.ticks, got, ok, c.want)
+		}
+	}
+	st.Pads[1].Front = false
+	if _, ok := monitorCmd(st, false, 1); ok {
+		t.Fatal("no front-light lamp bound, but the dial claimed one")
+	}
+}

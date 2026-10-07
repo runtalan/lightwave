@@ -193,6 +193,10 @@ type Settings struct {
 	// (2000K). It is intentionally stored as Kelvin so controllers can show a
 	// useful, device-native value.
 	Warmness int `json:"warmness"`
+	// FrontWarmth is the white temperature, in Kelvin, of the front light on
+	// lamps that carry one beside their colour LEDs (govee.HasFrontLight).
+	// It is held apart from Warmness so it survives palette and solid modes.
+	FrontWarmth int `json:"frontWarmth"`
 	// FadeSeconds is how long Color Fade takes to walk the palette once.
 	// Lower is more obvious motion. The default 60s is a slow drift; the
 	// narrow calm palettes (Sage, Blush, Morning Haze) can look almost
@@ -231,6 +235,7 @@ type settingsFile struct {
 	Gradient        *bool   `json:"gradient"`
 	WarmMode        *bool   `json:"warmMode"`
 	Warmness        *int    `json:"warmness"`
+	FrontWarmth     *int    `json:"frontWarmth"`
 	FadeSeconds     *int    `json:"fadeSeconds"`
 	FadeDrift       *int    `json:"fadeDrift"`
 	LaunchAtLogin   *bool   `json:"launchAtLogin"`
@@ -282,6 +287,7 @@ func DefaultSettings() Settings {
 		FadeDrift:       DefaultFadeDrift,
 		WebAddr:         DefaultWebAddr,
 		Warmness:        DefaultWarmness,
+		FrontWarmth:     DefaultFrontWarmth,
 	}
 }
 
@@ -290,9 +296,13 @@ func DefaultSettings() Settings {
 // as a strobe rather than a fade. The ceiling keeps a mistyped value from
 // looking like the animation is broken.
 const (
-	MinWarmness        = 2000
-	MaxWarmness        = 6500
-	DefaultWarmness    = 3000
+	MinWarmness     = 2000
+	MaxWarmness     = 6500
+	DefaultWarmness = 3000
+	// A front light is a task light with a narrower span than the room whites.
+	MinFrontWarmth     = 2700
+	MaxFrontWarmth     = 6500
+	DefaultFrontWarmth = 4000
 	DefaultFadeSeconds = 60
 	MinFadeSeconds     = 5
 	MaxFadeSeconds     = 600
@@ -422,6 +432,9 @@ func LoadSettings() Settings {
 	if raw.Warmness != nil {
 		s.Warmness = *raw.Warmness
 	}
+	if raw.FrontWarmth != nil {
+		s.FrontWarmth = *raw.FrontWarmth
+	}
 	if raw.FadeSeconds != nil {
 		s.FadeSeconds = *raw.FadeSeconds
 	}
@@ -431,12 +444,18 @@ func LoadSettings() Settings {
 	if s.Warmness < MinWarmness || s.Warmness > MaxWarmness {
 		s.Warmness = DefaultWarmness
 	}
+	if s.FrontWarmth < MinFrontWarmth || s.FrontWarmth > MaxFrontWarmth {
+		s.FrontWarmth = DefaultFrontWarmth
+	}
 	return s
 }
 
 func SaveSettings(s Settings) error {
 	if s.Warmness < MinWarmness || s.Warmness > MaxWarmness {
 		s.Warmness = DefaultWarmness
+	}
+	if s.FrontWarmth < MinFrontWarmth || s.FrontWarmth > MaxFrontWarmth {
+		s.FrontWarmth = DefaultFrontWarmth
 	}
 	s.MidiCC = int(clampU8(s.MidiCC, 7))
 	s.MidiCCAlt = int(clampU8(s.MidiCCAlt, 1))

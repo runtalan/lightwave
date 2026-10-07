@@ -91,6 +91,40 @@ func WarmStrip(kelvin int) (string, error) {
 	return encode(img)
 }
 
+// Front-light range, in Kelvin: narrower than the room whites.
+const (
+	MinFrontKelvin = 2700
+	MaxFrontKelvin = 6500
+)
+
+// FrontStrip renders the front-light range with a marker at the current
+// setting. Cool sits on the left, as on WarmStrip.
+func FrontStrip(kelvin int) (string, error) {
+	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
+	span := float64(MaxFrontKelvin - MinFrontKelvin)
+	for x := band.Min.X; x < band.Max.X; x++ {
+		u := float64(x-band.Min.X) / float64(band.Dx()-1)
+		fillRect(img, x, band.Min.Y, 1, band.Dy(), rgba(KelvinRGB(MaxFrontKelvin-int(u*span))), 1)
+	}
+	u := math.Max(0, math.Min(1, float64(MaxFrontKelvin-kelvin)/span))
+	marker(img, band.Min.X, band.Max.X, u, band.Min.Y-6, band.Max.Y+6)
+	return encode(img)
+}
+
+// LevelStrip renders a 0-100 level as a bar filled from the left.
+func LevelStrip(pct int) (string, error) {
+	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
+	pct = max(0, min(100, pct))
+	fillRect(img, band.Min.X, band.Min.Y, band.Dx(), band.Dy(), dim, 0.35)
+	lit := band.Dx() * pct / 100
+	for x := 0; x < lit; x++ {
+		c := lerp(neon, magenta, float64(x)/float64(band.Dx()-1))
+		fillRect(img, band.Min.X+x, band.Min.Y, 1, band.Dy(), c, 1)
+	}
+	marker(img, band.Min.X, band.Max.X, float64(pct)/100, band.Min.Y-6, band.Max.Y+6)
+	return encode(img)
+}
+
 // ModeStrip shows the three modes side by side as small previews of what each
 // looks like, with the current one lit and the others dimmed.
 func ModeStrip(mode string, sw []Swatch, kelvin int) (string, error) {

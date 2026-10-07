@@ -158,6 +158,10 @@ export function SetConfigAPIKey(arg1) {
   return window['go']['main']['App']['SetConfigAPIKey'](arg1);
 }
 
+export function SetFrontWarmth(arg1) {
+  return window['go']['main']['App']['SetFrontWarmth'](arg1);
+}
+
 export function SetIPCServer(arg1) {
   return window['go']['main']['App']['SetIPCServer'](arg1);
 }

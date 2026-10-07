@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lightwave/internal/color"
+	"lightwave/internal/govee"
 )
 
 // RemoteCommand executes a command sent over the IPC socket by an external
@@ -37,6 +38,9 @@ import (
 //	                   -> switch colour mode in one step; palette and solid
 //	                      are LightWave mode with the gradient on or off
 //	WARMNESS <kelvin>  -> set a white temperature from 2000 to 6500K
+//	FRONT_WARMTH <kelvin> -> set the front-light temperature, 2700 to 6500K,
+//	                      on lamps that have a front light
+//	TRIM <1-9> <0-100> -> one pad's share of the brightness slider; 0 clears it
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
 	defer func() {
@@ -155,6 +159,31 @@ func (a *App) RemoteCommand(cmd string) string {
 		a.SetWarmness(k)
 		return a.remoteState()
 
+	case "FRONT_WARMTH":
+		k, err := strconv.Atoi(arg)
+		if err != nil {
+			return "ERR front warmth needs a Kelvin value"
+		}
+		a.SetFrontWarmth(k)
+		return a.remoteState()
+
+	case "TRIM":
+		if len(fields) < 3 {
+			return "ERR TRIM needs a pad and a percent"
+		}
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 || n > 9 {
+			return "ERR pad must be 1-9"
+		}
+		pct, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return "ERR bad trim"
+		}
+		if _, err := a.SetSlotTrim(n, pct); err != nil {
+			return "ERR " + err.Error()
+		}
+		return a.remoteState()
+
 	case "PALETTE":
 		if strings.EqualFold(arg, "SET") {
 			// Direct select, by index or by name. Names win over indexes in
@@ -202,6 +231,8 @@ type RemoteState struct {
 	Gradient   bool        `json:"gradient"`
 	WarmMode   bool        `json:"warmMode"`
 	Warmness   int         `json:"warmness"`
+	// FrontWarmth is the temperature of front lights; see RemotePad.Front.
+	FrontWarmth int `json:"frontWarmth"`
 	// Mode is "warmness", "palette" or "solid": the two flags above folded
 	// into the one choice a mode switch presents.
 	Mode     string        `json:"mode"`
@@ -233,6 +264,11 @@ type RemotePad struct {
 	Bound  bool   `json:"bound"`
 	On     bool   `json:"on"`
 	Link   string `json:"link"` // "lan", "ble", or "" when unreachable
+	// Front marks a lamp with a white front light of its own, the kind
+	// FRONT_WARMTH drives.
+	Front bool `json:"front,omitempty"`
+	// Trim is this pad's share of the brightness slider, 1-100.
+	Trim int `json:"trim"`
 }
 
 func (a *App) remoteState() string {
@@ -248,6 +284,7 @@ func (a *App) remoteState() string {
 		Gradient:        a.gradient,
 		WarmMode:        a.warmMode,
 		Warmness:        a.warmness,
+		FrontWarmth:     clampFrontWarmth(a.frontWarmth),
 		Mode:            a.colorModeLocked(),
 		Swatches:        make([]RemoteColor, 0, len(pal.Colors)),
 		PaletteSwatches: make(map[string][]RemoteColor, len(color.Palettes)),
@@ -284,6 +321,8 @@ func (a *App) remoteState() string {
 			Bound:  s.DeviceID != "",
 			On:     a.pool[i],
 			Link:   link,
+			Front:  govee.HasFrontLight(s.Model),
+			Trim:   s.EffectiveTrim(),
 		})
 	}
 	a.mu.Unlock()

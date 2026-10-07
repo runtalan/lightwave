@@ -166,6 +166,8 @@ export namespace main {
 	    paletteNames: string[];
 	    warmMode: boolean;
 	    warmness: number;
+	    frontLight: boolean;
+	    frontWarmth: number;
 	    midiConnected: boolean;
 	    midiPort: string;
 	    midiListening: boolean;
@@ -203,6 +205,8 @@ export namespace main {
 	        this.paletteNames = source["paletteNames"];
 	        this.warmMode = source["warmMode"];
 	        this.warmness = source["warmness"];
+	        this.frontLight = source["frontLight"];
+	        this.frontWarmth = source["frontWarmth"];
 	        this.midiConnected = source["midiConnected"];
 	        this.midiPort = source["midiPort"];
 	        this.midiListening = source["midiListening"];

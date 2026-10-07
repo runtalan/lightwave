@@ -124,6 +124,13 @@ def glyph(kind, on=True):
         box(im,(28,82,92,98),fill=ICE,radius=6)
         arc(im,(96,44,124,88),-80,180,ICE if on else DIM,4)
         ImageDraw.Draw(im).polygon([(103*S,40*S),(115*S,43*S),(106*S,52*S)],fill=ICE if on else DIM)
+    elif kind == 'monitor':
+        # A light bar on top of a screen, throwing warm light down the front.
+        box(im,(34,58,110,102),outline=ICE if on else DIM,width=3,radius=6)
+        line(im,[(60,112),(84,112)],ink,3)
+        box(im,(40,40,104,52),fill='#ffc27a' if on else DIM,radius=6)
+        for x,c in ((52,'#ffc27a'),(72,'#ffe3bd'),(92,ICE)):
+            line(im,[(x,66),(x,78)],c if on else DIM,3)
     elif kind == 'status':
         box(im,(29,31,115,98),outline=ICE,width=3,radius=9)
         line(im,[(39,68),(50,68),(59,49),(72,82),(82,60),(105,60)],MAG,3)
@@ -150,7 +157,7 @@ def icon(kind, on=True, titled=False):
 
 ACTIONS = [('status','Status'),('pad','Light'),('alloff','All Lights'),
            ('palette','Palette'),('mode','Color Mode'),('dance','Color Fade'),('gradient','Pattern'),
-           ('brightness','Brightness'),('sweep','Light Sweep')]
+           ('brightness','Brightness'),('sweep','Light Sweep'),('monitor','Monitor Bar')]
 
 
 def main():
@@ -171,7 +178,7 @@ def main():
             im.resize((size,size),Image.Resampling.LANCZOS).save(f'{path}{suffix}.png')
 
     # Review at actual key sizes, with titles to check the reserved text area.
-    sheet=Image.new('RGB',(1120,550),'#0a0612')
+    sheet=Image.new('RGB',(1244,550),'#0a0612')
     d=ImageDraw.Draw(sheet)
     font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc',16) if Path('/System/Library/Fonts/Helvetica.ttc').exists() else ImageFont.load_default(size=16)
     d.text((24,18),'LIGHTWAVE / STREAM DECK',fill=ICE,font=font)

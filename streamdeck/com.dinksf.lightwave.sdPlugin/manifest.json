@@ -194,6 +194,30 @@
       "UserTitleEnabled": false
     },
     {
+      "UUID": "com.dinksf.lightwave.monitor",
+      "Name": "Monitor Bar",
+      "Icon": "imgs/actions/monitor",
+      "Tooltip": "One dial for a monitor light bar. Push to switch between Temperature (the front light's warmth) and Brightness (the bar's share of the main slider); turn to adjust whichever is showing.",
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/dial.json",
+        "TriggerDescription": {
+          "Rotate": "Temperature / brightness",
+          "Push": "Switch control",
+          "Touch": "Switch control"
+        }
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/monitor",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
       "UUID": "com.dinksf.lightwave.sweep",
       "Name": "Light Sweep",
       "Icon": "imgs/actions/sweep",

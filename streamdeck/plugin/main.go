@@ -38,6 +38,7 @@ const (
 	actStatus     = "com.dinksf.lightwave.status"
 	actSweep      = "com.dinksf.lightwave.sweep"
 	actMode       = "com.dinksf.lightwave.mode"
+	actMonitor    = "com.dinksf.lightwave.monitor"
 )
 
 // Controller kinds Stream Deck reports for an action instance.
@@ -135,12 +136,22 @@ type instance struct {
 	// seeded guards the one-time write of the light name, so a title the user
 	// deliberately cleared is not re-filled on the next state push.
 	seeded bool
+	// brightKnob is which of its two jobs a monitor bar dial is doing:
+	// brightness when set, temperature otherwise. Pushing the dial flips it.
+	// Held here rather than read back from settings on every event, because
+	// an event already in flight still carries the settings from before the
+	// push and would flip it straight back.
+	brightKnob bool
 }
 
 type settings struct {
 	Pad       int    `json:"pad,omitempty"`
 	Direction string `json:"direction,omitempty"`
+	// Knob is a monitor bar dial's saved job: knobBrightness or empty.
+	Knob string `json:"knob,omitempty"`
 }
+
+const knobBrightness = "brightness"
 
 type plugin struct {
 	sd     *sd.Conn
@@ -275,7 +286,7 @@ func (p *plugin) trackContext(ev sd.Event) {
 	p.mu.Lock()
 	inst := p.contexts[ev.Context]
 	if inst == nil {
-		inst = &instance{context: ev.Context}
+		inst = &instance{context: ev.Context, brightKnob: s.Knob == knobBrightness}
 		p.contexts[ev.Context] = inst
 	}
 	// Keep the title bookkeeping: only action and settings come from the event.
@@ -331,6 +342,18 @@ func (p *plugin) press(ev sd.Event) {
 		}
 	case actMode:
 		cmds = []string{"MODE next"}
+	case actMonitor:
+		// Pushing swaps what the dial turns. Nothing is sent to the lamp.
+		p.mu.Lock()
+		inst.brightKnob = !inst.brightKnob
+		saved := settings{}
+		if inst.brightKnob {
+			saved.Knob = knobBrightness
+		}
+		p.mu.Unlock()
+		p.sd.SetSettings(ev.Context, saved)
+		p.refreshOne(ev.Context)
+		return
 	case actPalette:
 		if inst.controller == encoder {
 			// The dial turns through palettes or temperatures; pushing it is
@@ -406,7 +429,65 @@ func (p *plugin) rotate(ev sd.Event) {
 		p.rotateMode(ev)
 		return
 	}
+	if inst != nil && inst.action == actMonitor {
+		p.rotateMonitor(ev, inst)
+		return
+	}
 	p.rotateBrightness(ev)
+}
+
+// rotateMonitor turns the monitor bar's temperature or its brightness,
+// whichever the dial is currently set to.
+func (p *plugin) rotateMonitor(ev sd.Event, inst *instance) {
+	p.mu.Lock()
+	st, have, bright := p.state, p.haveState, inst.brightKnob
+	p.mu.Unlock()
+	if !have {
+		fresh, err := p.client.Command("STATE")
+		if err != nil {
+			log.Printf("monitor dial: %v", err)
+			p.sd.ShowAlert(ev.Context)
+			return
+		}
+		p.applyState(fresh)
+		st = fresh
+	}
+	cmd, ok := monitorCmd(st, bright, ev.Payload.Ticks)
+	if !ok {
+		p.sd.ShowAlert(ev.Context)
+		return
+	}
+	if cmd != "" {
+		p.run(ev.Context, cmd)
+	}
+}
+
+// monitorCmd is the command one turn of a monitor bar dial sends. ok is false
+// when no bound lamp has a front light; an empty cmd means nothing to do.
+//
+// Clockwise is warmer, as on the palette dial, or brighter. Brightness is the
+// bar's trim: its share of the main slider, so the bar moves alone and the
+// slider still carries it with the rest of the room. In Warmness mode the main
+// warmth drives the whole bar, front light included, so the dial turns that.
+func monitorCmd(st lw.State, bright bool, ticks int) (cmd string, ok bool) {
+	pad := st.FrontPad()
+	if pad == nil {
+		return "", false
+	}
+	if ticks == 0 {
+		return "", true
+	}
+	switch {
+	case bright:
+		trim := pad.Trim
+		if trim < 1 || trim > 100 {
+			trim = 100
+		}
+		return "TRIM " + strconv.Itoa(pad.Number) + " " + strconv.Itoa(clampInt(trim+ticks*2, 1, 100)), true
+	case st.WarmMode:
+		return "WARMNESS " + strconv.Itoa(st.Warmness-ticks*100), true
+	}
+	return "FRONT_WARMTH " + strconv.Itoa(st.FrontWarmth-ticks*100), true
 }
 
 // rotatePalette turns through palettes, or through temperatures in Warmness
@@ -724,6 +805,8 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		p.renderPaletteKey(inst, st)
 	case actMode:
 		p.renderMode(inst, st, dial)
+	case actMonitor:
+		p.renderMonitor(inst, st)
 	case actDance:
 		// Title names the action, not the state: the key says what it will do.
 		if st.Dancing {
@@ -779,6 +862,51 @@ func (p *plugin) renderPaletteDial(inst *instance, st lw.State) {
 	if err != nil {
 		log.Printf("palette strip render: %v", err)
 	} else if strip != "" {
+		fb["strip"] = strip
+	}
+	p.sd.SetFeedback(inst.context, fb)
+}
+
+// renderMonitor fills the monitor bar dial's touch strip with whichever of its
+// two controls is live, so a glance says what a turn will change.
+func (p *plugin) renderMonitor(inst *instance, st lw.State) {
+	p.mu.Lock()
+	bright := inst.brightKnob
+	p.mu.Unlock()
+	pad := st.FrontPad()
+	if pad == nil {
+		p.sd.SetFeedback(inst.context, map[string]any{"title": "Monitor Bar", "value": "No light bar", "strip": ""})
+		return
+	}
+	name := "Monitor Bar"
+	if !pad.On {
+		name = "Bar off"
+	}
+	fb := map[string]any{}
+	var strip string
+	var err error
+	if bright {
+		trim := pad.Trim
+		if trim < 1 || trim > 100 {
+			trim = 100
+		}
+		fb["title"] = name + " · Brightness"
+		fb["value"] = strconv.Itoa(trim) + "% of main"
+		strip, err = render.LevelStrip(trim)
+	} else {
+		k := st.FrontWarmth
+		if st.WarmMode {
+			k = st.Warmness
+		}
+		k = clampInt(k, render.MinFrontKelvin, render.MaxFrontKelvin)
+		warm := (render.MaxFrontKelvin - k) * 100 / (render.MaxFrontKelvin - render.MinFrontKelvin)
+		fb["title"] = name + " · Temperature"
+		fb["value"] = strconv.Itoa(k) + "K · " + strconv.Itoa(warm) + "% warm"
+		strip, err = render.FrontStrip(k)
+	}
+	if err != nil {
+		log.Printf("monitor strip render: %v", err)
+	} else {
 		fb["strip"] = strip
 	}
 	p.sd.SetFeedback(inst.context, fb)

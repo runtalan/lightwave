@@ -233,6 +233,7 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Brightness** | A read-only readout of the current level. Set brightness with the app's slider; on **Stream Deck +**, the dial adjusts it |
 | **Palette** | Step to the next or previous palette — or warmer/cooler in Warmness mode. Each key shows where you'll land. A key can also jump straight to one palette. On **Stream Deck +** the dial turns through palettes or temperatures, the touch strip shows the current one, and pushing it switches mode |
 | **Color Mode** | Switch between **Warmness** (one adjustable white), **Palette** (a gradient across your lights) and **Solid Color** (one shared color). The key shows the current mode, its colors, and which mode a press moves to. Works as a key or a **Stream Deck +** dial |
+| **Monitor Bar** | A **Stream Deck +** dial for a monitor light bar (H2800). Push it to switch between **Temperature** (the front light's warmth) and **Brightness** (the bar's share of the main slider); turn to adjust whichever is showing |
 | **Color Fade** | Start or stop the slow fade — the key says which it will do. Starting it from Warmness mode returns to your palette first |
 | **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |

@@ -78,3 +78,12 @@ func IsRGBIC(model string) bool {
 func SupportsSegments(model string) bool {
 	return IsRGBIC(model)
 }
+
+// HasFrontLight reports lamps that pair their colour LEDs with a separate
+// white front light, such as the H2800 monitor light bar. The front light has
+// no colour, only a temperature: a Kelvin write reaches it and an RGB write
+// does not.
+func HasFrontLight(model string) bool {
+	m := strings.ToUpper(strings.TrimSpace(model))
+	return strings.HasPrefix(m, "H2800")
+}

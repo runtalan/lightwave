@@ -501,6 +501,19 @@ func sendLANColor(ip string, r, g, b, kelvin int) error {
 	return err
 }
 
+// SendFrontWarmth sets the white temperature of a lamp's front light and
+// nothing else. The lamp takes the Kelvin and ignores the colour beside it,
+// so callers that want the colour LEDs kept as they were repaint them after.
+func SendFrontWarmth(ip string, kelvin int) error {
+	if strings.TrimSpace(ip) == "" || IsBLE(ip) || kelvin <= 0 {
+		return nil
+	}
+	return sendControl(ip, fmt.Sprintf(
+		`{"msg":{"cmd":"colorwc","data":{"color":{"r":0,"g":0,"b":0},"colorTemInKelvin":%d}}}`,
+		kelvin,
+	))
+}
+
 // SendGradient paints a multi-colour ramp across an RGBIC strip's zones.
 // Single-zone lamps (H6001 and kin) cannot show more than one colour: they
 // receive the ramp's middle swatch as a solid via SendColor.

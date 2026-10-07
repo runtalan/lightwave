@@ -103,24 +103,28 @@ type SlotView struct {
 }
 
 type HUDState struct {
-	Slots         []SlotView `json:"slots"`
-	ActivePool    []int      `json:"activePool"`
-	Brightness    int        `json:"brightness"`
-	PaletteIndex  int        `json:"paletteIndex"`
-	PaletteName   string     `json:"paletteName"`
-	PaletteNames  []string   `json:"paletteNames"`
-	WarmMode      bool       `json:"warmMode"`
-	Warmness      int        `json:"warmness"`
-	MIDIConnected bool       `json:"midiConnected"`
-	MIDIPort      string     `json:"midiPort"`
-	MIDIListening bool       `json:"midiListening"`
-	DeviceCount   int        `json:"deviceCount"`
-	NeedsSetup    bool       `json:"needsSetup"`
-	SetupOpen     bool       `json:"setupOpen"`
-	HasAPIKey     bool       `json:"hasApiKey"`
-	DiscoverError string     `json:"discoverError"`
-	Discovering   bool       `json:"discovering"`
-	FirstRun      bool       `json:"firstRun"`
+	Slots        []SlotView `json:"slots"`
+	ActivePool   []int      `json:"activePool"`
+	Brightness   int        `json:"brightness"`
+	PaletteIndex int        `json:"paletteIndex"`
+	PaletteName  string     `json:"paletteName"`
+	PaletteNames []string   `json:"paletteNames"`
+	WarmMode     bool       `json:"warmMode"`
+	Warmness     int        `json:"warmness"`
+	// FrontLight is true while a pooled lamp has a front light of its own,
+	// which is when FrontWarmth has something to drive.
+	FrontLight    bool   `json:"frontLight"`
+	FrontWarmth   int    `json:"frontWarmth"`
+	MIDIConnected bool   `json:"midiConnected"`
+	MIDIPort      string `json:"midiPort"`
+	MIDIListening bool   `json:"midiListening"`
+	DeviceCount   int    `json:"deviceCount"`
+	NeedsSetup    bool   `json:"needsSetup"`
+	SetupOpen     bool   `json:"setupOpen"`
+	HasAPIKey     bool   `json:"hasApiKey"`
+	DiscoverError string `json:"discoverError"`
+	Discovering   bool   `json:"discovering"`
+	FirstRun      bool   `json:"firstRun"`
 	// Omitted from HUD snapshots (and always from phone state): only Config
 	// renders the device list, so copying it on every status poll was wasted
 	// JSON and a React re-render of data the HUD never reads.
@@ -245,10 +249,13 @@ type App struct {
 	// gradient selects the scene style: false paints every pooled lamp the
 	// same palette colour; true spreads complementary/adjacent swatches
 	// across the pool. RGBIC strips also get a zone ramp in gradient mode.
-	gradient  bool
-	warmMode  bool
-	warmness  int
-	lastColor map[string]color.RGBK
+	gradient bool
+	warmMode bool
+	warmness int
+	// frontWarmth is the Kelvin of front lights (govee.HasFrontLight), kept
+	// apart from warmness so it holds through palette and solid modes.
+	frontWarmth int
+	lastColor   map[string]color.RGBK
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
 	// report a new power state, and believing a stale reply would toggle the
@@ -279,6 +286,7 @@ func NewApp(forceSetup, startHidden bool) *App {
 		gradient:     settings.Gradient,
 		warmMode:     settings.WarmMode,
 		warmness:     settings.Warmness,
+		frontWarmth:  settings.FrontWarmth,
 		lastColor:    map[string]color.RGBK{},
 	}
 	if len(a.slots) != 9 {
@@ -1264,6 +1272,8 @@ func (a *App) snapshotLocked() HUDState {
 		PaletteNames:    paletteNames,
 		WarmMode:        a.warmMode,
 		Warmness:        a.warmness,
+		FrontLight:      a.frontLightPooledLocked(),
+		FrontWarmth:     clampFrontWarmth(a.frontWarmth),
 		Dancing:         a.dancing,
 		Gradient:        a.gradient,
 		MIDIConnected:   ok,
@@ -1846,6 +1856,12 @@ func (a *App) applyPaletteToPool() {
 // turnOn re-ignites each lamp first. Cycling the palette does that (the lamp
 // may have been switched off at the wall).
 func (a *App) paintScene(turnOn bool) {
+	a.paintSceneOnly(turnOn, nil)
+}
+
+// paintSceneOnly is paintScene narrowed to the lamps only accepts, each still
+// taking the swatch its place in the pool gives it. nil paints every lamp.
+func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	a.mu.Lock()
 	warm := a.warmMode
 	a.mu.Unlock()
@@ -1888,7 +1904,12 @@ func (a *App) paintScene(turnOn bool) {
 
 	const steps = 4
 	next := make([]color.RGBK, len(dests))
+	painted := make([]bool, len(dests))
 	for i, d := range dests {
+		if only != nil && !only(d) {
+			continue
+		}
+		painted[i] = true
 		c := swatches[0]
 		if i < len(swatches) {
 			c = swatches[i]
@@ -1896,7 +1917,12 @@ func (a *App) paintScene(turnOn bool) {
 		// Gradient scenes must travel as RGB. Sending colorTemInKelvin>0 makes
 		// Govee ignore RGB and light the white diodes — a pool of Warm Whites
 		// then looks like one colour.
-		if grad {
+		//
+		// A front light is all the white a lamp like the H2800 has, and
+		// SetFrontWarmth owns it: a palette's Kelvin would overwrite the
+		// temperature chosen there, so these lamps take RGB as well.
+		rgbOnly := grad || govee.HasFrontLight(d.Model)
+		if rgbOnly {
 			c.Kelvin = 0
 		}
 		if turnOn {
@@ -1929,7 +1955,7 @@ func (a *App) paintScene(turnOn bool) {
 		for s := 1; s <= steps; s++ {
 			mix := color.Lerp(from, c, float64(s)/float64(steps))
 			k := mix.Kelvin
-			if grad {
+			if rgbOnly {
 				k = 0
 			}
 			// Lerp only blends Kelvin when both ends carry one, so a ramp
@@ -1951,7 +1977,9 @@ func (a *App) paintScene(turnOn bool) {
 		a.lastColor = map[string]color.RGBK{}
 	}
 	for i, d := range dests {
-		a.lastColor[d.IP] = next[i]
+		if painted[i] {
+			a.lastColor[d.IP] = next[i]
+		}
 	}
 	a.mu.Unlock()
 }
@@ -2043,6 +2071,7 @@ func (a *App) ToggleWarmMode() HUDState {
 	if warm {
 		a.paintWarmness(true)
 	} else {
+		a.sendFrontWarmth()
 		a.paintScene(true)
 	}
 	a.emitState()
@@ -2099,6 +2128,7 @@ func (a *App) SetColorMode(mode string) HUDState {
 		a.mu.Unlock()
 		return a.snapshot()
 	}
+	leftWarm := a.warmMode && !warm
 	a.warmMode, a.gradient = warm, grad
 	if warm {
 		a.dancing = false
@@ -2114,6 +2144,9 @@ func (a *App) SetColorMode(mode string) HUDState {
 	}
 	// While dancing, the animation loop owns the colours and picks the new
 	// pattern up on its next tick.
+	if leftWarm {
+		a.sendFrontWarmth()
+	}
 	if !dancing {
 		a.paintScene(true)
 	}
@@ -2136,6 +2169,70 @@ func (a *App) SetWarmness(kelvin int) HUDState {
 	a.paintWarmness(true)
 	a.emitState()
 	return a.snapshot()
+}
+
+// SetFrontWarmth sets the white temperature of front lights, in Kelvin,
+// whatever colour mode the rest of the lamp is in.
+func (a *App) SetFrontWarmth(kelvin int) HUDState {
+	a.recordUserActivity()
+	a.mu.Lock()
+	a.frontWarmth = clampFrontWarmth(kelvin)
+	s := a.settings
+	s.FrontWarmth = a.frontWarmth
+	a.settings = s
+	warm, dancing := a.warmMode, a.dancing
+	a.mu.Unlock()
+	if err := config.SaveSettings(s); err != nil {
+		log.Printf("persist front warmth: %v", err)
+	}
+	// Warmness mode drives the whole lamp, front light included, from its own
+	// slider; the new value waits for the way back out.
+	if !warm {
+		a.sendFrontWarmth()
+		// The Kelvin write can take the colour LEDs to white along with the
+		// front light, so hand them their colour back. The fade repaints on
+		// its own next tick.
+		if !dancing {
+			a.paintSceneOnly(false, func(d lampDest) bool { return govee.HasFrontLight(d.Model) })
+		}
+	}
+	a.emitState()
+	return a.snapshot()
+}
+
+// sendFrontWarmth writes the front-light temperature to every pooled lamp
+// that has a front light.
+func (a *App) sendFrontWarmth() {
+	a.mu.Lock()
+	dests := a.poolDestsLocked()
+	k := clampFrontWarmth(a.frontWarmth)
+	a.mu.Unlock()
+	for _, d := range dests {
+		if govee.HasFrontLight(d.Model) {
+			_ = govee.SendFrontWarmth(d.IP, k)
+		}
+	}
+}
+
+// frontLightPooledLocked reports whether a pooled lamp has a front light.
+// Caller holds a.mu.
+func (a *App) frontLightPooledLocked() bool {
+	for _, d := range a.poolDestsLocked() {
+		if govee.HasFrontLight(d.Model) {
+			return true
+		}
+	}
+	return false
+}
+
+func clampFrontWarmth(k int) int {
+	if k < config.MinFrontWarmth {
+		return config.MinFrontWarmth
+	}
+	if k > config.MaxFrontWarmth {
+		return config.MaxFrontWarmth
+	}
+	return k
 }
 
 func clampWarmness(k int) int {

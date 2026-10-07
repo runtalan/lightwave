@@ -35,18 +35,25 @@ type Pad struct {
 	Bound  bool   `json:"bound"`
 	On     bool   `json:"on"`
 	Link   string `json:"link"`
+	// Front marks a lamp with a white front light of its own, such as a
+	// monitor light bar. Trim is its share of the brightness slider, 1-100;
+	// older Lightwave builds send neither.
+	Front bool `json:"front"`
+	Trim  int  `json:"trim"`
 }
 
 // State is the snapshot Lightwave pushes to subscribers.
 type State struct {
-	Pads       []Pad   `json:"pads"`
-	Brightness int     `json:"brightness"`
-	Palette    string  `json:"palette"`
-	Dancing    bool    `json:"dancing"`
-	Gradient   bool    `json:"gradient"`
-	WarmMode   bool    `json:"warmMode"`
-	Warmness   int     `json:"warmness"`
-	Swatches   []Color `json:"swatches"`
+	Pads       []Pad  `json:"pads"`
+	Brightness int    `json:"brightness"`
+	Palette    string `json:"palette"`
+	Dancing    bool   `json:"dancing"`
+	Gradient   bool   `json:"gradient"`
+	WarmMode   bool   `json:"warmMode"`
+	Warmness   int    `json:"warmness"`
+	// FrontWarmth is the temperature of front lights, in Kelvin.
+	FrontWarmth int     `json:"frontWarmth"`
+	Swatches    []Color `json:"swatches"`
 	// Every palette name in cycle order, so a dial can jump several palettes
 	// per turn and the Property Inspector can list them.
 	Palettes []string `json:"palettes"`
@@ -162,6 +169,16 @@ func (s State) OnNames() []string {
 		}
 	}
 	return out
+}
+
+// FrontPad returns the first bound pad whose lamp has a front light, or nil.
+func (s State) FrontPad() *Pad {
+	for i := range s.Pads {
+		if s.Pads[i].Bound && s.Pads[i].Front {
+			return &s.Pads[i]
+		}
+	}
+	return nil
 }
 
 // AnyOn reports whether at least one light is currently lit.
