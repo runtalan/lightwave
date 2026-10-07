@@ -197,6 +197,9 @@ type Settings struct {
 	// lamps that carry one beside their colour LEDs (govee.HasFrontLight).
 	// It is held apart from Warmness so it survives palette and solid modes.
 	FrontWarmth int `json:"frontWarmth"`
+	// BarScene names the Govee scene playing on a front-light lamp's colour
+	// LEDs (the monitor bar's back light). Empty: they follow the room.
+	BarScene string `json:"barScene,omitempty"`
 	// FadeSeconds is how long Color Fade takes to walk the palette once.
 	// Lower is more obvious motion. The default 60s is a slow drift; the
 	// narrow calm palettes (Sage, Blush, Morning Haze) can look almost
@@ -236,6 +239,7 @@ type settingsFile struct {
 	WarmMode        *bool   `json:"warmMode"`
 	Warmness        *int    `json:"warmness"`
 	FrontWarmth     *int    `json:"frontWarmth"`
+	BarScene        *string `json:"barScene"`
 	FadeSeconds     *int    `json:"fadeSeconds"`
 	FadeDrift       *int    `json:"fadeDrift"`
 	LaunchAtLogin   *bool   `json:"launchAtLogin"`
@@ -434,6 +438,9 @@ func LoadSettings() Settings {
 	}
 	if raw.FrontWarmth != nil {
 		s.FrontWarmth = *raw.FrontWarmth
+	}
+	if raw.BarScene != nil {
+		s.BarScene = *raw.BarScene
 	}
 	if raw.FadeSeconds != nil {
 		s.FadeSeconds = *raw.FadeSeconds

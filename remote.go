@@ -41,6 +41,10 @@ import (
 //	FRONT_WARMTH <kelvin> -> set the front-light temperature, 2700 to 6500K,
 //	                      on lamps that have a front light
 //	TRIM <1-9> <0-100> -> one pad's share of the brightness slider; 0 clears it
+//	BAR_SCENE <steps>|OFF|<name>
+//	                   -> step through the Govee scenes on a front-light
+//	                      lamp's back light, turn them off so it follows the
+//	                      room again, or play one by name
 //	PING               -> liveness probe
 func (a *App) RemoteCommand(cmd string) string {
 	defer func() {
@@ -184,6 +188,23 @@ func (a *App) RemoteCommand(cmd string) string {
 		}
 		return a.remoteState()
 
+	case "BAR_SCENE":
+		rest := strings.TrimSpace(strings.Join(fields[1:], " "))
+		if strings.EqualFold(rest, "OFF") {
+			a.SetBarScene("")
+			return a.remoteState()
+		}
+		var err error
+		if n, nerr := strconv.Atoi(rest); nerr == nil {
+			_, err = a.StepBarScene(n)
+		} else {
+			_, err = a.SelectBarScene(rest)
+		}
+		if err != nil {
+			return "ERR " + err.Error()
+		}
+		return a.remoteState()
+
 	case "PALETTE":
 		if strings.EqualFold(arg, "SET") {
 			// Direct select, by index or by name. Names win over indexes in
@@ -233,6 +254,12 @@ type RemoteState struct {
 	Warmness   int         `json:"warmness"`
 	// FrontWarmth is the temperature of front lights; see RemotePad.Front.
 	FrontWarmth int `json:"frontWarmth"`
+	// BarScene is the Govee scene on front-light lamps' back light, "" while
+	// it follows the room. BarSceneIndex is its place in BAR_SCENE's ring,
+	// 0 being the room, out of BarSceneCount scenes.
+	BarScene      string `json:"barScene"`
+	BarSceneIndex int    `json:"barSceneIndex"`
+	BarSceneCount int    `json:"barSceneCount"`
 	// Mode is "warmness", "palette" or "solid": the two flags above folded
 	// into the one choice a mode switch presents.
 	Mode     string        `json:"mode"`
@@ -286,8 +313,17 @@ func (a *App) remoteState() string {
 		Warmness:        a.warmness,
 		FrontWarmth:     clampFrontWarmth(a.frontWarmth),
 		Mode:            a.colorModeLocked(),
+		BarScene:        a.barScene,
 		Swatches:        make([]RemoteColor, 0, len(pal.Colors)),
 		PaletteSwatches: make(map[string][]RemoteColor, len(color.Palettes)),
+	}
+	scenes := a.sceneLib[a.frontModelLocked()]
+	st.BarSceneCount = len(scenes)
+	for i, sc := range scenes {
+		if sc.Name == a.barScene {
+			st.BarSceneIndex = i + 1
+			break
+		}
 	}
 	for _, p := range color.Palettes {
 		cs := make([]RemoteColor, 0, len(p.Colors))

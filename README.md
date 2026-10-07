@@ -233,7 +233,7 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Brightness** | A read-only readout of the current level. Set brightness with the app's slider; on **Stream Deck +**, the dial adjusts it |
 | **Palette** | Step to the next or previous palette — or warmer/cooler in Warmness mode. Each key shows where you'll land. A key can also jump straight to one palette. On **Stream Deck +** the dial turns through palettes or temperatures, the touch strip shows the current one, and pushing it switches mode |
 | **Color Mode** | Switch between **Warmness** (one adjustable white), **Palette** (a gradient across your lights) and **Solid Color** (one shared color). The key shows the current mode, its colors, and which mode a press moves to. Works as a key or a **Stream Deck +** dial |
-| **Monitor Bar** | A **Stream Deck +** dial for a monitor light bar (H2800). Push it to switch between **Temperature** (the front light's warmth) and **Brightness** (the bar's share of the main slider); turn to adjust whichever is showing |
+| **Monitor Bar** | A **Stream Deck +** dial for a monitor light bar (H2800). Push it to step through **Temperature** (the front light's warmth), **Brightness** (the bar's share of the main slider) and **Scene**; turn to adjust whichever is showing. The Scene page plays Govee's effects for the bar (Cyber, Colorful, Esports, Flow and the rest) on its back light. Turn past the last scene, or back before the first, and the bar follows the room's colors again |
 | **Color Fade** | Start or stop the slow fade — the key says which it will do. Starting it from Warmness mode returns to your palette first |
 | **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
@@ -299,7 +299,7 @@ Dim with the knob and the on-screen slider moves. Toggle a light on the deck and
 
 ## Privacy
 
-Lightwave runs entirely on your machine. Light commands go directly to your lights over your own network or Bluetooth — never through a server. Your Govee API key is stored locally and used only to fetch device names.
+Lightwave runs entirely on your machine. Light commands go directly to your lights over your own network or Bluetooth — never through a server. Your Govee API key is stored locally and used only to fetch device names. If a monitor light bar is bound, Lightwave also downloads that model's scene list from Govee (no account or key involved) and keeps a copy locally.
 
 ---
 

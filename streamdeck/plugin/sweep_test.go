@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 import "lightwave-sd/internal/lw"
 
@@ -76,25 +79,42 @@ func TestMonitorCmdPicksTheKnobsJob(t *testing.T) {
 		},
 	}
 	for _, c := range []struct {
-		bright, warm bool
-		ticks        int
-		want         string
+		knob  string
+		warm  bool
+		ticks int
+		want  string
 	}{
-		{false, false, 2, "FRONT_WARMTH 3800"}, // clockwise is warmer
-		{false, false, -1, "FRONT_WARMTH 4100"},
-		{false, true, 1, "WARMNESS 2900"}, // Warmness mode owns the whole bar
-		{true, false, 3, "TRIM 9 66"},
-		{true, true, -40, "TRIM 9 1"}, // never 0: that would clear the trim
-		{true, false, 0, ""},
+		{knobTemperature, false, 2, "FRONT_WARMTH 3800"}, // clockwise is warmer
+		{knobTemperature, false, -1, "FRONT_WARMTH 4100"},
+		{knobTemperature, true, 1, "WARMNESS 2900"}, // Warmness mode owns the whole bar
+		{knobBrightness, false, 3, "TRIM 9 66"},
+		{knobBrightness, true, -40, "TRIM 9 1"}, // never 0: that would clear the trim
+		{knobBrightness, false, 0, ""},
+		{knobScene, false, 3, "BAR_SCENE 3"},
+		{knobScene, true, -1, "BAR_SCENE -1"}, // scenes play in Warmness mode too
 	} {
 		st.WarmMode = c.warm
-		got, ok := monitorCmd(st, c.bright, c.ticks)
+		got, ok := monitorCmd(st, c.knob, c.ticks)
 		if !ok || got != c.want {
-			t.Fatalf("bright=%v warm=%v ticks=%d: %q ok=%v, want %q", c.bright, c.warm, c.ticks, got, ok, c.want)
+			t.Fatalf("knob=%q warm=%v ticks=%d: %q ok=%v, want %q", c.knob, c.warm, c.ticks, got, ok, c.want)
 		}
 	}
 	st.Pads[1].Front = false
-	if _, ok := monitorCmd(st, false, 1); ok {
+	if _, ok := monitorCmd(st, knobTemperature, 1); ok {
 		t.Fatal("no front-light lamp bound, but the dial claimed one")
+	}
+}
+
+func TestMonitorPushWalksEveryPage(t *testing.T) {
+	k, seen := knobTemperature, []string{}
+	for range monitorKnobs {
+		k = nextKnob(k)
+		seen = append(seen, k)
+	}
+	if strings.Join(seen, ",") != "brightness,scene," {
+		t.Fatalf("pages = %q", seen)
+	}
+	if nextKnob("bogus") != knobTemperature {
+		t.Fatal("an unknown saved page must fall back to temperature")
 	}
 }

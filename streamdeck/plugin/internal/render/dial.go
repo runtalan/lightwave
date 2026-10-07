@@ -125,6 +125,27 @@ func LevelStrip(pct int) (string, error) {
 	return encode(img)
 }
 
+// PositionStrip marks place i of n along a dim track, for a list too long to
+// draw item by item. i counts from 1; anything outside 1..n draws the bare
+// track.
+func PositionStrip(i, n int) (string, error) {
+	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
+	fillRect(img, band.Min.X, band.Min.Y, band.Dx(), band.Dy(), dim, 0.35)
+	if n > 0 && i >= 1 && i <= n {
+		u := 0.5
+		if n > 1 {
+			u = float64(i-1) / float64(n-1)
+		}
+		lit := int(u * float64(band.Dx()-1))
+		for x := 0; x <= lit; x++ {
+			c := lerp(neon, magenta, float64(x)/float64(band.Dx()-1))
+			fillRect(img, band.Min.X+x, band.Min.Y, 1, band.Dy(), c, 0.5)
+		}
+		marker(img, band.Min.X, band.Max.X, u, band.Min.Y-6, band.Max.Y+6)
+	}
+	return encode(img)
+}
+
 // ModeStrip shows the three modes side by side as small previews of what each
 // looks like, with the current one lit and the others dimmed.
 func ModeStrip(mode string, sw []Swatch, kelvin int) (string, error) {

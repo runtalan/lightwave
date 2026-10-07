@@ -22,6 +22,8 @@ func TestDialRenders(t *testing.T) {
 		"strip-solid":  func() (string, error) { return SolidStrip(ocean[2]) },
 		"strip-warm":   func() (string, error) { return WarmStrip(3200) },
 		"strip-mode":   func() (string, error) { return ModeStrip(ModePalette, ocean, 3200) },
+		"strip-scene":  func() (string, error) { return PositionStrip(30, 110) },
+		"strip-none":   func() (string, error) { return PositionStrip(0, 0) },
 	}
 	dir := os.Getenv("LIGHTWAVE_RENDER_DIR")
 	for name, f := range cases {

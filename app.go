@@ -255,7 +255,16 @@ type App struct {
 	// frontWarmth is the Kelvin of front lights (govee.HasFrontLight), kept
 	// apart from warmness so it holds through palette and solid modes.
 	frontWarmth int
-	lastColor   map[string]color.RGBK
+	// barScene names the Govee scene playing on front-light lamps' colour
+	// LEDs, or is empty while they follow the room like every other lamp.
+	// barSceneGen debounces a dial spinning through scenes; sceneLib caches
+	// each model's scene library. See barscene.go.
+	barScene    string
+	barSceneGen int
+	sceneLib    map[string][]govee.Scene
+	// sceneFailedAt is when a scene library download last failed.
+	sceneFailedAt time.Time
+	lastColor     map[string]color.RGBK
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
 	// report a new power state, and believing a stale reply would toggle the
@@ -287,6 +296,7 @@ func NewApp(forceSetup, startHidden bool) *App {
 		warmMode:     settings.WarmMode,
 		warmness:     settings.Warmness,
 		frontWarmth:  settings.FrontWarmth,
+		barScene:     settings.BarScene,
 		lastColor:    map[string]color.RGBK{},
 	}
 	if len(a.slots) != 9 {
@@ -418,6 +428,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	go a.refreshDevices()
+	// Keep the monitor bar's scene list current; the cached copy covers a
+	// start without network.
+	go a.barScenes(true)
 	go a.inactivityLoop()
 	go a.statusPollLoop()
 	go func() {
@@ -1118,6 +1131,7 @@ func (a *App) danceLoop(gen int) {
 		// than in paintScene: drift is a property of the animation, and the
 		// static scenes should keep showing the palette as written.
 		pal = pal.Spread(a.settings.DriftAmount())
+		_, hold := a.barSceneLocked()
 		a.mu.Unlock()
 
 		now := time.Now()
@@ -1131,6 +1145,9 @@ func (a *App) danceLoop(gen int) {
 			continue
 		}
 		for i, d := range dests {
+			if hold && govee.HasFrontLight(d.Model) {
+				continue
+			}
 			if grad && govee.SupportsSegments(d.Model) {
 				lampStep := 1.0 / float64(len(pal.Colors))
 				_ = govee.SendGradient(d.IP, pal.GradientAt(phase+float64(i)*lampStep, govee.GradientBands))
@@ -1533,6 +1550,9 @@ func (a *App) ToggleSlot(n int) error {
 		// Paint the whole pool from the current palette so the new lamp comes
 		// up in palette colors and the group re-spreads to stay complementary.
 		a.applyPaletteToPool()
+		if govee.HasFrontLight(model) {
+			a.applyBarScene(false)
+		}
 	} else if !active && ip != "" {
 		// Un-igniting a pad must actually extinguish the lamp; dropping it from
 		// the pool only stops future slider updates reaching it.
@@ -1617,6 +1637,7 @@ func (a *App) AllOn() HUDState {
 		_ = govee.SendBrightness(t.ip, bright)
 	}
 	a.applyPaletteToPool()
+	a.applyBarScene(false)
 	a.emitState()
 	a.emit("pool:allon")
 	return a.snapshot()
@@ -1875,6 +1896,7 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	pal := a.engine.Palette()
 	swatches := a.engine.SceneColors(len(dests), grad)
 	brightness := ignitedBrightness(a.brightness)
+	_, hold := a.barSceneLocked()
 	prev := map[string]color.RGBK{}
 	for k, v := range a.lastColor {
 		prev[k] = v
@@ -1907,6 +1929,13 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	painted := make([]bool, len(dests))
 	for i, d := range dests {
 		if only != nil && !only(d) {
+			continue
+		}
+		// A lamp playing a Govee scene keeps it; applyBarScene owns its colour.
+		if hold && govee.HasFrontLight(d.Model) {
+			if turnOn {
+				_ = govee.SendTurn(d.IP, true)
+			}
 			continue
 		}
 		painted[i] = true
@@ -2212,6 +2241,8 @@ func (a *App) sendFrontWarmth() {
 			_ = govee.SendFrontWarmth(d.IP, k)
 		}
 	}
+	// The Kelvin write can knock the colour LEDs out of a scene.
+	a.applyBarScene(false)
 }
 
 // frontLightPooledLocked reports whether a pooled lamp has a front light.
@@ -2276,10 +2307,14 @@ func (a *App) paintWarmness(turnOn bool) {
 	dests := a.poolDestsLocked()
 	c := warmRGB(a.warmness)
 	brightness := ignitedBrightness(a.brightness)
+	_, hold := a.barSceneLocked()
 	a.mu.Unlock()
 	for _, d := range dests {
 		if turnOn {
 			_ = govee.SendTurn(d.IP, true)
+		}
+		if hold && govee.HasFrontLight(d.Model) {
+			continue
 		}
 		_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
 		// Some BLE RGBIC controllers retain a separate level per colour mode.

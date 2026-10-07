@@ -52,8 +52,14 @@ type State struct {
 	WarmMode   bool   `json:"warmMode"`
 	Warmness   int    `json:"warmness"`
 	// FrontWarmth is the temperature of front lights, in Kelvin.
-	FrontWarmth int     `json:"frontWarmth"`
-	Swatches    []Color `json:"swatches"`
+	FrontWarmth int `json:"frontWarmth"`
+	// BarScene is the Govee scene on the light bar's back light, "" while it
+	// follows the room. BarSceneIndex is its place among BarSceneCount
+	// scenes, counting from 1.
+	BarScene      string  `json:"barScene"`
+	BarSceneIndex int     `json:"barSceneIndex"`
+	BarSceneCount int     `json:"barSceneCount"`
+	Swatches      []Color `json:"swatches"`
 	// Every palette name in cycle order, so a dial can jump several palettes
 	// per turn and the Property Inspector can list them.
 	Palettes []string `json:"palettes"`
