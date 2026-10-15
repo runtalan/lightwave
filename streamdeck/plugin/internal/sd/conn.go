@@ -34,8 +34,10 @@ type Payload struct {
 	// a Stream Deck + dial, and the two are drawn differently.
 	Controller string `json:"controller"`
 	Ticks      int    `json:"ticks"`
-	Pressed    bool   `json:"pressed"`
-	State      int    `json:"state"`
+	// Want is what a Property Inspector asked for in a sendToPlugin message.
+	Want    string `json:"want"`
+	Pressed bool   `json:"pressed"`
+	State   int    `json:"state"`
 	// Title carries what Stream Deck is currently showing on the key, and
 	// TitleParameters.ShowTitle whether the user has the title enabled. Both
 	// arrive with titleParametersDidChange, which is how the plugin learns the
@@ -265,6 +267,14 @@ func (w *Conn) ShowAlert(context string) {
 
 func (w *Conn) ShowOK(context string) {
 	_ = w.send(map[string]any{"event": "showOk", "context": context})
+}
+
+// GetGlobalSettings asks Stream Deck for the plugin-wide settings. They arrive
+// as a didReceiveGlobalSettings event, and again whenever an inspector changes
+// them. Unlike action settings they are not stored in profiles, so a shared
+// profile does not carry the login in it.
+func (w *Conn) GetGlobalSettings(context string) {
+	_ = w.send(map[string]any{"event": "getGlobalSettings", "context": context})
 }
 
 func (w *Conn) SetSettings(context string, v any) {

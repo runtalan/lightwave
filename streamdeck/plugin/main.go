@@ -25,6 +25,7 @@ import (
 	"lightwave-sd/internal/lw"
 	"lightwave-sd/internal/render"
 	"lightwave-sd/internal/sd"
+	"lightwave-sd/internal/tapo"
 )
 
 // Action UUIDs, matching manifest.json.
@@ -39,6 +40,7 @@ const (
 	actSweep      = "com.dinksf.lightwave.sweep"
 	actMode       = "com.dinksf.lightwave.mode"
 	actMonitor    = "com.dinksf.lightwave.monitor"
+	actTapo       = "com.dinksf.lightwave.tapo"
 )
 
 // Controller kinds Stream Deck reports for an action instance.
@@ -71,9 +73,13 @@ func main() {
 	}
 
 	p := &plugin{
-		client:    lw.NewClient(),
-		contexts:  map[string]*instance{},
-		sweepWake: make(chan struct{}, 1),
+		client:     lw.NewClient(),
+		tapo:       tapo.NewClient(),
+		pluginUUID: *pluginUUID,
+		contexts:   map[string]*instance{},
+		plugs:      map[string]plugView{},
+		sweepWake:  make(chan struct{}, 1),
+		plugWake:   make(chan struct{}, 1),
 	}
 
 	conn, err := sd.Dial(*port, *pluginUUID, *registerEvent)
@@ -81,12 +87,15 @@ func main() {
 		log.Fatalf("connect to Stream Deck: %v", err)
 	}
 	p.sd = conn
+	// The TP-Link login for Tapo plugs lives in Stream Deck's global settings.
+	conn.GetGlobalSettings(*pluginUUID)
 
 	// Lightwave state pushes drive key appearance, so keys reflect changes made
 	// from the HUD, the numpad, or the lamps themselves.
 	go p.client.Subscribe(p.onLightwaveState)
 	go p.animate()
 	go p.sweepLoop()
+	go p.plugLoop()
 
 	conn.Run(p.onEvent)
 }
@@ -149,6 +158,10 @@ type settings struct {
 	Direction string `json:"direction,omitempty"`
 	// Knob is a monitor bar dial's saved page; see instance.knob.
 	Knob string `json:"knob,omitempty"`
+	// Host and Name are a Tapo plug key's plug: its address on the LAN, and the
+	// label to draw on the key.
+	Host string `json:"host,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // The monitor bar dial's pages, in the order a push walks them. Temperature
@@ -173,8 +186,10 @@ func nextKnob(knob string) string {
 }
 
 type plugin struct {
-	sd     *sd.Conn
-	client *lw.Client
+	sd         *sd.Conn
+	client     *lw.Client
+	tapo       *tapo.Client
+	pluginUUID string
 
 	mu        sync.Mutex
 	contexts  map[string]*instance
@@ -188,6 +203,11 @@ type plugin struct {
 	sweepTarget int
 	sweepAt     time.Time
 	sweepWake   chan struct{}
+
+	// What each Tapo plug last reported, by host, and a nudge for plugLoop to
+	// poll now rather than at the next tick.
+	plugs    map[string]plugView
+	plugWake chan struct{}
 }
 
 func (p *plugin) onEvent(ev sd.Event) {
@@ -204,6 +224,8 @@ func (p *plugin) onEvent(ev sd.Event) {
 		p.refreshOne(ev.Context)
 	case "titleParametersDidChange":
 		p.onTitleChanged(ev)
+	case "didReceiveGlobalSettings":
+		p.onGlobalSettings(ev)
 	case "propertyInspectorDidAppear", "sendToPlugin":
 		// The inspector cannot reach Lightwave itself, so hand it the current
 		// pads or palettes as soon as it opens (and again if it asks).
@@ -230,6 +252,14 @@ type padOption struct {
 // sendInspector hands the Property Inspector what its dropdown needs from
 // Lightwave: the bound lights for a pad key, the palette list for a palette key.
 func (p *plugin) sendInspector(ev sd.Event) {
+	if ev.Action == actTapo {
+		// Plugs come from the network, not from Lightwave, and finding them
+		// takes seconds, so only when the inspector asks.
+		if ev.Event == "sendToPlugin" && ev.Payload.Want == "discover" {
+			go p.sendPlugs(ev)
+		}
+		return
+	}
 	if ev.Action != actPad && ev.Action != actPalette {
 		return
 	}
@@ -330,6 +360,12 @@ func (p *plugin) press(ev sd.Event) {
 	st, have := p.state, p.haveState
 	p.mu.Unlock()
 	if inst == nil {
+		return
+	}
+	if inst.action == actTapo {
+		// A plug does not need Lightwave, and may take a moment to answer, so
+		// it stays off the event loop that every key shares.
+		go p.togglePlug(ev.Context, inst.settings.Host)
 		return
 	}
 	warm := have && st.WarmMode
@@ -723,6 +759,12 @@ func (p *plugin) refreshOne(context string) {
 	if inst == nil {
 		return
 	}
+	if inst.action == actTapo {
+		// Not Lightwave's to paint, and not "offline" when Lightwave is.
+		p.renderPlug(inst)
+		p.wakePlugs()
+		return
+	}
 	if !have {
 		// No push yet — ask directly so a key painted at startup is correct.
 		if fresh, err := p.client.Command("STATE"); err == nil {
@@ -754,6 +796,8 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		p.sd.SetTitle(inst.context, "")
 	}
 	switch inst.action {
+	case actTapo:
+		// Driven by plugLoop, not by Lightwave's state.
 	case actPad:
 		pad := st.Pad(inst.settings.Pad)
 		p.mu.Lock()

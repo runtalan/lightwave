@@ -3,8 +3,8 @@
   "Name": "Lightwave",
   "UUID": "com.dinksf.lightwave",
   "Author": "Paul",
-  "Version": "1.1.0.0",
-  "Description": "Control Govee lights over LAN and Bluetooth through the Lightwave app.",
+  "Version": "1.2.0.0",
+  "Description": "Control Govee lights over LAN and Bluetooth through the Lightwave app, and switch Tapo smart plugs with a live power readout.",
   "Category": "Lightwave",
   "CategoryIcon": "imgs/category",
   "Icon": "imgs/plugin",
@@ -236,6 +236,23 @@
         {
           "Image": "imgs/actions/sweep",
           "TitleAlignment": "bottom"
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.dinksf.lightwave.tapo",
+      "Name": "Tapo Plug",
+      "Icon": "imgs/actions/tapo",
+      "Tooltip": "Switch a TP-Link Tapo smart plug (P110, P115 and other plugs python-kasa supports) on or off. The key shows the plug's name and, while it is on, how many watts it is drawing right now. Needs the one-time setup in streamdeck/setup-tapo.sh.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/tapo.html",
+      "States": [
+        {
+          "Image": "imgs/actions/tapo-key",
+          "ShowTitle": false
         }
       ],
       "UserTitleEnabled": false
