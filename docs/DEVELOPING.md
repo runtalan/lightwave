@@ -134,6 +134,21 @@ pad order and back off in reverse, one every 300ms). Keys track state pushed
 from Lightwave, so they stay correct when lights are changed from the HUD, the
 numpad, or the Govee app.
 
+**Tapo Plug** is the one action that does not go through Lightwave. The Go
+plugin runs `bin/tapo_helper.py` as a child process (started on first use, so a
+deck with no Tapo key never launches Python) and exchanges one JSON line per
+request and reply with it; `plugin/internal/tapo` is the client. The helper is
+a thin wrapper over python-kasa, which owns the Tapo protocols (KLAP and the
+older AES handshake), and keeps one connection per plug, dropping and reopening
+it after any error. The interpreter is the venv `setup-tapo.sh` creates at
+`~/Library/Application Support/Lightwave/tapo-venv` (`%APPDATA%\Lightwave\tapo-venv`
+on Windows); `LIGHTWAVE_TAPO_PYTHON` overrides it. The TP-Link login is a Stream
+Deck *global* setting (not stored in profiles), sent to the helper as `auth`.
+`plugin/plug.go` polls every plug that has a key on screen every 3s and
+repaints with `render.PlugKey`. The bridge's tests are
+`streamdeck/test_tapo_helper.py` (run with the venv's Python:
+`python -m unittest streamdeck/test_tapo_helper.py`).
+
 The palette and mode dials draw their touch strip with the custom layout in
 `com.dinksf.lightwave.sdPlugin/layouts/dial.json`; the plugin fills its `strip`
 pixmap with PNGs from `plugin/internal/render/dial.go`.

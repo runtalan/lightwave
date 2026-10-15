@@ -28,6 +28,9 @@ if ($Install) {
     New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null
     Copy-Item -Recurse $Bundle $Dest
     Write-Host "Installed to $Dest"
+    if (-not (Test-Path (Join-Path $env:APPDATA "Lightwave\tapo-venv\Scripts\python.exe"))) {
+        Write-Host "Tapo plugs: run streamdeck\setup-tapo.ps1 once to enable the Tapo Plug key."
+    }
     $Profile = Join-Path $Root "Lightwave.streamDeckProfile"
     if (Test-Path $Profile) {
         Copy-Item $Profile (Join-Path $Dest "Lightwave.streamDeckProfile") -Force

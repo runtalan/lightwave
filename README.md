@@ -236,6 +236,7 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Monitor Bar** | A **Stream Deck +** dial for a monitor light bar (H2800). Push it to step through **Temperature** (the front light's warmth), **Brightness** (the bar's share of the main slider) and **Scene**; turn to adjust whichever is showing. The Scene page plays Govee's effects for the bar (Cyber, Colorful, Esports, Flow and the rest) on its back light. Turn past the last scene, or back before the first, and the bar follows the room's colors again |
 | **Color Fade** | Start or stop the slow fade — the key says which it will do. Starting it from Warmness mode returns to your palette first |
 | **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
+| **Tapo Plug** | Switch a TP-Link Tapo smart plug (P110, P115) on or off. The key shows the plug's name and, while it's on, how many watts it is drawing right now. Works without Lightwave running — see [Tapo plugs](#tapo-plugs) |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
 
 ### The Status key
@@ -253,6 +254,23 @@ A live, animated readout of your lighting, drawn in the Lightwave style — neon
 - **The wave** drifts gently behind it all, and speeds up while the fade is running
 
 Press it to turn everything off, or bring back the lights that were on last. In Warmness mode it shows the temperature in place of the palette.
+
+### Tapo plugs
+
+The **Tapo Plug** key drives TP-Link Tapo plugs through [python-kasa](https://github.com/python-kasa/python-kasa), so it needs a one-time Python setup. It doesn't depend on Lightwave or your Govee lights; a deck can use it on its own.
+
+```bash
+./streamdeck/setup-tapo.sh        # macOS; Windows: .\streamdeck\setup-tapo.ps1
+```
+
+This creates a Python environment (needs Python 3.11+, or [uv](https://docs.astral.sh/uv/)) with python-kasa installed, kept next to Lightwave's other data so reinstalling the plugin doesn't remove it.
+
+Then add a **Tapo Plug** key and, in its inspector:
+
+1. Enter your **TP-Link (Tapo) account email and password** — current Tapo firmware refuses local control without them. They're saved once for all Tapo keys, in Stream Deck's plugin settings on this computer rather than in the profile.
+2. Press **Find** to list the plugs on your network by name, and pick one — or type its address. Give the plug a fixed address in your router so the key keeps finding it.
+
+The key reads the plug every few seconds, so the wattage is live. A key that can't show a reading says why instead: **OFFLINE**, **NO LOGIN**, **BAD LOGIN**, **NOT SET UP** (run the setup script), or **SET PLUG** (pick a plug in the inspector). Plugs without a power meter just show **ON**. Other plugs python-kasa supports, such as Kasa plugs, should work the same way.
 
 ### Install
 

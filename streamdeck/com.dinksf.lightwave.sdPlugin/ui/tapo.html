@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
+<body>
+  <div class="row">
+    <label for="found">Plug</label>
+    <select id="found"><option value="">Find plugs on the network…</option></select>
+    <button id="find" type="button">Find</button>
+  </div>
+  <div class="row">
+    <label for="host">Address</label>
+    <input id="host" type="text" placeholder="192.168.1.40" spellcheck="false">
+  </div>
+  <div class="row">
+    <label for="name">Name</label>
+    <input id="name" type="text" placeholder="Shown on the key">
+  </div>
+  <p class="hint" id="hint">Find lists the plugs on this network by name. Pick one, or type its address. Give the plug a fixed address in your router so the key keeps finding it.</p>
+
+  <hr>
+  <div class="row">
+    <label for="user">TP-Link email</label>
+    <input id="user" type="text" placeholder="the account the plugs are in" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="row">
+    <label for="pass">Password</label>
+    <input id="pass" type="password" autocomplete="off">
+  </div>
+  <p class="hint" id="loginHint">The Tapo (TP-Link) account your plugs are set up under. Used for all Tapo keys; it is stored by Stream Deck on this computer, not in your profile.</p>
+
+  <script>
+    const found = document.getElementById('found');
+    const find = document.getElementById('find');
+    const host = document.getElementById('host');
+    const nameEl = document.getElementById('name');
+    const hint = document.getElementById('hint');
+    const user = document.getElementById('user');
+    const pass = document.getElementById('pass');
+    const HINT = hint.textContent;
+
+    document.addEventListener('pi-ready', (e) => {
+      host.value = e.detail.host || '';
+      nameEl.value = e.detail.name || '';
+    });
+    document.addEventListener('pi-global', (e) => {
+      // Do not overwrite a field somebody is in the middle of typing in.
+      if (document.activeElement !== user) user.value = e.detail.tapoUser || '';
+      if (document.activeElement !== pass) pass.value = e.detail.tapoPass || '';
+    });
+
+    bindField(host, 'host', (v) => v.trim());
+    bindField(nameEl, 'name', (v) => v.trim());
+    // There is no Save button to forget: the login is saved once typing pauses.
+    // Not on every keystroke, because each save makes the plugin reconnect to
+    // its plugs with the new login.
+    let pending;
+    const saveLogin = () => saveGlobal({ tapoUser: user.value.trim(), tapoPass: pass.value });
+    const soon = () => { clearTimeout(pending); pending = setTimeout(saveLogin, 700); };
+    user.addEventListener('input', soon);
+    pass.addEventListener('input', soon);
+    user.addEventListener('change', saveLogin);
+    pass.addEventListener('change', saveLogin);
+
+    find.addEventListener('click', () => {
+      find.disabled = true;
+      hint.textContent = 'Looking for plugs… this takes a few seconds.';
+      askPlugin({ want: 'discover' });
+    });
+
+    // Remember the list so choosing from it can fill in the other fields.
+    let plugs = [];
+    document.addEventListener('pi-data', (e) => {
+      const d = e.detail || {};
+      if (d.plugsError) {
+        find.disabled = false;
+        hint.textContent = d.plugsError;
+        return;
+      }
+      if (!Array.isArray(d.plugs)) return;
+      find.disabled = false;
+      plugs = d.plugs;
+      found.innerHTML = '';
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = plugs.length ? 'Choose a plug…' : 'No plugs found';
+      found.appendChild(first);
+      for (const p of plugs) {
+        const o = document.createElement('option');
+        o.value = p.host;
+        // A plug that answers but will not give its name needs the login first.
+        o.textContent = (p.alias || p.model || 'Plug') + '  ·  ' + p.host + (p.auth ? '' : '  (login needed)');
+        found.appendChild(o);
+      }
+      const hasMatch = plugs.some((p) => p.host === host.value);
+      if (hasMatch) found.value = host.value;
+      hint.textContent = plugs.length
+        ? HINT
+        : 'No plugs answered. Check the TP-Link login below, that the plug is on this network, or type its address.';
+    });
+
+    found.addEventListener('change', () => {
+      const p = plugs.find((x) => x.host === found.value);
+      if (!p) return;
+      host.value = p.host;
+      // Take the plug's own name unless the key already has one of its own.
+      const patch = { host: p.host };
+      if (!nameEl.value.trim() && p.alias) { nameEl.value = p.alias; patch.name = p.alias; }
+      save(patch);
+    });
+  </script>
+</body></html>

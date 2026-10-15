@@ -131,6 +131,15 @@ def glyph(kind, on=True):
         box(im,(40,40,104,52),fill='#ffc27a' if on else DIM,radius=6)
         for x,c in ((52,'#ffc27a'),(72,'#ffe3bd'),(92,ICE)):
             line(im,[(x,66),(x,78)],c if on else DIM,3)
+    elif kind == 'tapo':
+        # A mains plug: two prongs, the body, a cord, and a bolt for the power
+        # reading the key carries.
+        for x in (60,84):
+            line(im,[(x,26),(x,44)],ink,5)
+        box(im,(44,44,100,94),outline=ink,width=4,radius=13)
+        line(im,[(72,94),(72,114)],ink,5)
+        ImageDraw.Draw(im).polygon([(p[0]*S,p[1]*S) for p in
+            ((77,52),(61,73),(71,73),(66,87),(83,65),(73,65))],fill=MAG if on else DIM)
     elif kind == 'status':
         box(im,(29,31,115,98),outline=ICE,width=3,radius=9)
         line(im,[(39,68),(50,68),(59,49),(72,82),(82,60),(105,60)],MAG,3)
@@ -157,12 +166,13 @@ def icon(kind, on=True, titled=False):
 
 ACTIONS = [('status','Status'),('pad','Light'),('alloff','All Lights'),
            ('palette','Palette'),('mode','Color Mode'),('dance','Color Fade'),('gradient','Pattern'),
-           ('brightness','Brightness'),('sweep','Light Sweep'),('monitor','Monitor Bar')]
+           ('brightness','Brightness'),('sweep','Light Sweep'),('monitor','Monitor Bar'),
+           ('tapo','Tapo Plug')]
 
 
 def main():
     targets={f'actions/{kind}':icon(kind) for kind,_ in ACTIONS}
-    for kind in ('status','palette','brightness','mode'):
+    for kind in ('status','palette','brightness','mode','tapo'):
         targets[f'actions/{kind}-key']=icon(kind)
     for name,kind in (('pad','pad'),('dance','dance'),('gradient','gradient')):
         for on in (False,True):
@@ -178,7 +188,7 @@ def main():
             im.resize((size,size),Image.Resampling.LANCZOS).save(f'{path}{suffix}.png')
 
     # Review at actual key sizes, with titles to check the reserved text area.
-    sheet=Image.new('RGB',(1244,550),'#0a0612')
+    sheet=Image.new('RGB',(1366,550),'#0a0612')
     d=ImageDraw.Draw(sheet)
     font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc',16) if Path('/System/Library/Fonts/Helvetica.ttc').exists() else ImageFont.load_default(size=16)
     d.text((24,18),'LIGHTWAVE / STREAM DECK',fill=ICE,font=font)
