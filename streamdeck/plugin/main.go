@@ -302,6 +302,11 @@ func (p *plugin) trackContext(ev sd.Event) {
 	if len(ev.Payload.Settings) > 0 {
 		_ = json.Unmarshal(ev.Payload.Settings, &s)
 	}
+	// A fresh pad key has no saved pad, but its inspector already shows Pad 7
+	// selected, so treat unset as 7 rather than leaving the key blank.
+	if ev.Action == actPad && s.Pad == 0 {
+		s.Pad = 7
+	}
 	p.mu.Lock()
 	inst := p.contexts[ev.Context]
 	if inst == nil {
