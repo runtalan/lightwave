@@ -167,3 +167,23 @@ func TestFrontWarmthInWarmnessIsTheBarsOwn(t *testing.T) {
 		t.Fatalf("bar-only paint: bar=%v bulb=%v", sent[bar], sent[bulb])
 	}
 }
+
+// A trimmed bar reporting the level it was given must not drag the slider
+// down: each poll would otherwise shave the trim off again.
+func TestTrimmedLampReportLeavesSliderBe(t *testing.T) {
+	slider := 64
+	for i := 0; i < 30; i++ {
+		bar := ignitedBrightness(ignitedBrightness(slider) * 92 / 100)
+		slider = sliderFromReported(bar, slider, 92)
+	}
+	if slider != 64 {
+		t.Fatalf("slider drifted to %d, want 64", slider)
+	}
+	// Dimmed to 30 from the Govee app: the slider follows, scaled by the trim.
+	if got := sliderFromReported(30, 64, 92); got != 33 {
+		t.Fatalf("external change mapped to %d, want 33", got)
+	}
+	if got := sliderFromReported(40, 64, 100); got != 40 {
+		t.Fatalf("untrimmed lamp mapped to %d, want 40", got)
+	}
+}

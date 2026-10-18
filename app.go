@@ -999,10 +999,12 @@ func (a *App) applyDeviceStatus(st govee.DevStatus) {
 	}()
 	a.mu.Lock()
 	changed := false
+	trim := 100
 	for i, s := range a.slots {
 		if strings.TrimSpace(s.IP) != st.IP {
 			continue
 		}
+		trim = s.EffectiveTrim()
 		n := i + 1
 		if a.pool == nil {
 			a.pool = map[int]bool{}
@@ -1023,7 +1025,7 @@ func (a *App) applyDeviceStatus(st govee.DevStatus) {
 	// Mirror the device's own brightness only while the user is not driving
 	// the slider, so polling never fights an in-progress adjustment.
 	if st.On && st.Brightness > 0 && time.Since(a.lastBrightTouch) > brightSyncGuard {
-		reported := normalizeReportedBrightness(st.Brightness)
+		reported := sliderFromReported(normalizeReportedBrightness(st.Brightness), a.brightness, trim)
 		if a.brightness != reported {
 			a.brightness = reported
 			a.pendingBright.Store(int32(reported))
@@ -1759,6 +1761,23 @@ func ignitedBrightness(percent int) int {
 // normalizeReportedBrightness maps a Govee status brightness onto 0–100.
 // LAN firmware usually reports 1–100; some replies use the 0–255 BLE scale,
 // and treating 235 as a percent would clamp the slider to 92 after a poll.
+// sliderFromReported is the slider position a lamp's reported level stands
+// for. A trimmed lamp runs below the slider on purpose, so its own level read
+// back as the slider would pull the slider down by the trim on every poll, and
+// the next send would dim the lamp further. A level within a step of what the
+// slider already gives the lamp is that send coming back and leaves the slider
+// be; anything else was set elsewhere and is scaled back up by the trim.
+func sliderFromReported(reported, slider, trim int) int {
+	if trim <= 0 || trim > 100 {
+		trim = 100
+	}
+	expected := ignitedBrightness(ignitedBrightness(slider) * trim / 100)
+	if d := reported - expected; d >= -1 && d <= 1 {
+		return slider
+	}
+	return clampBrightness((reported*100 + trim/2) / trim)
+}
+
 func normalizeReportedBrightness(v int) int {
 	if v > 100 {
 		return clampBrightness((v*100 + 127) / 255)
