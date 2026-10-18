@@ -1,4 +1,4 @@
-package tapo
+package helper
 
 import (
 	"os/exec"

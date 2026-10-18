@@ -9,19 +9,16 @@
 package tapo
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
+
+	"lightwave-sd/internal/helper"
 )
 
 // Reading is one plug's state at a moment.
@@ -63,7 +60,7 @@ type Client struct {
 	Python, Helper string
 
 	mu         sync.Mutex
-	p          *proc
+	p          *helper.Proc
 	user, pass string
 	failedAt   time.Time
 	failure    error
@@ -82,9 +79,9 @@ func (c *Client) SetLogin(user, pass string) {
 	c.user, c.pass = user, pass
 	p := c.p
 	c.mu.Unlock()
-	if p != nil && p.alive() {
+	if p != nil && p.Alive() {
 		go func() {
-			if _, err := p.call(c.authRequest(), callTimeout); err != nil {
+			if _, err := p.Call(c.authRequest(), callTimeout); err != nil {
 				log.Printf("tapo: sending login: %v", err)
 			}
 		}()
@@ -153,13 +150,13 @@ func (c *Client) call(req map[string]any, timeout time.Duration) (json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	return p.call(req, timeout)
+	return p.Call(req, timeout)
 }
 
 // proc returns the running helper, starting it if it is not.
-func (c *Client) proc() (*proc, error) {
+func (c *Client) proc() (*helper.Proc, error) {
 	c.mu.Lock()
-	if c.p != nil && c.p.alive() {
+	if c.p != nil && c.p.Alive() {
 		p := c.p
 		c.mu.Unlock()
 		return p, nil
@@ -169,9 +166,9 @@ func (c *Client) proc() (*proc, error) {
 		c.mu.Unlock()
 		return nil, err
 	}
-	python, helper, err := c.locate()
+	python, helperPath, err := c.locate()
 	if err == nil {
-		c.p, err = start(python, helper)
+		c.p, err = helper.Start("Tapo", python, helperPath)
 	}
 	if err != nil {
 		c.failure, c.failedAt = err, time.Now()
@@ -185,21 +182,21 @@ func (c *Client) proc() (*proc, error) {
 	if user {
 		// The helper runs requests concurrently, so wait for the login to land
 		// before the caller's first command can overtake it.
-		if _, err := p.call(c.authRequest(), callTimeout); err != nil {
+		if _, err := p.Call(c.authRequest(), callTimeout); err != nil {
 			log.Printf("tapo: sending login: %v", err)
 		}
 	}
 	return p, nil
 }
 
-func (c *Client) locate() (python, helper string, err error) {
-	python, helper = c.Python, c.Helper
-	if helper == "" {
+func (c *Client) locate() (python, script string, err error) {
+	python, script = c.Python, c.Helper
+	if script == "" {
 		exe, err := os.Executable()
 		if err != nil {
 			return "", "", err
 		}
-		helper = filepath.Join(filepath.Dir(exe), "tapo_helper.py")
+		script = filepath.Join(filepath.Dir(exe), "tapo_helper.py")
 	}
 	if python == "" {
 		python = os.Getenv("LIGHTWAVE_TAPO_PYTHON")
@@ -207,7 +204,7 @@ func (c *Client) locate() (python, helper string, err error) {
 	if python == "" {
 		python = venvPython()
 	}
-	for _, f := range []string{python, helper} {
+	for _, f := range []string{python, script} {
 		if f == "" {
 			return "", "", ErrNotSetUp
 		}
@@ -215,7 +212,7 @@ func (c *Client) locate() (python, helper string, err error) {
 			return "", "", ErrNotSetUp
 		}
 	}
-	return python, helper, nil
+	return python, script, nil
 }
 
 // VenvDir is where setup-tapo puts the Python environment: next to Lightwave's
@@ -237,124 +234,4 @@ func venvPython() string {
 		return filepath.Join(dir, "Scripts", "python.exe")
 	}
 	return filepath.Join(dir, "bin", "python")
-}
-
-// proc is one running helper.
-type proc struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	wmu   sync.Mutex // one request line at a time
-
-	mu      sync.Mutex
-	pending map[int]chan reply
-	nextID  int
-	dead    chan struct{}
-}
-
-type reply struct {
-	ID     int             `json:"id"`
-	OK     bool            `json:"ok"`
-	Result json.RawMessage `json:"result"`
-	Error  string          `json:"error"`
-}
-
-func start(python, helper string) (*proc, error) {
-	cmd := exec.Command(python, helper)
-	hide(cmd)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start Tapo helper: %w", err)
-	}
-	p := &proc{cmd: cmd, stdin: stdin, pending: map[int]chan reply{}, dead: make(chan struct{})}
-	go func() {
-		sc := bufio.NewScanner(stderr)
-		for sc.Scan() {
-			log.Printf("tapo helper: %s", sc.Text())
-		}
-	}()
-	go p.read(stdout)
-	return p, nil
-}
-
-func (p *proc) alive() bool {
-	select {
-	case <-p.dead:
-		return false
-	default:
-		return true
-	}
-}
-
-func (p *proc) read(r io.Reader) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	for sc.Scan() {
-		var rep reply
-		if err := json.Unmarshal(sc.Bytes(), &rep); err != nil {
-			continue
-		}
-		p.mu.Lock()
-		ch := p.pending[rep.ID]
-		delete(p.pending, rep.ID)
-		p.mu.Unlock()
-		if ch != nil {
-			ch <- rep
-		}
-	}
-	_ = p.cmd.Wait()
-	close(p.dead)
-}
-
-func (p *proc) call(req map[string]any, timeout time.Duration) (json.RawMessage, error) {
-	ch := make(chan reply, 1)
-	p.mu.Lock()
-	p.nextID++
-	id := p.nextID
-	p.pending[id] = ch
-	p.mu.Unlock()
-	forget := func() {
-		p.mu.Lock()
-		delete(p.pending, id)
-		p.mu.Unlock()
-	}
-
-	req["id"] = id
-	line, err := json.Marshal(req)
-	if err != nil {
-		forget()
-		return nil, err
-	}
-	p.wmu.Lock()
-	_, err = p.stdin.Write(append(line, '\n'))
-	p.wmu.Unlock()
-	if err != nil {
-		forget()
-		return nil, fmt.Errorf("Tapo helper is not running: %w", err)
-	}
-
-	t := time.NewTimer(timeout)
-	defer t.Stop()
-	select {
-	case rep := <-ch:
-		if !rep.OK {
-			return nil, errors.New(strings.TrimSpace(rep.Error))
-		}
-		return rep.Result, nil
-	case <-p.dead:
-		return nil, errors.New("Tapo helper stopped; python-kasa may not be installed")
-	case <-t.C:
-		forget()
-		return nil, errors.New("timed out waiting for the plug")
-	}
 }

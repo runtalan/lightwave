@@ -144,6 +144,24 @@ class BridgeTest(unittest.TestCase):
         self.assertFalse(by_id[3]["ok"])
         self.assertEqual(len(out), 3)
 
+    def test_tpap_wrong_account_reads_as_a_login_problem(self):
+        class Failing(FakePlug):
+            async def update(self):
+                raise RuntimeError("TPAP discover failed for h: ACCOUNT_ERROR(-2101) (error_code=ACCOUNT_ERROR)")
+
+        b = self.bridge(Failing())
+        out = []
+
+        async def go():
+            q = asyncio.Queue()
+            q.put_nowait(json.dumps({"id": 1, "cmd": "state", "host": "h"}))
+            q.put_nowait(None)
+            await tapo_helper.serve(b, q, out.append)
+
+        run(go())
+        self.assertFalse(out[0]["ok"])
+        self.assertIn("login rejected", out[0]["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

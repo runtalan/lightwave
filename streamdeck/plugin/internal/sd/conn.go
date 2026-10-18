@@ -35,9 +35,13 @@ type Payload struct {
 	Controller string `json:"controller"`
 	Ticks      int    `json:"ticks"`
 	// Want is what a Property Inspector asked for in a sendToPlugin message.
-	Want    string `json:"want"`
-	Pressed bool   `json:"pressed"`
-	State   int    `json:"state"`
+	Want string `json:"want"`
+	// Globals is the plugin-wide settings, sent along by an inspector that has
+	// just saved them. Stream Deck hands the plugin its global settings at
+	// startup, but is not relied on to push later changes.
+	Globals json.RawMessage `json:"globals"`
+	Pressed bool            `json:"pressed"`
+	State   int             `json:"state"`
 	// Title carries what Stream Deck is currently showing on the key, and
 	// TitleParameters.ShowTitle whether the user has the title enabled. Both
 	// arrive with titleParametersDidChange, which is how the plugin learns the

@@ -18,28 +18,85 @@ import (
 // plugs.
 const plugPoll = 3 * time.Second
 
+// A plug that refused the login is left alone this long before trying again.
+// Retrying a wrong password every few seconds does nothing but get the plug to
+// start throttling the connections (TPAP answers STAT_ACCESS_ERROR), so it is
+// asked again at this pace, or at once when the login or the key changes.
+const loginRetry = time.Minute
+
 // plugView is the last thing known about one plug.
 type plugView struct {
 	reading tapo.Reading
 	have    bool
 	err     error
+	// retryAt, when set, holds off polling until then.
+	retryAt time.Time
 }
 
 // globalSettings are the plugin-wide settings an inspector can change.
 type globalSettings struct {
 	TapoUser string `json:"tapoUser"`
 	TapoPass string `json:"tapoPass"`
+
+	DreameUser    string `json:"dreameUser"`
+	DreamePass    string `json:"dreamePass"`
+	DreameCountry string `json:"dreameCountry"`
+	// DreameRooms is the room names, one "number = name" per line.
+	DreameRooms string `json:"dreameRooms"`
 }
 
-// onGlobalSettings picks up the TP-Link login. Tapo plugs on current firmware
+// onGlobalSettings picks up the TP-Link and Dreame logins. Tapo plugs on current firmware
 // refuse local control without the account they were set up under.
 func (p *plugin) onGlobalSettings(ev sd.Event) {
+	p.applyGlobals(ev.Payload.Settings)
+}
+
+// applyGlobals takes the plugin-wide settings, from Stream Deck at startup or
+// from an inspector that has just changed them.
+func (p *plugin) applyGlobals(raw json.RawMessage) {
 	var g globalSettings
-	if len(ev.Payload.Settings) > 0 {
-		_ = json.Unmarshal(ev.Payload.Settings, &g)
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &g)
 	}
 	p.tapo.SetLogin(strings.TrimSpace(g.TapoUser), g.TapoPass)
+	p.clearBackoff("")
 	p.wakePlugs()
+
+	p.dreame.SetLogin(strings.TrimSpace(g.DreameUser), g.DreamePass, strings.ToLower(strings.TrimSpace(g.DreameCountry)))
+	// A new login may be a new account, with a different vacuum for the bar.
+	p.mu.Lock()
+	p.barDID, p.barErr, p.barRetryAt = "", nil, time.Time{}
+	p.mu.Unlock()
+	p.clearVacBackoff("")
+	p.wakeVacuums()
+
+	// Room names label the room keys, so repaint them when the names change.
+	p.mu.Lock()
+	p.rooms = parseRooms(g.DreameRooms)
+	var keys []*instance
+	for _, inst := range p.contexts {
+		if inst.action == actVacuum {
+			keys = append(keys, inst)
+		}
+	}
+	p.mu.Unlock()
+	for _, inst := range keys {
+		p.renderVacuum(inst)
+	}
+	p.renderBars()
+}
+
+// clearBackoff lets a held-off plug be tried again now: every plug for "", or
+// just one. A new login or a re-pointed key is a reason to retry.
+func (p *plugin) clearBackoff(host string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for h, v := range p.plugs {
+		if host == "" || h == host {
+			v.retryAt = time.Time{}
+			p.plugs[h] = v
+		}
+	}
 }
 
 func (p *plugin) wakePlugs() {
@@ -61,6 +118,12 @@ func (p *plugin) plugLoop() {
 		}
 		var wg sync.WaitGroup
 		for _, host := range p.plugHosts() {
+			p.mu.Lock()
+			held := time.Now().Before(p.plugs[host].retryAt)
+			p.mu.Unlock()
+			if held {
+				continue
+			}
 			wg.Add(1)
 			go func(host string) {
 				defer wg.Done()
@@ -105,9 +168,18 @@ func (p *plugin) togglePlug(context, host string) {
 func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 	p.mu.Lock()
 	prev := p.plugs[host]
+	// Log a failure when it starts or changes, not on every poll: the key shows
+	// only a word, and this is where the reason is.
+	if err != nil && (prev.err == nil || prev.err.Error() != err.Error()) {
+		log.Printf("tapo %s: %v", host, err)
+	}
 	if err != nil {
 		// Keep the last good reading around, but the key reports the failure.
 		prev.err = err
+		prev.retryAt = time.Time{}
+		if strings.Contains(err.Error(), "login rejected") {
+			prev.retryAt = time.Now().Add(loginRetry)
+		}
 		p.plugs[host] = prev
 	} else {
 		p.plugs[host] = plugView{reading: r, have: true}

@@ -55,4 +55,8 @@ function saveGlobal(patch) {
   globalSettings = Object.assign({}, globalSettings, patch);
   if (!ws || ws.readyState !== 1) return;
   ws.send(JSON.stringify({ event: 'setGlobalSettings', context: ctx, payload: globalSettings }));
+  // Tell the plugin too. Stream Deck gives it the global settings at startup but
+  // does not reliably announce a later change, and a login typed after that
+  // would otherwise not be used until Stream Deck restarted.
+  askPlugin({ want: 'globals', globals: globalSettings });
 }

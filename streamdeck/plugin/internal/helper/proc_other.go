@@ -1,6 +1,6 @@
 //go:build !windows
 
-package tapo
+package helper
 
 import "os/exec"
 

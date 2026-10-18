@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"lightwave-sd/internal/dreame"
 	"lightwave-sd/internal/lw"
 	"lightwave-sd/internal/render"
 	"lightwave-sd/internal/sd"
@@ -41,6 +42,8 @@ const (
 	actMode       = "com.dinksf.lightwave.mode"
 	actMonitor    = "com.dinksf.lightwave.monitor"
 	actTapo       = "com.dinksf.lightwave.tapo"
+	actVacuum     = "com.dinksf.lightwave.vacuum"
+	actVacuumBar  = "com.dinksf.lightwave.vacuumbar"
 )
 
 // Controller kinds Stream Deck reports for an action instance.
@@ -75,11 +78,14 @@ func main() {
 	p := &plugin{
 		client:     lw.NewClient(),
 		tapo:       tapo.NewClient(),
+		dreame:     dreame.NewClient(),
 		pluginUUID: *pluginUUID,
 		contexts:   map[string]*instance{},
 		plugs:      map[string]plugView{},
+		vacs:       map[string]vacView{},
 		sweepWake:  make(chan struct{}, 1),
 		plugWake:   make(chan struct{}, 1),
+		vacWake:    make(chan struct{}, 1),
 	}
 
 	conn, err := sd.Dial(*port, *pluginUUID, *registerEvent)
@@ -96,6 +102,7 @@ func main() {
 	go p.animate()
 	go p.sweepLoop()
 	go p.plugLoop()
+	go p.vacuumLoop()
 
 	conn.Run(p.onEvent)
 }
@@ -162,6 +169,16 @@ type settings struct {
 	// label to draw on the key.
 	Host string `json:"host,omitempty"`
 	Name string `json:"name,omitempty"`
+	// DID and Mode are a vacuum key's vacuum (its Dreame device id) and what a
+	// press does: "dock" sends it home, "room" cleans one room, anything else
+	// starts or pauses it.
+	// Name labels the key, as for a plug.
+	DID  string `json:"did,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// Room is the map's number for the room a "room" key cleans, and Repeat how
+	// many passes (1 to 3).
+	Room   int `json:"room,omitempty"`
+	Repeat int `json:"repeat,omitempty"`
 }
 
 // The monitor bar dial's pages, in the order a push walks them. Temperature
@@ -189,6 +206,7 @@ type plugin struct {
 	sd         *sd.Conn
 	client     *lw.Client
 	tapo       *tapo.Client
+	dreame     *dreame.Client
 	pluginUUID string
 
 	mu        sync.Mutex
@@ -208,6 +226,18 @@ type plugin struct {
 	// poll now rather than at the next tick.
 	plugs    map[string]plugView
 	plugWake chan struct{}
+
+	// The same for Dreame vacuums, by device id.
+	vacs    map[string]vacView
+	vacWake chan struct{}
+	// What the user has called the vacuum's rooms, by the map's room number.
+	rooms map[int]string
+
+	// The info bar is tied to the account's one vacuum, which it finds itself:
+	// barDID is that vacuum, and barErr why it could not be found.
+	barDID     string
+	barErr     error
+	barRetryAt time.Time
 }
 
 func (p *plugin) onEvent(ev sd.Event) {
@@ -252,11 +282,22 @@ type padOption struct {
 // sendInspector hands the Property Inspector what its dropdown needs from
 // Lightwave: the bound lights for a pad key, the palette list for a palette key.
 func (p *plugin) sendInspector(ev sd.Event) {
+	// An inspector that has just saved a login sends it along, so the plugin
+	// does not depend on Stream Deck announcing the change.
+	if ev.Event == "sendToPlugin" && len(ev.Payload.Globals) > 0 {
+		p.applyGlobals(ev.Payload.Globals)
+	}
 	if ev.Action == actTapo {
 		// Plugs come from the network, not from Lightwave, and finding them
 		// takes seconds, so only when the inspector asks.
 		if ev.Event == "sendToPlugin" && ev.Payload.Want == "discover" {
 			go p.sendPlugs(ev)
+		}
+		return
+	}
+	if ev.Action == actVacuum {
+		if ev.Event == "sendToPlugin" && ev.Payload.Want == "vacuums" {
+			go p.sendVacuums(ev)
 		}
 		return
 	}
@@ -366,6 +407,10 @@ func (p *plugin) press(ev sd.Event) {
 		// A plug does not need Lightwave, and may take a moment to answer, so
 		// it stays off the event loop that every key shares.
 		go p.togglePlug(ev.Context, inst.settings.Host)
+		return
+	}
+	if inst.action == actVacuum {
+		go p.pressVacuum(ev.Context, inst.settings)
 		return
 	}
 	warm := have && st.WarmMode
@@ -761,8 +806,20 @@ func (p *plugin) refreshOne(context string) {
 	}
 	if inst.action == actTapo {
 		// Not Lightwave's to paint, and not "offline" when Lightwave is.
+		p.clearBackoff(inst.settings.Host)
 		p.renderPlug(inst)
 		p.wakePlugs()
+		return
+	}
+	if inst.action == actVacuum {
+		p.clearVacBackoff(inst.settings.DID)
+		p.renderVacuum(inst)
+		p.wakeVacuums()
+		return
+	}
+	if inst.action == actVacuumBar {
+		p.renderBar(inst)
+		p.wakeVacuums()
 		return
 	}
 	if !have {
@@ -796,8 +853,8 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		p.sd.SetTitle(inst.context, "")
 	}
 	switch inst.action {
-	case actTapo:
-		// Driven by plugLoop, not by Lightwave's state.
+	case actTapo, actVacuum, actVacuumBar:
+		// Driven by their own loops, not by Lightwave's state.
 	case actPad:
 		pad := st.Pad(inst.settings.Pad)
 		p.mu.Lock()

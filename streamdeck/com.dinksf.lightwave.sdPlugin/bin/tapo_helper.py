@@ -164,6 +164,15 @@ class Bridge:
         return entry
 
 
+def is_login_error(exc, msg):
+    """Whether a failure means the TP-Link login is wrong.
+
+    python-kasa raises AuthenticationError for some handshakes, but the TPAP
+    one reports a wrong account as a plain device error, ACCOUNT_ERROR(-2101).
+    """
+    return isinstance(exc, AuthenticationError) or "ACCOUNT_ERROR" in msg or "(-2101)" in msg
+
+
 async def serve(bridge, lines, write):
     async def one(line):
         try:
@@ -174,10 +183,11 @@ async def serve(bridge, lines, write):
         try:
             reply["result"] = await bridge.handle(req)
             reply["ok"] = True
-        except AuthenticationError:
-            reply["ok"], reply["error"] = False, "login rejected: check the TP-Link account email and password"
         except Exception as exc:
-            reply["ok"], reply["error"] = False, str(exc) or exc.__class__.__name__
+            msg = str(exc) or exc.__class__.__name__
+            if is_login_error(exc, msg):
+                msg = "login rejected: check the TP-Link account email and password"
+            reply["ok"], reply["error"] = False, msg
         write(reply)
 
     tasks = set()

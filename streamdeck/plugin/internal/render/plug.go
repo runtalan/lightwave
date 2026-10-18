@@ -27,7 +27,7 @@ func PlugKey(p Plug) (string, error) {
 	grid(img)
 
 	live := p.On && p.Note == ""
-	drawPlugName(img, p.Name, live)
+	drawKeyName(img, p.Name, live)
 
 	switch {
 	case p.Note != "":
@@ -82,10 +82,10 @@ func drawCentred(img *image.RGBA, s string, scale, y int, col color.RGBA) {
 	drawText(img, s, x, y, scale, col, 1.0)
 }
 
-// drawPlugName sets the plug's name across the top: two lines of 2x type when
+// drawKeyName sets the plug's name across the top: two lines of 2x type when
 // it fits, otherwise two lines of the small type, cut short rather than
 // overflowing the key.
-func drawPlugName(img *image.RGBA, name string, live bool) {
+func drawKeyName(img *image.RGBA, name string, live bool) {
 	col := ice
 	if !live {
 		col = lerp(dim, ice, 0.4)
