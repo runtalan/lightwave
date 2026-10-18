@@ -60,6 +60,20 @@ func sceneCachePath(model string) string {
 	return filepath.Join(dir, "scenes-"+model+".json")
 }
 
+// hiddenScenes are left off the dial.
+var hiddenScenes = map[string]bool{"Split": true}
+
+// visibleScenes is lib without the hidden scenes, in the same order.
+func visibleScenes(lib []govee.Scene) []govee.Scene {
+	out := make([]govee.Scene, 0, len(lib))
+	for _, sc := range lib {
+		if !hiddenScenes[sc.Name] {
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
 // barScenes returns the scene library for the bound front-light lamp. The
 // copy on disk serves until fresh asks for a download; a failed download
 // falls back to it.
@@ -104,6 +118,7 @@ func (a *App) barScenes(fresh bool) []govee.Scene {
 		log.Printf("scenes %s: %v", model, err)
 		return lib
 	}
+	parsed = visibleScenes(parsed)
 	a.mu.Lock()
 	if a.sceneLib == nil {
 		a.sceneLib = map[string][]govee.Scene{}

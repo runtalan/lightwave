@@ -33,6 +33,10 @@ type sceneLibrary struct {
 					ScenceName  string `json:"scenceName"`
 					ScenceParam string `json:"scenceParam"`
 					SceneCode   int    `json:"sceneCode"`
+					SpeedInfo   struct {
+						SupSpeed bool   `json:"supSpeed"`
+						Config   string `json:"config"`
+					} `json:"speedInfo"`
 				} `json:"lightEffects"`
 			} `json:"scenes"`
 		} `json:"categories"`
@@ -90,6 +94,9 @@ func ParseScenes(body []byte) ([]Scene, error) {
 				if err != nil || name == "" || e.SceneCode < 0 || e.SceneCode > 0xFFFF {
 					continue
 				}
+				if e.SpeedInfo.SupSpeed {
+					param = slowestSpeed(param, e.SpeedInfo.Config)
+				}
 				out = append(out, Scene{Name: name, Code: e.SceneCode, Param: param})
 			}
 		}
@@ -100,16 +107,86 @@ func ParseScenes(body []byte) ([]Scene, error) {
 	return out, nil
 }
 
+// speedPage is one page of a scene's speed choices: three values per field,
+// slowest first, with DefaultIndex the one the program carries.
+type speedPage struct {
+	Page         int   `json:"page"`
+	DefaultIndex int   `json:"defaultIndex"`
+	MoveIn       []int `json:"moveIn"`
+	Color        []int `json:"color"`
+}
+
+// speedColorOffset is where a page keeps its colour-change speed, counted from
+// the page's length byte.
+const speedColorOffset = 14
+
+// slowestSpeed rewrites a scene program to Govee's slowest speed choice; the
+// library's programs carry the middle one, which reads as hurried on a bar a
+// foot from your face.
+//
+// A program is 0x0a, a page count, then each page as a length byte and that
+// many bytes. Each page's movement speed is wherever its default value sits;
+// its colour speed is at speedColorOffset. A program that does not parse that
+// way is returned as it came, so the scene still plays at its own speed.
+func slowestSpeed(param []byte, config string) []byte {
+	var pages []speedPage
+	if json.Unmarshal([]byte(config), &pages) != nil || len(param) < 2 || param[0] != 0x0a {
+		return param
+	}
+	type span struct{ start, end int }
+	var spans []span
+	i := 2
+	for n := 0; n < int(param[1]); n++ {
+		if i >= len(param) {
+			return param
+		}
+		end := i + 1 + int(param[i])
+		if end > len(param) {
+			return param
+		}
+		spans = append(spans, span{i, end})
+		i = end
+	}
+	if i != len(param) {
+		return param
+	}
+	out := append([]byte(nil), param...)
+	for _, pg := range pages {
+		if pg.Page < 0 || pg.Page >= len(spans) {
+			continue
+		}
+		sp := spans[pg.Page]
+		if len(pg.MoveIn) == 3 && pg.DefaultIndex >= 0 && pg.DefaultIndex < 3 {
+			from, to := byte(pg.MoveIn[pg.DefaultIndex]), byte(pg.MoveIn[0])
+			for j := sp.start + 1; j < sp.end; j++ {
+				if param[j] == from {
+					out[j] = to
+				}
+			}
+		}
+		if len(pg.Color) == 3 && pg.DefaultIndex >= 0 && pg.DefaultIndex < 3 {
+			if j := sp.start + speedColorOffset; j < sp.end && param[j] == byte(pg.Color[pg.DefaultIndex]) {
+				out[j] = byte(pg.Color[0])
+			}
+		}
+	}
+	return out
+}
+
 // scenePackets encodes a scene as the BLE frames that start it. A scene with
 // a program sends it first as a multi-frame 0xA3 transfer: the first frame
-// carries 01, the frame count and 02 ahead of the program, the last is
-// numbered 0xFF, and every frame holds 17 bytes. The 33 05 04 frame then
-// selects the scene by its code, low byte first.
+// carries 01 and the frame count ahead of the program, the last is numbered
+// 0xFF, and every frame holds 17 bytes. The 33 05 04 frame then selects the
+// scene by its code, low byte first.
+//
+// Some models want a type byte (often 02) between the count and the program.
+// The H2800 does not: it rejects a program carrying 02, 04 or 06 there and
+// falls back to whatever it showed before, often a dark back light.
 func scenePackets(sc Scene) [][]byte {
 	var pkts [][]byte
 	if len(sc.Param) > 0 {
 		const chunk = 17
-		data := append([]byte{0x01, 0x00, 0x02}, sc.Param...)
+		data := append([]byte{0x01, 0x00}, sc.Param...)
 		n := (len(data) + chunk - 1) / chunk
 		data[1] = byte(n)
 		for i := 0; i < n; i++ {

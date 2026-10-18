@@ -187,3 +187,11 @@ func TestTrimmedLampReportLeavesSliderBe(t *testing.T) {
 		t.Fatalf("untrimmed lamp mapped to %d, want 40", got)
 	}
 }
+
+// Hidden scenes never reach the dial; the rest keep Govee's order.
+func TestHiddenScenesLeaveTheDial(t *testing.T) {
+	got := visibleScenes([]govee.Scene{{Name: "Esports"}, {Name: "Split"}, {Name: "Fight"}})
+	if len(got) != 2 || got[0].Name != "Esports" || got[1].Name != "Fight" {
+		t.Fatalf("visible = %v, want Esports, Fight", got)
+	}
+}
