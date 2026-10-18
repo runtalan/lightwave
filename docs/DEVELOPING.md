@@ -134,6 +134,47 @@ pad order and back off in reverse, one every 300ms). Keys track state pushed
 from Lightwave, so they stay correct when lights are changed from the HUD, the
 numpad, or the Govee app.
 
+**Tapo Plug** is the one action that does not go through Lightwave. The Go
+plugin runs `bin/tapo_helper.py` as a child process (started on first use, so a
+deck with no Tapo key never launches Python) and exchanges one JSON line per
+request and reply with it; `plugin/internal/tapo` is the client. The helper is
+a thin wrapper over python-kasa, which owns the Tapo protocols (KLAP and the
+older AES handshake), and keeps one connection per plug, dropping and reopening
+it after any error. The interpreter is the venv `setup-tapo.sh` creates at
+`~/Library/Application Support/Lightwave/tapo-venv` (`%APPDATA%\Lightwave\tapo-venv`
+on Windows); `LIGHTWAVE_TAPO_PYTHON` overrides it. The TP-Link login is a Stream
+Deck *global* setting (not stored in profiles), sent to the helper as `auth`.
+`plugin/plug.go` polls every plug that has a key on screen every 3s and
+repaints with `render.PlugKey`. The bridge's tests are
+`streamdeck/test_tapo_helper.py` (run with the venv's Python:
+`python -m unittest streamdeck/test_tapo_helper.py`).
+
+**Vacuum** works the same way for a Dreame robot vacuum: `bin/dreame_helper.py`
+under the Python that `setup-dreame.sh` builds at
+`~/Library/Application Support/Lightwave/dreame/venv` (`LIGHTWAVE_DREAME_PYTHON`
+overrides it), client in `plugin/internal/dreame`. Both helpers share
+`plugin/internal/helper`, which runs the child and does the JSON-line
+request/reply matching. The cloud client is three files from
+Tasshack/dreame-vacuum (protocol, exceptions, types), downloaded at the commit
+pinned in `setup-dreame.sh` into `.../dreame/vendor` with a stub `__init__.py`,
+because the upstream package imports its map and device layers (numpy, a JS
+engine) for nothing the plugin uses. Move the pinned commit deliberately: the
+protocol is reverse-engineered. The helper uses MIoT ids from that project:
+state `2.1`, battery `3.1`, actions start `2.1`, pause `2.2`, charge `3.1`. Room cleaning is the custom-start action `4.1` with status `18` (segment cleaning) and a `{"selects":[[room,repeat,suction,water,1]]}` string in `4.10`; one room per command, because upstream notes the order field breaks some models. Room numbers come from the map, which the plugin does not decode. Suction (`4.4`) and water (`4.5`) are read and echoed back; on a self-washing base upstream uses the mop-wetness setting for water, which is not a plain property, so that value may differ from the app's.
+The Dreame login (email, password, region) and the room names (`dreameRooms`, one `N = name` per line, parsed by `parseRooms` in `plugin/vacuum.go`) are Stream Deck global settings. Inspectors also send them to the plugin as `globals` in a `sendToPlugin` after saving, because Stream Deck only hands the plugin its global settings at startup.
+Tests: `streamdeck/test_dreame_helper.py`, with a fake cloud.
+
+**Vacuum Status** is a Stream Deck Neo info-bar action: `"Controllers": ["Neo"]`,
+which the manifest schema only accepts with `Software.MinimumVersion` 7.6, so the
+whole plugin requires 7.6. The layout (`layouts/infobar.json`) is one 232x50 pixmap
+named `strip`, filled with a 464x100 image from `render.InfobarImage` through
+`setFeedback`. Which manifest key gives a Neo action its layout is not stated in
+Elgato's reference; this assumes `Encoder.layout`, as for the dials. The bar finds
+its vacuum itself (the account's first online vacuum, `findBarVacuum`) and is
+polled with the rest in `vacuumLoop`. `streamdeck/dreame_telemetry.py` is a
+read-only probe for the map data (position, heading, room) that the bar will
+show once its decoding is settled.
+
 The palette and mode dials draw their touch strip with the custom layout in
 `com.dinksf.lightwave.sdPlugin/layouts/dial.json`; the plugin fills its `strip`
 pixmap with PNGs from `plugin/internal/render/dial.go`.

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_pi.css"><script src="_pi.js"></script></head>
+<body>
+  <div class="row">
+    <label for="found">Vacuum</label>
+    <select id="found"><option value="">Find vacuums on your account…</option></select>
+    <button id="find" type="button">Find</button>
+  </div>
+  <div class="row">
+    <label for="name">Name</label>
+    <input id="name" type="text" placeholder="Shown on the key">
+  </div>
+  <div class="row">
+    <label for="mode">Press does</label>
+    <select id="mode">
+      <option value="">Start / pause</option>
+      <option value="dock">Return to dock</option>
+      <option value="room">Clean one room</option>
+    </select>
+  </div>
+  <div id="roomRows" hidden>
+    <div class="row">
+      <label for="room">Room</label>
+      <select id="room"></select>
+    </div>
+    <div class="row">
+      <label for="repeat">Passes</label>
+      <select id="repeat">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="rooms">Room names</label>
+      <textarea id="rooms" rows="5" placeholder="1 = Living Room&#10;2 = Kitchen"></textarea>
+    </div>
+    <p class="hint">Room numbers are the vacuum's own, not the names in the app, and the plugin cannot read them off the map: try 1, 2, 3 and watch where it goes, then name them here, one per line. The names are shared by every vacuum key. A number that is not on the map is refused. Pressing while it is working pauses it. Suction and water are whatever the vacuum is set to now.</p>
+  </div>
+  <p class="hint" id="hint">Enter your Dreamehome login below, then press Find. A press starts the vacuum, or pauses it while it is cleaning.</p>
+
+  <hr>
+  <div class="row">
+    <label for="user">Dreame email</label>
+    <input id="user" type="text" placeholder="your Dreamehome account" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="row">
+    <label for="pass">Password</label>
+    <input id="pass" type="password" autocomplete="off">
+  </div>
+  <div class="row">
+    <label for="country">Region</label>
+    <select id="country">
+      <option value="us">United States (us)</option>
+      <option value="eu">Europe (eu)</option>
+      <option value="sg">Singapore (sg)</option>
+      <option value="cn">China (cn)</option>
+      <option value="ru">Russia (ru)</option>
+    </select>
+  </div>
+  <p class="hint">The account the vacuum is in, in the Dreamehome app. It is used for all vacuum keys and stored by Stream Deck on this computer, not in your profile. Region is where that account was created.</p>
+
+  <script>
+    const found = document.getElementById('found');
+    const find = document.getElementById('find');
+    const nameEl = document.getElementById('name');
+    const mode = document.getElementById('mode');
+    const hint = document.getElementById('hint');
+    const user = document.getElementById('user');
+    const pass = document.getElementById('pass');
+    const country = document.getElementById('country');
+    const HINT = hint.textContent;
+    const room = document.getElementById('room');
+    const repeat = document.getElementById('repeat');
+    const roomRows = document.getElementById('roomRows');
+    const roomNames = document.getElementById('rooms');
+    const showRoom = () => { roomRows.hidden = mode.value !== 'room'; };
+
+    // "1 = Living Room" lines, one per room. Anything else is ignored, so a
+    // half-typed list keeps the lines above it.
+    function parseRooms(text) {
+      const out = new Map();
+      for (const line of text.split('\n')) {
+        const i = line.search(/[=:]/);
+        if (i < 0) continue;
+        const n = parseInt(line.slice(0, i).trim(), 10);
+        const name = line.slice(i + 1).trim();
+        if (n >= 1 && n <= 99 && name) out.set(n, name);
+      }
+      return out;
+    }
+    // Named rooms first, then plain numbers up to 12 for rooms not named yet,
+    // and whatever number the key already has even if it is outside that.
+    let currentRoom = 0;
+    function buildRooms() {
+      const names = parseRooms(roomNames.value);
+      const nums = new Set([...names.keys()]);
+      for (let n = 1; n <= 12; n++) nums.add(n);
+      if (currentRoom) nums.add(currentRoom);
+      room.innerHTML = '';
+      const none = document.createElement('option');
+      none.value = '0';
+      none.textContent = 'Choose a room…';
+      room.appendChild(none);
+      for (const n of [...nums].sort((a, b) => a - b)) {
+        const o = document.createElement('option');
+        o.value = String(n);
+        o.textContent = names.has(n) ? names.get(n) + '  ·  room ' + n : 'Room ' + n;
+        room.appendChild(o);
+      }
+      room.value = String(currentRoom || 0);
+    }
+    let chosen = '';
+
+    document.addEventListener('pi-ready', (e) => {
+      chosen = e.detail.did || '';
+      nameEl.value = e.detail.name || '';
+      mode.value = e.detail.mode || '';
+      currentRoom = Number(e.detail.room) || 0;
+      buildRooms();
+      repeat.value = String(e.detail.repeat || 1);
+      showRoom();
+      if (chosen) {
+        // Show what the key already points at, before any list has loaded.
+        found.innerHTML = '';
+        const o = document.createElement('option');
+        o.value = chosen;
+        o.textContent = (e.detail.name || 'Vacuum') + '  ·  ' + chosen;
+        found.appendChild(o);
+      }
+    });
+    document.addEventListener('pi-global', (e) => {
+      // Do not overwrite a field somebody is in the middle of typing in.
+      if (document.activeElement !== user) user.value = e.detail.dreameUser || '';
+      if (document.activeElement !== pass) pass.value = e.detail.dreamePass || '';
+      if (document.activeElement !== country) country.value = e.detail.dreameCountry || 'us';
+      if (document.activeElement !== roomNames) roomNames.value = e.detail.dreameRooms || '';
+      buildRooms();
+    });
+
+    bindField(nameEl, 'name', (v) => v.trim());
+    bindField(mode, 'mode');
+    mode.addEventListener('change', showRoom);
+    room.addEventListener('change', () => { currentRoom = Number(room.value) || 0; save({ room: currentRoom }); });
+    bindField(repeat, 'repeat', Number);
+
+    // There is no Save button to forget: the login is saved once typing pauses.
+    // Not on every keystroke, because each save signs the plugin in again.
+    let pending;
+    const saveLogin = () => saveGlobal({
+      dreameUser: user.value.trim(), dreamePass: pass.value, dreameCountry: country.value,
+      dreameRooms: roomNames.value,
+    });
+    const soon = () => { clearTimeout(pending); pending = setTimeout(saveLogin, 700); };
+    user.addEventListener('input', soon);
+    pass.addEventListener('input', soon);
+    for (const el of [user, pass, country]) el.addEventListener('change', saveLogin);
+    // Room names are saved the same way, and the list above follows them.
+    roomNames.addEventListener('input', () => { buildRooms(); soon(); });
+    roomNames.addEventListener('change', saveLogin);
+
+    find.addEventListener('click', () => {
+      // Make sure the login in the fields is the one in use before asking.
+      clearTimeout(pending);
+      saveLogin();
+      find.disabled = true;
+      hint.textContent = 'Signing in to Dreame…';
+      // Give the plugin a moment to take the new login first.
+      setTimeout(() => askPlugin({ want: 'vacuums' }), 400);
+    });
+
+    let vacuums = [];
+    document.addEventListener('pi-data', (e) => {
+      const d = e.detail || {};
+      if (d.vacuumsError) {
+        find.disabled = false;
+        hint.textContent = d.vacuumsError;
+        return;
+      }
+      if (!Array.isArray(d.vacuums)) return;
+      find.disabled = false;
+      vacuums = d.vacuums;
+      found.innerHTML = '';
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = vacuums.length ? 'Choose a vacuum…' : 'No vacuums found';
+      found.appendChild(first);
+      for (const v of vacuums) {
+        const o = document.createElement('option');
+        o.value = v.did;
+        o.textContent = v.name + '  ·  ' + v.model + (v.online ? '' : '  (offline)');
+        found.appendChild(o);
+      }
+      if (vacuums.some((v) => v.did === chosen)) found.value = chosen;
+      hint.textContent = vacuums.length
+        ? HINT
+        : 'No vacuums on that account. It has to be added in the Dreamehome app, not only in Google Home.';
+    });
+
+    found.addEventListener('change', () => {
+      const v = vacuums.find((x) => x.did === found.value);
+      if (!v) return;
+      chosen = v.did;
+      const patch = { did: v.did };
+      // Take the vacuum's own name unless the key already has one of its own.
+      if (!nameEl.value.trim() && v.name) { nameEl.value = v.name; patch.name = v.name; }
+      save(patch);
+    });
+  </script>
+</body></html>

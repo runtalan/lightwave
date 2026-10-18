@@ -19,6 +19,9 @@
 
     document.addEventListener('pi-ready', (e) => {
       if (e.detail.pad) { chosen = Number(e.detail.pad); sel.value = String(chosen); }
+      // A fresh key has no saved pad, yet the dropdown already shows Pad 7.
+      // Picking that entry fires no change event, so persist what is shown.
+      else { chosen = Number(sel.value); save({ pad: chosen }); }
       // Ask in case the inspector opened before the plugin pushed anything.
       askPlugin({ want: 'pads' });
     });

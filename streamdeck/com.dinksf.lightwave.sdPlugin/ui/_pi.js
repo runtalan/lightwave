@@ -1,6 +1,6 @@
 // Shared Property Inspector plumbing: connect, then persist form fields as
 // action settings. Stream Deck calls connectElgatoStreamDeckSocket on load.
-let ws, ctx, action, controller, current = {};
+let ws, ctx, action, controller, current = {}, globalSettings = {};
 
 function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info, actionInfo) {
   ctx = uuid;
@@ -12,6 +12,7 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info, actionIn
   ws.onopen = () => {
     ws.send(JSON.stringify({ event: registerEvent, uuid }));
     document.dispatchEvent(new CustomEvent('pi-ready', { detail: current }));
+    ws.send(JSON.stringify({ event: 'getGlobalSettings', context: uuid }));
   };
   // The plugin pushes data the inspector cannot fetch itself — it has no route
   // to Lightwave's socket — so re-broadcast those payloads as a DOM event.
@@ -20,6 +21,12 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info, actionIn
     try { m = JSON.parse(msg.data); } catch (e) { return; }
     if (m.event === 'sendToPlugin' || m.event === 'sendToPropertyInspector') {
       document.dispatchEvent(new CustomEvent('pi-data', { detail: m.payload || {} }));
+    }
+    // Plugin-wide settings, as opposed to this key's: sent on request and again
+    // whenever any inspector changes them.
+    if (m.event === 'didReceiveGlobalSettings') {
+      globalSettings = (m.payload && m.payload.settings) || {};
+      document.dispatchEvent(new CustomEvent('pi-global', { detail: globalSettings }));
     }
   };
 }
@@ -39,4 +46,17 @@ function save(patch) {
 
 function bindField(el, key, coerce) {
   el.addEventListener('change', () => save({ [key]: coerce ? coerce(el.value) : el.value }));
+}
+
+// saveGlobal persists plugin-wide settings. They live in Stream Deck's own
+// store rather than in the profile, so a shared or exported profile does not
+// carry what is saved here.
+function saveGlobal(patch) {
+  globalSettings = Object.assign({}, globalSettings, patch);
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ event: 'setGlobalSettings', context: ctx, payload: globalSettings }));
+  // Tell the plugin too. Stream Deck gives it the global settings at startup but
+  // does not reliably announce a later change, and a login typed after that
+  // would otherwise not be used until Stream Deck restarted.
+  askPlugin({ want: 'globals', globals: globalSettings });
 }

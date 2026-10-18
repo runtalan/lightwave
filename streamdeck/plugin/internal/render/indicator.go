@@ -221,6 +221,7 @@ func border(img *image.RGBA) {
 // drawText renders a string in the 5x7 font at (x, y), scaled by `scale`.
 // Returns the width drawn. Unknown runes are skipped.
 func drawText(img *image.RGBA, s string, x, y, scale int, col color.RGBA, alpha float64) int {
+	b := img.Bounds()
 	cx := x
 	for _, r := range s {
 		g, ok := font5x7[r]
@@ -242,7 +243,7 @@ func drawText(img *image.RGBA, s string, x, y, scale int, col color.RGBA, alpha 
 				for sy := 0; sy < scale; sy++ {
 					for sx := 0; sx < scale; sx++ {
 						px, py := cx+colIdx*scale+sx, y+row*scale+sy
-						if px < 0 || py < 0 || px >= Size || py >= Size {
+						if px < b.Min.X || py < b.Min.Y || px >= b.Max.X || py >= b.Max.Y {
 							continue
 						}
 						img.Set(px, py, blend(img.RGBAAt(px, py), col, alpha))

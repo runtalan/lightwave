@@ -236,6 +236,9 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Monitor Bar** | A **Stream Deck +** dial for a monitor light bar (H2800). Push it to step through **Temperature** (the front light's warmth), **Brightness** (the bar's share of the main slider) and **Scene**; turn to adjust whichever is showing. The Scene page plays Govee's effects for the bar (Cyber, Colorful, Esports, Flow and the rest) on its back light. Turn past the last scene, or back before the first, and the bar follows the room's colors again |
 | **Color Fade** | Start or stop the slow fade — the key says which it will do. Starting it from Warmness mode returns to your palette first |
 | **Pattern** | Switch between one shared color and a gradient across your lights — the key says which it will do |
+| **Tapo Plug** | Switch a TP-Link Tapo smart plug (P110, P115) on or off. The key shows the plug's name and, while it's on, how many watts it is drawing right now. Works without Lightwave running — see [Tapo plugs](#tapo-plugs) |
+| **Vacuum** | Start or pause a Dreame robot vacuum, or send it home. The key shows its battery and what it's doing. See [Dreame vacuum](#dreame-vacuum) |
+| **Vacuum Status** | For the **Stream Deck Neo** info bar: the Dreame vacuum's state, battery, and the minutes and area cleaned in the current run. It shows the account's one vacuum. Needs Stream Deck 7.6 or later. See [Dreame vacuum](#dreame-vacuum) |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
 
 ### The Status key
@@ -253,6 +256,37 @@ A live, animated readout of your lighting, drawn in the Lightwave style — neon
 - **The wave** drifts gently behind it all, and speeds up while the fade is running
 
 Press it to turn everything off, or bring back the lights that were on last. In Warmness mode it shows the temperature in place of the palette.
+
+### Tapo plugs
+
+The **Tapo Plug** key drives TP-Link Tapo plugs through [python-kasa](https://github.com/python-kasa/python-kasa), so it needs a one-time Python setup. It doesn't depend on Lightwave or your Govee lights; a deck can use it on its own.
+
+```bash
+./streamdeck/setup-tapo.sh        # macOS; Windows: .\streamdeck\setup-tapo.ps1
+```
+
+This creates a Python environment (needs Python 3.11+, or [uv](https://docs.astral.sh/uv/)) with python-kasa installed, kept next to Lightwave's other data so reinstalling the plugin doesn't remove it.
+
+Then add a **Tapo Plug** key and, in its inspector:
+
+1. Enter your **TP-Link (Tapo) account email and password** — current Tapo firmware refuses local control without them. They're saved once for all Tapo keys, in Stream Deck's plugin settings on this computer rather than in the profile.
+2. Press **Find** to list the plugs on your network by name, and pick one — or type its address. Give the plug a fixed address in your router so the key keeps finding it.
+
+The key reads the plug every few seconds, so the wattage is live. A key that can't show a reading says why instead: **OFFLINE**, **NO LOGIN**, **BAD LOGIN**, **NOT SET UP** (run the setup script), or **SET PLUG** (pick a plug in the inspector). Plugs without a power meter just show **ON**. Other plugs python-kasa supports, such as Kasa plugs, should work the same way.
+
+### Dreame vacuum
+
+The **Vacuum** key drives a Dreame robot vacuum through the Dreamehome cloud. Dreame publishes no API, so this uses the protocol code from [Tasshack/dreame-vacuum](https://github.com/Tasshack/dreame-vacuum) (MIT), fetched at a pinned commit. It signs in as the Dreamehome app does, so it needs your internet connection and your Dreamehome account, and a Dreame app update could break it. Like the Tapo key, it works without Lightwave running.
+
+```bash
+./streamdeck/setup-dreame.sh      # macOS
+```
+
+This creates a separate Python environment (Python 3.11+, or [uv](https://docs.astral.sh/uv/)) and downloads the three protocol files. To check that your account signs in before touching Stream Deck, run `streamdeck/dreame_probe.py` with that environment's Python; it lists your vacuums and changes nothing.
+
+Then add a **Vacuum** key and, in its inspector, enter your **Dreamehome email and password** and the **region** your account was created in, and press **Find**. The vacuum has to be in the Dreamehome app, not only in Google Home. A press starts the vacuum, or pauses it while it is cleaning; or set the key to **Return to dock**, or to **Clean one room**. A room key takes the room's number from the vacuum's own map (not the name in the app, which the plugin can't read), so you find it by trying 1, 2, 3 and watching where it goes. Then type the names into the inspector's **Room names** box, one per line (`1 = Living Room`): the room picker lists them by name, and the key shows the name instead of the number. Suction and water are whatever the vacuum is set to now. The key is checked every 10 seconds and shows the battery, with CLEANING, PAUSED, RETURNING, DOCKED and so on beneath. Like the Tapo key it says why when it can't: **NO LOGIN**, **BAD LOGIN**, **OFFLINE**, **NOT SET UP**, **SET VACUUM**. A wrong password is retried only every five minutes, to stay clear of an account lockout.
+
+**Info bar (Stream Deck Neo).** Drag **Vacuum Status** onto the Neo's info bar. It needs no settings of its own: it uses the Dreamehome login from any Vacuum key's inspector and shows the one vacuum on that account. It reads the vacuum every 10 seconds. The plugin as a whole now requires Stream Deck 7.6 or later, the first version with info bar actions.
 
 ### Install
 

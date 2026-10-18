@@ -30,6 +30,12 @@ if [[ "${1:-}" == "--install" ]]; then
   mkdir -p "$(dirname "$DEST")"
   cp -R "$BUNDLE" "$DEST"
   echo "Installed to $DEST"
+  if [[ ! -x "$HOME/Library/Application Support/Lightwave/tapo-venv/bin/python" ]]; then
+    echo "Tapo plugs: run streamdeck/setup-tapo.sh once to enable the Tapo Plug key."
+  fi
+  if [[ ! -x "$HOME/Library/Application Support/Lightwave/dreame/venv/bin/python" ]]; then
+    echo "Dreame vacuum: run streamdeck/setup-dreame.sh once to enable the Vacuum key."
+  fi
   echo "Profile: $ROOT/Lightwave.streamDeckProfile (double-click to import)"
   open -a "Elgato Stream Deck" 2>/dev/null || true
   echo "Stream Deck relaunched."

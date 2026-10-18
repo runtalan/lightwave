@@ -3,8 +3,8 @@
   "Name": "Lightwave",
   "UUID": "com.dinksf.lightwave",
   "Author": "Paul",
-  "Version": "1.1.0.0",
-  "Description": "Control Govee lights over LAN and Bluetooth through the Lightwave app.",
+  "Version": "1.4.0.0",
+  "Description": "Control Govee lights over LAN and Bluetooth through the Lightwave app, switch Tapo smart plugs with a live power readout, and run a Dreame robot vacuum.",
   "Category": "Lightwave",
   "CategoryIcon": "imgs/category",
   "Icon": "imgs/plugin",
@@ -12,7 +12,7 @@
   "CodePathWin": "bin/lightwave-sd.exe",
   "SDKVersion": 2,
   "Software": {
-    "MinimumVersion": "6.4"
+    "MinimumVersion": "7.6"
   },
   "OS": [
     {
@@ -236,6 +236,59 @@
         {
           "Image": "imgs/actions/sweep",
           "TitleAlignment": "bottom"
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.dinksf.lightwave.tapo",
+      "Name": "Tapo Plug",
+      "Icon": "imgs/actions/tapo",
+      "Tooltip": "Switch a TP-Link Tapo smart plug (P110, P115 and other plugs python-kasa supports) on or off. The key shows the plug's name and, while it is on, how many watts it is drawing right now. Needs the one-time setup in streamdeck/setup-tapo.sh.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/tapo.html",
+      "States": [
+        {
+          "Image": "imgs/actions/tapo-key",
+          "ShowTitle": false
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.dinksf.lightwave.vacuum",
+      "Name": "Vacuum",
+      "Icon": "imgs/actions/vacuum",
+      "Tooltip": "Start or pause a Dreame robot vacuum, or send it home. The key shows its battery and what it is doing. Needs the one-time setup in streamdeck/setup-dreame.sh and your Dreamehome login.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/vacuum.html",
+      "States": [
+        {
+          "Image": "imgs/actions/vacuum-key",
+          "ShowTitle": false
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.dinksf.lightwave.vacuumbar",
+      "Name": "Vacuum Status",
+      "Icon": "imgs/actions/vacuum",
+      "Tooltip": "For the Stream Deck Neo info bar: the Dreame vacuum's state, battery, and minutes and area cleaned in the current run. It shows the account's one vacuum; set the login in a Vacuum key's inspector. Needs Stream Deck 7.6 and the setup in streamdeck/setup-dreame.sh.",
+      "Controllers": [
+        "Neo"
+      ],
+      "Encoder": {
+        "layout": "layouts/infobar.json"
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/vacuum-key",
+          "ShowTitle": false
         }
       ],
       "UserTitleEnabled": false
