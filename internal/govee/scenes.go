@@ -245,6 +245,31 @@ func scenePackets(sc Scene) [][]byte {
 	return append(pkts, blePacket([]byte{0x33, 0x05, 0x04, byte(sc.Code), byte(sc.Code >> 8)}))
 }
 
+// Light sources of a lamp that has several, such as the H2800 monitor bar,
+// for SendLightSource.
+const (
+	SourceAmbient  byte = 0x00 // the small accent strips on the front
+	SourceWallWash byte = 0x01 // the back, washing the wall
+	SourceDesk     byte = 0x02 // the white light down onto the desk
+)
+
+// SendLightSource switches one light source of a multi-source lamp on or off
+// and leaves the others as they are.
+func SendLightSource(ip string, source byte, on bool) error {
+	if strings.TrimSpace(ip) == "" {
+		return nil
+	}
+	v := byte(0)
+	if on {
+		v = 1
+	}
+	pkt := blePacket([]byte{0x33, 0x36, source, v})
+	if IsBLE(ip) {
+		return bleSend(ip, pkt)
+	}
+	return sendPtReal(ip, [][]byte{pkt})
+}
+
 // SendScene starts a scene on a lamp's colour LEDs.
 func SendScene(ip string, sc Scene) error {
 	if strings.TrimSpace(ip) == "" {

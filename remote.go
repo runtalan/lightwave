@@ -255,8 +255,9 @@ type RemoteState struct {
 	// FrontWarmth is the temperature of front lights; see RemotePad.Front.
 	FrontWarmth int `json:"frontWarmth"`
 	// BarScene is the Govee scene on front-light lamps' back light, "" while
-	// it follows the room. BarSceneIndex is its place in BAR_SCENE's ring,
-	// 0 being the room, out of BarSceneCount scenes.
+	// it follows the room, or "Back light off". BarSceneIndex is its place in
+	// BAR_SCENE's ring, 0 being the room and 1 the back light off, out of
+	// BarSceneCount entries after the room.
 	BarScene      string `json:"barScene"`
 	BarSceneIndex int    `json:"barSceneIndex"`
 	BarSceneCount int    `json:"barSceneCount"`
@@ -320,13 +321,11 @@ func (a *App) remoteState() string {
 		PaletteSwatches: make(map[string][]RemoteColor, len(color.Palettes)),
 	}
 	scenes := a.sceneLib[a.frontModelLocked()]
-	st.BarSceneCount = len(scenes)
-	for i, sc := range scenes {
-		if sc.Name == a.barScene {
-			st.BarSceneIndex = i + 1
-			st.BarSceneIcon = sceneIconFile(sc)
-			break
-		}
+	// The back light off counts as an entry, ahead of the scenes.
+	st.BarSceneCount = len(scenes) + 1
+	st.BarSceneIndex = barSceneSlot(a.barScene, scenes)
+	if i := st.BarSceneIndex - 2; i >= 0 {
+		st.BarSceneIcon = sceneIconFile(scenes[i])
 	}
 	for _, p := range color.Palettes {
 		cs := make([]RemoteColor, 0, len(p.Colors))

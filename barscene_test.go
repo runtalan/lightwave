@@ -39,7 +39,7 @@ func TestStepBarSceneWrapsThroughTheRoom(t *testing.T) {
 	for _, c := range []struct {
 		steps int
 		want  string
-	}{{1, "Cyber"}, {1, "Colorful"}, {1, ""}, {-1, "Colorful"}, {6, "Colorful"}, {-2, ""}} {
+	}{{1, barBackOff}, {1, "Cyber"}, {1, "Colorful"}, {1, ""}, {-1, "Colorful"}, {4, "Colorful"}, {-2, barBackOff}, {-1, ""}} {
 		if _, err := a.StepBarScene(c.steps); err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +236,10 @@ func TestFrontWarmthDuringSceneRestartsTheScene(t *testing.T) {
 				kelvins++
 				lastKelvin = i
 			}
-			if strings.Contains(p, `"cmd":"ptReal"`) {
+			// A scene ends on its 33 05 04 select frame ("MwUE" in base64);
+			// other ptReal writes, such as the back light's switch, are not
+			// restarts.
+			if strings.Contains(p, `"cmd":"ptReal"`) && strings.Contains(p, `"MwUE`) {
 				scenes++
 				if firstScene < 0 {
 					firstScene = i
@@ -253,5 +256,42 @@ func TestFrontWarmthDuringSceneRestartsTheScene(t *testing.T) {
 			t.Fatalf("warm=%v: want one scene restart after the last Kelvin, got %v", warm, got)
 		}
 		mu.Unlock()
+	}
+}
+
+// "Back light off" switches only the bar's back light off, sends no scene, and
+// keeps the room painters off the bar; leaving it relights the back first.
+func TestBarBackOffDarkensOnlyTheBack(t *testing.T) {
+	const bar, bulb = "192.0.2.97", "192.0.2.98"
+	a := sceneApp(bar, bulb)
+	a.barScene = barBackOff
+	sent := map[string][]string{}
+	govee.SetTestControlSink(func(ip, p string) { sent[ip] = append(sent[ip], p) })
+	t.Cleanup(func() { govee.SetTestControlSink(nil) })
+
+	// 33 36 01 00 and 33 36 01 01, checksummed, as base64.
+	const backOff, backOn = "MzYBAAAAAAAAAAAAAAAAAAAAAAQ=", "MzYBAQAAAAAAAAAAAAAAAAAAAAU="
+	a.applyBarScene(true)
+	if len(sent[bar]) != 1 || !strings.Contains(sent[bar][0], backOff) {
+		t.Fatalf("bar got %v, want only the back light switched off", sent[bar])
+	}
+	if len(sent[bulb]) != 0 {
+		t.Fatalf("the rest of the room was written to: %v", sent[bulb])
+	}
+
+	sent = map[string][]string{}
+	a.paintScene(false)
+	if len(sent[bar]) != 0 || len(sent[bulb]) == 0 {
+		t.Fatalf("palette paint: bar=%v bulb=%v; want the bar passed by, the room painted", sent[bar], sent[bulb])
+	}
+
+	sent = map[string][]string{}
+	a.barScene = "Cyber"
+	a.applyBarScene(false)
+	if len(sent[bar]) < 2 || !strings.Contains(sent[bar][0], backOn) || !strings.Contains(sent[bar][1], "MwUE") {
+		t.Fatalf("leaving Off: bar got %v, want the back light on, then the scene", sent[bar])
+	}
+	if got := barSceneSlot(barBackOff, nil); got != 1 {
+		t.Fatalf("Off is slot %d of the ring, want 1", got)
 	}
 }

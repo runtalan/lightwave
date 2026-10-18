@@ -41,10 +41,18 @@ func (a *App) frontModelLocked() string {
 	return ""
 }
 
+// barBackOff is the dial entry, between the room's colours and the first
+// scene, that switches the bar's back light off. The room painters pass the
+// bar by while it is chosen, as they do for a scene.
+const barBackOff = "Back light off"
+
 // barSceneLocked looks up the scene barScene names. Caller holds a.mu.
 func (a *App) barSceneLocked() (govee.Scene, bool) {
 	if a.barScene == "" {
 		return govee.Scene{}, false
+	}
+	if a.barScene == barBackOff {
+		return govee.Scene{Name: barBackOff}, true
 	}
 	for _, sc := range a.sceneLib[a.frontModelLocked()] {
 		if sc.Name == a.barScene {
@@ -207,33 +215,50 @@ func (a *App) fetchSceneIcons(lib []govee.Scene) {
 }
 
 // StepBarScene moves the bar through its scenes, steps at a time. The ring
-// holds the room's own colours first, then every scene in Govee's order.
+// holds the room's own colours first, then the back light off, then every
+// scene in Govee's order.
 func (a *App) StepBarScene(steps int) (HUDState, error) {
 	lib := a.barScenes(false)
-	if len(lib) == 0 {
-		return a.snapshot(), fmt.Errorf("no scenes for the monitor bar")
-	}
 	a.mu.Lock()
-	cur := 0
-	for i, sc := range lib {
-		if sc.Name == a.barScene {
-			cur = i + 1
-			break
-		}
-	}
+	model := a.frontModelLocked()
+	cur := barSceneSlot(a.barScene, lib)
 	a.mu.Unlock()
-	ring := len(lib) + 1
+	if model == "" {
+		return a.snapshot(), fmt.Errorf("no monitor bar bound")
+	}
+	ring := len(lib) + 2
 	next := ((cur+steps)%ring + ring) % ring
 	name := ""
-	if next > 0 {
-		name = lib[next-1].Name
+	switch {
+	case next == 1:
+		name = barBackOff
+	case next > 1:
+		name = lib[next-2].Name
 	}
 	return a.SetBarScene(name), nil
+}
+
+// barSceneSlot is name's place in StepBarScene's ring: 0 the room's colours,
+// 1 the back light off, then the scenes from 2. A name no longer in lib counts
+// as the room.
+func barSceneSlot(name string, lib []govee.Scene) int {
+	if name == barBackOff {
+		return 1
+	}
+	for i, sc := range lib {
+		if sc.Name == name {
+			return i + 2
+		}
+	}
+	return 0
 }
 
 // SelectBarScene plays the scene with this name, in any case. An unknown
 // name is an error; use SetBarScene("") to go back to the room's colours.
 func (a *App) SelectBarScene(name string) (HUDState, error) {
+	if strings.EqualFold(strings.TrimSpace(name), barBackOff) {
+		return a.SetBarScene(barBackOff), nil
+	}
 	for _, sc := range a.barScenes(false) {
 		if strings.EqualFold(sc.Name, strings.TrimSpace(name)) {
 			return a.SetBarScene(sc.Name), nil
@@ -289,6 +314,16 @@ func (a *App) applyBarScene(restore bool) {
 	warm, dancing := a.warmMode, a.dancing
 	a.mu.Unlock()
 	if len(front) == 0 {
+		return
+	}
+	// The back light is switched off for barBackOff and on for anything
+	// else, every time: the bar may have been relit or darkened since, and a
+	// Kelvin write for the front light can bring it back.
+	off := ok && sc.Name == barBackOff
+	for _, d := range front {
+		_ = govee.SendLightSource(d.IP, govee.SourceWallWash, !off)
+	}
+	if off {
 		return
 	}
 	if !ok {
