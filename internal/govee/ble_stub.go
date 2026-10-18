@@ -17,3 +17,7 @@ func (b *BLE) PoweredOff() bool         { return false }
 func (b *BLE) Devices() []Device        { return nil }
 func (b *BLE) Close()                   {}
 func (b *BLE) StartTransport()          {}
+func (b *BLE) RequestStatus(string)     {}
+
+// OnBLEStatus has nothing to report without a Bluetooth backend.
+func OnBLEStatus(func(DevStatus)) {}

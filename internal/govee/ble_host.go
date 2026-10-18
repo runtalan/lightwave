@@ -58,11 +58,13 @@ type BLE struct {
 	scanUntil    time.Time // latest deadline any caller asked the radio to stay up to
 	adapterState int
 	onDev        func(Device)
-	onAdapter    func()
-	onLink       func()
-	found        map[string]Device
-	conns        map[string]*bleConn
-	rssi         map[string]int
+	// statusAsked is when RequestStatus last tried to connect each lamp.
+	statusAsked map[string]time.Time
+	onAdapter   func()
+	onLink      func()
+	found       map[string]Device
+	conns       map[string]*bleConn
+	rssi        map[string]int
 }
 
 // bleConn is one peripheral's write pipeline. A single worker goroutine owns
@@ -523,6 +525,77 @@ func bleOnFound(id, name string) {
 	if c := bleLookup(id); c != nil {
 		c.ping()
 	}
+}
+
+// bleOnNotify takes a packet the lamp sent back on its notify characteristic.
+// The heartbeat (AA 01) doubles as a power query: the lamp answers AA 01
+// followed by 01 when lit or 00 when off.
+func bleOnNotify(id string, data []byte) {
+	on, ok := bleParsePower(data)
+	if !ok {
+		log.Printf("govee ble: notify rx %s: % x", strings.ToUpper(id), data)
+		return
+	}
+	id = strings.ToUpper(id)
+	if prev, seen := blePower.Swap(id, on); !seen || prev.(bool) != on {
+		log.Printf("govee ble: %s reports power %v", id, on)
+	}
+	if f := bleStatusFn.Load(); f != nil {
+		(*f)(DevStatus{IP: BLEPrefix + id, On: on})
+	}
+}
+
+// blePower is each lamp's last reported power, so only changes are logged.
+var blePower sync.Map
+
+func bleParsePower(data []byte) (on, ok bool) {
+	if len(data) < 3 || data[0] != 0xAA || data[1] != 0x01 || data[2] > 1 {
+		return false, false
+	}
+	return data[2] == 1, true
+}
+
+var bleStatusFn atomic.Pointer[func(DevStatus)]
+
+// OnBLEStatus registers a callback for Bluetooth lamps' power replies, in the
+// form devStatus replies arrive in for LAN lamps. Brightness is left 0: the
+// heartbeat reply does not carry it.
+func OnBLEStatus(f func(DevStatus)) {
+	if f == nil {
+		bleStatusFn.Store(nil)
+		return
+	}
+	bleStatusFn.Store(&f)
+}
+
+// bleStatusRetry spaces out connect attempts made only to learn a lamp's
+// state, so a lamp switched off at the wall does not keep the radio scanning.
+const bleStatusRetry = time.Minute
+
+// RequestStatus makes sure a power reply is on its way from the lamp at addr.
+// A connected lamp already answers every heartbeat, so this only opens a
+// connection to one that has none, at most once per bleStatusRetry, and only
+// to a lamp this session's scans have seen.
+func (b *BLE) RequestStatus(addr string) {
+	uuid := strings.ToUpper(BLEAddrUUID(addr))
+	if uuid == "" {
+		return
+	}
+	b.mu.Lock()
+	_, seen := b.found[uuid]
+	c := b.conns[uuid]
+	live := c != nil && c.ready.Load()
+	due := time.Since(b.statusAsked[uuid]) >= bleStatusRetry
+	if !seen || live || !due || b.closed {
+		b.mu.Unlock()
+		return
+	}
+	if b.statusAsked == nil {
+		b.statusAsked = map[string]time.Time{}
+	}
+	b.statusAsked[uuid] = time.Now()
+	b.mu.Unlock()
+	_ = b.Send(addr, blePacketKeepAlive())
 }
 
 func bleOnReady(id string) {

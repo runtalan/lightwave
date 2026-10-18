@@ -3,7 +3,6 @@
 package govee
 
 import (
-	"encoding/hex"
 	"log"
 	"strings"
 	"sync"
@@ -316,7 +315,7 @@ func winConnect(id string) {
 			if len(buf) == 0 {
 				return
 			}
-			bleOnMsg("notify rx " + id + ": " + hex.EncodeToString(buf))
+			bleOnNotify(id, buf)
 		})
 	}
 

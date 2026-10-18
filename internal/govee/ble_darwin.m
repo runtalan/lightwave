@@ -256,7 +256,7 @@ static void lwHarvestConnected(void) {
     if (e != nil || c.value == nil) {
         return;
     }
-    lwMsg([NSString stringWithFormat:@"notify rx %@: %@", lwKey(p.identifier.UUIDString), lwHex(c.value)]);
+    goBLENotify((char *)lwKey(p.identifier.UUIDString).UTF8String, (void *)c.value.bytes, (int)c.value.length);
 }
 
 - (void)peripheral:(CBPeripheral *)p

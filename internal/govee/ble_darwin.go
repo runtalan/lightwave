@@ -69,6 +69,11 @@ func goBLEWriteFail(cu *C.char) { bleOnWriteFail(C.GoString(cu)) }
 //export goBLEFound
 func goBLEFound(cu, cn *C.char) { bleOnFound(C.GoString(cu), C.GoString(cn)) }
 
+//export goBLENotify
+func goBLENotify(cu *C.char, buf unsafe.Pointer, n C.int) {
+	bleOnNotify(C.GoString(cu), C.GoBytes(buf, n))
+}
+
 //export goBLEReady
 func goBLEReady(cu *C.char) { bleOnReady(C.GoString(cu)) }
 

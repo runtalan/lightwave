@@ -580,3 +580,21 @@ func TestSendColorLANRGBICClearsSegments(t *testing.T) {
 		}
 	}
 }
+
+// The heartbeat reply carries the lamp's power state, and reaches the status
+// callback as a ble: address the pads are bound to.
+func TestBLEHeartbeatReplyReportsPower(t *testing.T) {
+	var got []DevStatus
+	OnBLEStatus(func(st DevStatus) { got = append(got, st) })
+	t.Cleanup(func() { OnBLEStatus(nil) })
+
+	bleOnNotify("d2c332e7-35ed-8a10-230b-e94bff4be3f1", blePacket([]byte{0xAA, 0x01, 0x01}))
+	bleOnNotify("D2C332E7-35ED-8A10-230B-E94BFF4BE3F1", blePacket([]byte{0xAA, 0x01, 0x00}))
+	bleOnNotify("D2C332E7-35ED-8A10-230B-E94BFF4BE3F1", blePacket([]byte{0xAA, 0x04, 0x40})) // brightness: not a power reply
+	bleOnNotify("D2C332E7-35ED-8A10-230B-E94BFF4BE3F1", []byte{0xAA, 0x01})                  // too short to say
+
+	const addr = BLEPrefix + "D2C332E7-35ED-8A10-230B-E94BFF4BE3F1"
+	if len(got) != 2 || got[0] != (DevStatus{IP: addr, On: true}) || got[1] != (DevStatus{IP: addr, On: false}) {
+		t.Fatalf("status = %+v, want on then off for %s", got, addr)
+	}
+}

@@ -372,6 +372,7 @@ func (a *App) startup(ctx context.Context) {
 	// delayed first paint.
 
 	a.udp.OnStatus(a.applyDeviceStatus)
+	govee.OnBLEStatus(a.applyDeviceStatus)
 	if err := a.udp.Start(func(d govee.Device) {
 		a.mergeLAN(d)
 		a.scheduleStateEmit()
@@ -971,14 +972,26 @@ func (a *App) statusPollLoop() {
 		idle := a.hidden || time.Since(a.lastActivity) > statusPollActiveFor
 		dancing := a.dancing
 		ips := make([]string, 0, 9)
+		var bles []string
 		for _, s := range a.slots {
-			// BLE lamps have no status query yet; polling them would just
-			// error into the log.
-			if ip := strings.TrimSpace(s.IP); ip != "" && !govee.IsBLE(ip) {
+			ip := strings.TrimSpace(s.IP)
+			switch {
+			case ip == "" || s.DeviceID == "":
+			case govee.IsBLE(ip):
+				bles = append(bles, ip)
+			default:
 				ips = append(ips, ip)
 			}
 		}
 		a.mu.Unlock()
+
+		// Bluetooth lamps answer the heartbeat with their power state; this
+		// only connects the ones not linked yet, at most once a minute each.
+		if a.ble != nil {
+			for _, ip := range bles {
+				a.ble.RequestStatus(ip)
+			}
+		}
 
 		// The animation is writing colours continuously; polling during it adds
 		// traffic and tells us nothing we did not just set ourselves.
