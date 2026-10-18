@@ -204,7 +204,7 @@ func (a *App) applyBarScene(restore bool) {
 			return
 		}
 		if warm {
-			a.paintWarmness(false)
+			a.paintWarmnessOnly(false, func(d lampDest) bool { return govee.HasFrontLight(d.Model) })
 			return
 		}
 		a.sendFrontWarmth()

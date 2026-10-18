@@ -86,7 +86,7 @@ func TestMonitorCmdPicksTheKnobsJob(t *testing.T) {
 	}{
 		{knobTemperature, false, 2, "FRONT_WARMTH 3800"}, // clockwise is warmer
 		{knobTemperature, false, -1, "FRONT_WARMTH 4100"},
-		{knobTemperature, true, 1, "WARMNESS 2900"}, // Warmness mode owns the whole bar
+		{knobTemperature, true, 1, "FRONT_WARMTH 3900"}, // the bar's own, not the room's
 		{knobBrightness, false, 3, "TRIM 9 66"},
 		{knobBrightness, true, -40, "TRIM 9 1"}, // never 0: that would clear the trim
 		{knobBrightness, false, 0, ""},

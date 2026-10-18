@@ -240,7 +240,7 @@ export function HUD({ state }: Props) {
 
       <BrightnessSlider value={state.brightness} />
       {state.warmMode && <WarmnessSlider value={state.warmness} />}
-      {!state.warmMode && state.frontLight && <FrontWarmthSlider value={state.frontWarmth} />}
+      {state.frontLight && <FrontWarmthSlider value={state.frontWarmth} />}
 
       <footer className="hud-foot">
         <span className="midi-status">

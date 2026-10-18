@@ -483,9 +483,8 @@ func (p *plugin) rotateMonitor(ev sd.Event, inst *instance) {
 //
 // Clockwise is warmer, as on the palette dial, brighter, or the next scene.
 // Brightness is the bar's trim: its share of the main slider, so the bar moves
-// alone and the slider still carries it with the rest of the room. In Warmness
-// mode the main warmth drives the whole bar, front light included, so the dial
-// turns that. Scenes play on the back light; Lightwave holds the list and
+// alone and the slider still carries it with the rest of the room. Temperature
+// is the bar's own, in Warmness mode too, so the room's warmth stays put. Scenes play on the back light; Lightwave holds the list and
 // wraps it, with the room's own colours between the last scene and the first.
 func monitorCmd(st lw.State, knob string, ticks int) (cmd string, ok bool) {
 	pad := st.FrontPad()
@@ -504,8 +503,6 @@ func monitorCmd(st lw.State, knob string, ticks int) (cmd string, ok bool) {
 			trim = 100
 		}
 		return "TRIM " + strconv.Itoa(pad.Number) + " " + strconv.Itoa(clampInt(trim+ticks*2, 1, 100)), true
-	case st.WarmMode:
-		return "WARMNESS " + strconv.Itoa(st.Warmness-ticks*100), true
 	}
 	return "FRONT_WARMTH " + strconv.Itoa(st.FrontWarmth-ticks*100), true
 }
@@ -929,11 +926,7 @@ func (p *plugin) renderMonitor(inst *instance, st lw.State) {
 		fb["value"] = strconv.Itoa(trim) + "% of main"
 		strip, err = render.LevelStrip(trim)
 	default:
-		k := st.FrontWarmth
-		if st.WarmMode {
-			k = st.Warmness
-		}
-		k = clampInt(k, render.MinFrontKelvin, render.MaxFrontKelvin)
+		k := clampInt(st.FrontWarmth, render.MinFrontKelvin, render.MaxFrontKelvin)
 		warm := (render.MaxFrontKelvin - k) * 100 / (render.MaxFrontKelvin - render.MinFrontKelvin)
 		fb["title"] = name + " · Temperature"
 		fb["value"] = strconv.Itoa(k) + "K · " + strconv.Itoa(warm) + "% warm"

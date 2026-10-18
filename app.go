@@ -237,10 +237,10 @@ type App struct {
 	// 1<<16 | cc<<8 | value (0 = none yet). Repeats of it are dropped.
 	midiLastCC     atomic.Uint32
 	lastSentBright int
-	// trimDirty forces the next brightnessPump cycle to resend even if the
-	// slider value (lastSentBright) hasn't moved, so a trim change applied
-	// while the slider is parked reaches the lamp immediately.
-	trimDirty       bool
+	// trimDirty holds the IPs of lamps whose trim changed since the last
+	// brightnessPump cycle. While the slider is parked the pump resends to
+	// those lamps alone, so trimming one pad leaves the rest of the room be.
+	trimDirty       map[string]bool
 	dragging        bool
 	lastBrightTouch time.Time
 	hiddenAt        time.Time
@@ -1521,7 +1521,7 @@ func (a *App) ToggleSlot(n int) error {
 			a.slots[n-1].Model = model
 		}
 	}
-	bright := ignitedBrightness(a.brightness)
+	bright := ignitedBrightness(ignitedBrightness(a.brightness) * a.slots[n-1].EffectiveTrim() / 100)
 	if a.slotTouched == nil {
 		a.slotTouched = map[int]time.Time{}
 	}
@@ -1826,13 +1826,24 @@ func (a *App) brightnessPump() {
 			a.lastActivity = time.Now()
 			dests := a.poolDestsLocked()
 			wasOff := a.lastSentBright == 0
-			unchanged := a.lastSentBright == wire && !a.trimDirty
+			sliderMoved := a.lastSentBright != wire
+			trimmed := a.trimDirty
 			// Store the ignited value, never 0: lastSentBright==0 means AllOff,
 			// not "user parked the fader at the bottom".
 			a.lastSentBright = wire
-			a.trimDirty = false
+			a.trimDirty = nil
 			a.mu.Unlock()
-			if len(dests) == 0 || unchanged {
+			if !sliderMoved {
+				// Only a trim changed: that lamp alone takes the new level.
+				only := dests[:0]
+				for _, d := range dests {
+					if trimmed[d.IP] {
+						only = append(only, d)
+					}
+				}
+				dests = only
+			}
+			if len(dests) == 0 {
 				return
 			}
 			// Dim only. Never SendTurn(false) and never paint RGB 0,0,0 —
@@ -1887,7 +1898,7 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	warm := a.warmMode
 	a.mu.Unlock()
 	if warm {
-		a.paintWarmness(turnOn)
+		a.paintWarmnessOnly(turnOn, only)
 		return
 	}
 	a.mu.Lock()
@@ -2214,15 +2225,18 @@ func (a *App) SetFrontWarmth(kelvin int) HUDState {
 	if err := config.SaveSettings(s); err != nil {
 		log.Printf("persist front warmth: %v", err)
 	}
-	// Warmness mode drives the whole lamp, front light included, from its own
-	// slider; the new value waits for the way back out.
-	if !warm {
+	frontOnly := func(d lampDest) bool { return govee.HasFrontLight(d.Model) }
+	// In Warmness mode the bar's whole lamp takes this temperature, so it
+	// alone is repainted; the rest of the room keeps the main warmth.
+	if warm {
+		a.paintWarmnessOnly(false, frontOnly)
+	} else {
 		a.sendFrontWarmth()
 		// The Kelvin write can take the colour LEDs to white along with the
 		// front light, so hand them their colour back. The fade repaints on
 		// its own next tick.
 		if !dancing {
-			a.paintSceneOnly(false, func(d lampDest) bool { return govee.HasFrontLight(d.Model) })
+			a.paintSceneOnly(false, frontOnly)
 		}
 	}
 	a.emitState()
@@ -2303,18 +2317,35 @@ func warmRGB(k int) color.RGBK {
 }
 
 func (a *App) paintWarmness(turnOn bool) {
+	a.paintWarmnessOnly(turnOn, nil)
+}
+
+// paintWarmnessOnly is paintWarmness narrowed to the lamps only accepts. nil
+// paints every lamp.
+//
+// Lamps with a front light take frontWarmth rather than the main warmth: the
+// monitor bar keeps its own temperature, set from its own dial.
+func (a *App) paintWarmnessOnly(turnOn bool, only func(lampDest) bool) {
 	a.mu.Lock()
 	dests := a.poolDestsLocked()
-	c := warmRGB(a.warmness)
+	room := warmRGB(a.warmness)
+	front := warmRGB(clampFrontWarmth(a.frontWarmth))
 	brightness := ignitedBrightness(a.brightness)
 	_, hold := a.barSceneLocked()
 	a.mu.Unlock()
 	for _, d := range dests {
+		if only != nil && !only(d) {
+			continue
+		}
 		if turnOn {
 			_ = govee.SendTurn(d.IP, true)
 		}
 		if hold && govee.HasFrontLight(d.Model) {
 			continue
+		}
+		c := room
+		if govee.HasFrontLight(d.Model) {
+			c = front
 		}
 		_ = govee.SendColor(d.IP, c.R, c.G, c.B, c.Kelvin)
 		// Some BLE RGBIC controllers retain a separate level per colour mode.
@@ -2601,7 +2632,12 @@ func (a *App) SetSlotTrim(slot int, percent int) (HUDState, error) {
 		return st, fmt.Errorf("pad %d has no light bound", slot)
 	}
 	a.slots[slot-1].Trim = percent
-	a.trimDirty = true
+	if ip, _, _ := a.slotLinkLocked(slot); ip != "" {
+		if a.trimDirty == nil {
+			a.trimDirty = map[string]bool{}
+		}
+		a.trimDirty[ip] = true
+	}
 	snapshot := config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
 	st := a.snapshotLocked()
 	a.mu.Unlock()
