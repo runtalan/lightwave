@@ -3,7 +3,10 @@ package render
 import (
 	"image"
 	"image/color"
+	"image/draw"
+	"image/png"
 	"math"
+	"os"
 )
 
 // Colour modes, matching lw.Mode*. Repeated here so render stays free of the
@@ -130,20 +133,78 @@ func LevelStrip(pct int) (string, error) {
 // track.
 func PositionStrip(i, n int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
-	fillRect(img, band.Min.X, band.Min.Y, band.Dx(), band.Dy(), dim, 0.35)
+	positionBar(img, band, i, n)
+	return encode(img)
+}
+
+func positionBar(img *image.RGBA, r image.Rectangle, i, n int) {
+	fillRect(img, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), dim, 0.35)
 	if n > 0 && i >= 1 && i <= n {
 		u := 0.5
 		if n > 1 {
 			u = float64(i-1) / float64(n-1)
 		}
-		lit := int(u * float64(band.Dx()-1))
+		lit := int(u * float64(r.Dx()-1))
 		for x := 0; x <= lit; x++ {
-			c := lerp(neon, magenta, float64(x)/float64(band.Dx()-1))
-			fillRect(img, band.Min.X+x, band.Min.Y, 1, band.Dy(), c, 0.5)
+			c := lerp(neon, magenta, float64(x)/float64(r.Dx()-1))
+			fillRect(img, r.Min.X+x, r.Min.Y, 1, r.Dy(), c, 0.5)
 		}
-		marker(img, band.Min.X, band.Max.X, u, band.Min.Y-6, band.Max.Y+6)
+		marker(img, r.Min.X, r.Max.X, u, r.Min.Y-6, r.Max.Y+6)
 	}
+}
+
+// sceneIcon is where SceneStrip puts a scene's picture: the right of the
+// panel, beside the narrowed name of layouts/scene.json.
+var sceneIcon = image.Rect(StripW-12-132, 56, StripW-12, 188)
+
+// SceneStrip draws a scene's place in the list beside its icon. A nil icon
+// leaves the track the full width.
+func SceneStrip(icon image.Image, i, n int) (string, error) {
+	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
+	if icon == nil {
+		positionBar(img, band, i, n)
+		return encode(img)
+	}
+	positionBar(img, image.Rect(band.Min.X, band.Min.Y, sceneIcon.Min.X-20, band.Max.Y), i, n)
+	draw.Draw(img, sceneIcon, shrink(icon, sceneIcon.Dx()), image.Point{}, draw.Over)
 	return encode(img)
+}
+
+// LoadIcon reads a PNG from disk.
+func LoadIcon(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return png.Decode(f)
+}
+
+// shrink scales src into a size-by-size square by averaging the source pixels
+// under each output pixel, which keeps thin lines from breaking up the way
+// nearest-neighbour sampling would.
+func shrink(src image.Image, size int) *image.RGBA {
+	b := src.Bounds()
+	out := image.NewRGBA(image.Rect(0, 0, size, size))
+	for y := 0; y < size; y++ {
+		y0 := b.Min.Y + y*b.Dy()/size
+		y1 := max(b.Min.Y+(y+1)*b.Dy()/size, y0+1)
+		for x := 0; x < size; x++ {
+			x0 := b.Min.X + x*b.Dx()/size
+			x1 := max(b.Min.X+(x+1)*b.Dx()/size, x0+1)
+			var r, g, bl, a, n uint64
+			for sy := y0; sy < y1; sy++ {
+				for sx := x0; sx < x1; sx++ {
+					cr, cg, cb, ca := src.At(sx, sy).RGBA()
+					r, g, bl, a = r+uint64(cr), g+uint64(cg), bl+uint64(cb), a+uint64(ca)
+					n++
+				}
+			}
+			// RGBA() is premultiplied, as image.RGBA stores it.
+			out.SetRGBA(x, y, color.RGBA{uint8(r / n >> 8), uint8(g / n >> 8), uint8(bl / n >> 8), uint8(a / n >> 8)})
+		}
+	}
+	return out
 }
 
 // ModeStrip shows the three modes side by side as small previews of what each

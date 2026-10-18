@@ -17,6 +17,9 @@ type Scene struct {
 	Name  string `json:"name"`
 	Code  int    `json:"code"`
 	Param []byte `json:"param,omitempty"`
+	// Icon is the address of Govee's picture for the scene, the variant
+	// drawn for a dark background when there is one; "" when none is listed.
+	Icon string `json:"icon,omitempty"`
 }
 
 // The scene library Govee's own app reads. It needs no account or API key,
@@ -28,7 +31,8 @@ type sceneLibrary struct {
 	Data    struct {
 		Categories []struct {
 			Scenes []struct {
-				SceneName    string `json:"sceneName"`
+				SceneName    string   `json:"sceneName"`
+				IconUrls     []string `json:"iconUrls"`
 				LightEffects []struct {
 					ScenceName  string `json:"scenceName"`
 					ScenceParam string `json:"scenceParam"`
@@ -97,7 +101,7 @@ func ParseScenes(body []byte) ([]Scene, error) {
 				if e.SpeedInfo.SupSpeed {
 					param = slowestSpeed(param, e.SpeedInfo.Config)
 				}
-				out = append(out, Scene{Name: name, Code: e.SceneCode, Param: param})
+				out = append(out, Scene{Name: name, Code: e.SceneCode, Param: param, Icon: darkIcon(s.IconUrls)})
 			}
 		}
 	}
@@ -105,6 +109,46 @@ func ParseScenes(body []byte) ([]Scene, error) {
 		return nil, fmt.Errorf("govee scenes: library is empty (%s)", lib.Message)
 	}
 	return out, nil
+}
+
+// darkIcon picks the icon drawn for a dark background, else the first listed.
+func darkIcon(urls []string) string {
+	for _, u := range urls {
+		if strings.Contains(u, "_dark") {
+			return u
+		}
+	}
+	if len(urls) > 0 {
+		return urls[0]
+	}
+	return ""
+}
+
+// maxIconBytes caps a scene icon download; Govee's are a few kilobytes.
+const maxIconBytes = 1 << 20
+
+// FetchSceneIcon downloads a scene's icon. Only a PNG is accepted, so an
+// error page is never saved as a picture.
+func FetchSceneIcon(u string) ([]byte, error) {
+	if !strings.HasPrefix(u, "https://") {
+		return nil, fmt.Errorf("govee scene icon: not an https address")
+	}
+	resp, err := cloudHTTP.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("govee scene icon: %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxIconBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxIconBytes || !strings.HasPrefix(string(body), "\x89PNG\r\n\x1a\n") {
+		return nil, fmt.Errorf("govee scene icon: not a PNG")
+	}
+	return body, nil
 }
 
 // speedPage is one page of a scene's speed choices: three values per field,

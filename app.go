@@ -261,10 +261,18 @@ type App struct {
 	// each model's scene library. See barscene.go.
 	barScene    string
 	barSceneGen int
-	sceneLib    map[string][]govee.Scene
+	// While a scene plays, front-light writes are throttled (frontSentAt,
+	// frontPending) and frontSceneTimer starts the scene again once the dial
+	// rests.
+	frontSentAt     time.Time
+	frontPending    bool
+	frontSceneTimer *time.Timer
+	sceneLib        map[string][]govee.Scene
 	// sceneFailedAt is when a scene library download last failed.
 	sceneFailedAt time.Time
-	lastColor     map[string]color.RGBK
+	// iconFetching is set while fetchSceneIcons is downloading.
+	iconFetching bool
+	lastColor    map[string]color.RGBK
 	// slotTouched[n] is when the user last commanded slot n. A devStatus reply
 	// that predates the command must not undo it: Govee lamps take a beat to
 	// report a new power state, and believing a stale reply would toggle the
@@ -2131,6 +2139,7 @@ func (a *App) ToggleWarmMode() HUDState {
 		a.paintWarmness(true)
 	} else {
 		a.sendFrontWarmth()
+		a.applyBarScene(false)
 		a.paintScene(true)
 	}
 	a.emitState()
@@ -2205,6 +2214,7 @@ func (a *App) SetColorMode(mode string) HUDState {
 	// pattern up on its next tick.
 	if leftWarm {
 		a.sendFrontWarmth()
+		a.applyBarScene(false)
 	}
 	if !dancing {
 		a.paintScene(true)
@@ -2240,16 +2250,30 @@ func (a *App) SetFrontWarmth(kelvin int) HUDState {
 	s.FrontWarmth = a.frontWarmth
 	a.settings = s
 	warm, dancing := a.warmMode, a.dancing
+	_, scene := a.barSceneLocked()
 	a.mu.Unlock()
 	if err := config.SaveSettings(s); err != nil {
 		log.Printf("persist front warmth: %v", err)
 	}
 	frontOnly := func(d lampDest) bool { return govee.HasFrontLight(d.Model) }
-	// In Warmness mode the bar's whole lamp takes this temperature, so it
-	// alone is repainted; the rest of the room keeps the main warmth.
-	if warm {
+	switch {
+	case scene:
+		// The Kelvin write whitens the back light as well and stops its scene.
+		// The front light follows the dial as it turns; the scene, a burst of
+		// frames, is started again once, after the dial rests.
+		a.sendFrontWarmthThrottled()
+		a.mu.Lock()
+		if a.frontSceneTimer == nil {
+			a.frontSceneTimer = time.AfterFunc(barSceneSettle, func() { a.applyBarScene(false) })
+		} else {
+			a.frontSceneTimer.Reset(barSceneSettle)
+		}
+		a.mu.Unlock()
+	case warm:
+		// In Warmness mode the bar's whole lamp takes this temperature, so it
+		// alone is repainted; the rest of the room keeps the main warmth.
 		a.paintWarmnessOnly(false, frontOnly)
-	} else {
+	default:
 		a.sendFrontWarmth()
 		// The Kelvin write can take the colour LEDs to white along with the
 		// front light, so hand them their colour back. The fade repaints on
@@ -2262,8 +2286,41 @@ func (a *App) SetFrontWarmth(kelvin int) HUDState {
 	return a.snapshot()
 }
 
+// frontWarmthEvery spaces front-light writes while a dial turns, as
+// brightMinInterval does for the slider. It must stay under barSceneSettle so
+// the last temperature lands before the scene starts again.
+const frontWarmthEvery = 100 * time.Millisecond
+
+// sendFrontWarmthThrottled writes the front-light temperature now, or, inside
+// frontWarmthEvery of the last write, once when the interval ends. Values in
+// between are skipped: the delayed write sends whatever is latest by then.
+func (a *App) sendFrontWarmthThrottled() {
+	a.mu.Lock()
+	wait := frontWarmthEvery - time.Since(a.frontSentAt)
+	if wait <= 0 {
+		a.frontSentAt = time.Now()
+		a.mu.Unlock()
+		a.sendFrontWarmth()
+		return
+	}
+	if a.frontPending {
+		a.mu.Unlock()
+		return
+	}
+	a.frontPending = true
+	a.mu.Unlock()
+	time.AfterFunc(wait, func() {
+		a.mu.Lock()
+		a.frontPending = false
+		a.frontSentAt = time.Now()
+		a.mu.Unlock()
+		a.sendFrontWarmth()
+	})
+}
+
 // sendFrontWarmth writes the front-light temperature to every pooled lamp
-// that has a front light.
+// that has a front light. The write also stops a scene on the back light;
+// callers that keep one going start it again with applyBarScene.
 func (a *App) sendFrontWarmth() {
 	a.mu.Lock()
 	dests := a.poolDestsLocked()
@@ -2274,8 +2331,6 @@ func (a *App) sendFrontWarmth() {
 			_ = govee.SendFrontWarmth(d.IP, k)
 		}
 	}
-	// The Kelvin write can knock the colour LEDs out of a scene.
-	a.applyBarScene(false)
 }
 
 // frontLightPooledLocked reports whether a pooled lamp has a front light.

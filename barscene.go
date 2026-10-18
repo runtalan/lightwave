@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -61,7 +63,7 @@ func sceneCachePath(model string) string {
 }
 
 // hiddenScenes are left off the dial.
-var hiddenScenes = map[string]bool{"Split": true}
+var hiddenScenes = map[string]bool{"Split": true, "Heat Wave": true, "Crossing": true}
 
 // visibleScenes is lib without the hidden scenes, in the same order.
 func visibleScenes(lib []govee.Scene) []govee.Scene {
@@ -125,7 +127,83 @@ func (a *App) barScenes(fresh bool) []govee.Scene {
 	}
 	a.sceneLib[model] = parsed
 	a.mu.Unlock()
+	go a.fetchSceneIcons(parsed)
 	return parsed
+}
+
+// sceneIconPath is where a scene's icon is kept on disk, named for its
+// address so a new picture from Govee lands beside the old one.
+func sceneIconPath(u string) string {
+	dir, err := config.ConfigDir()
+	if err != nil || u == "" {
+		return ""
+	}
+	sum := sha1.Sum([]byte(u))
+	return filepath.Join(dir, "scene-icons", hex.EncodeToString(sum[:8])+".png")
+}
+
+// sceneIconFile is the icon on disk for sc, or "" until it has downloaded.
+func sceneIconFile(sc govee.Scene) string {
+	path := sceneIconPath(sc.Icon)
+	if path == "" {
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// fetchSceneIcons downloads every icon in lib that is not on disk yet, one at
+// a time, so the Stream Deck can show each scene's picture as the dial reaches
+// it. The scene on the bar is fetched first, and its arrival is pushed out.
+func (a *App) fetchSceneIcons(lib []govee.Scene) {
+	a.mu.Lock()
+	if a.iconFetching {
+		a.mu.Unlock()
+		return
+	}
+	a.iconFetching = true
+	current := a.barScene
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.iconFetching = false
+		a.mu.Unlock()
+	}()
+	order := make([]govee.Scene, 0, len(lib))
+	for _, sc := range lib {
+		if sc.Name == current {
+			order = append([]govee.Scene{sc}, order...)
+		} else {
+			order = append(order, sc)
+		}
+	}
+	for _, sc := range order {
+		path := sceneIconPath(sc.Icon)
+		if path == "" || sceneIconFile(sc) != "" {
+			continue
+		}
+		body, err := govee.FetchSceneIcon(sc.Icon)
+		if err != nil {
+			log.Printf("scene icon %s: %v", sc.Name, err)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			log.Printf("scene icon %s: %v", sc.Name, err)
+			return
+		}
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			log.Printf("scene icon %s: %v", sc.Name, err)
+			continue
+		}
+		a.mu.Lock()
+		showing := sc.Name == a.barScene
+		a.mu.Unlock()
+		if showing {
+			a.emitState()
+		}
+	}
 }
 
 // StepBarScene moves the bar through its scenes, steps at a time. The ring

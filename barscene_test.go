@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -193,5 +194,64 @@ func TestHiddenScenesLeaveTheDial(t *testing.T) {
 	got := visibleScenes([]govee.Scene{{Name: "Esports"}, {Name: "Split"}, {Name: "Fight"}})
 	if len(got) != 2 || got[0].Name != "Esports" || got[1].Name != "Fight" {
 		t.Fatalf("visible = %v, want Esports, Fight", got)
+	}
+}
+
+// With a scene on the bar, the temperature still reaches the front light as
+// the dial turns, in any colour mode: at most one write per frontWarmthEvery,
+// ending on the last value, then the scene the Kelvin stops starts again once.
+func TestFrontWarmthDuringSceneRestartsTheScene(t *testing.T) {
+	for _, warm := range []bool{true, false} {
+		const bar, bulb = "192.0.2.95", "192.0.2.96"
+		a := sceneApp(bar, bulb)
+		a.barScene = "Cyber"
+		a.warmMode = warm
+		var mu sync.Mutex
+		sent := map[string][]string{}
+		govee.SetTestControlSink(func(ip, p string) {
+			mu.Lock()
+			sent[ip] = append(sent[ip], p)
+			mu.Unlock()
+		})
+
+		// A fast spin: twenty detents, 2ms apart.
+		start := time.Now()
+		for k := 4000; k > 2000; k -= 100 {
+			a.SetFrontWarmth(k)
+			time.Sleep(2 * time.Millisecond)
+		}
+		t.Logf("warm=%v: spin took %v", warm, time.Since(start))
+		time.Sleep(barSceneSettle + 200*time.Millisecond)
+		govee.SetTestControlSink(nil)
+
+		mu.Lock()
+		got := sent[bar]
+		if len(sent[bulb]) != 0 {
+			t.Fatalf("warm=%v: the rest of the room was written to: %v", warm, sent[bulb])
+		}
+		var kelvins, scenes, lastKelvin, firstScene int
+		firstScene = -1
+		for i, p := range got {
+			if strings.Contains(p, `"colorTemInKelvin"`) {
+				kelvins++
+				lastKelvin = i
+			}
+			if strings.Contains(p, `"cmd":"ptReal"`) {
+				scenes++
+				if firstScene < 0 {
+					firstScene = i
+				}
+			}
+		}
+		if kelvins < 1 || kelvins > 2 {
+			t.Fatalf("warm=%v: %d Kelvin writes for a 40ms spin, want 1 or 2", warm, kelvins)
+		}
+		if !strings.Contains(got[lastKelvin], `"colorTemInKelvin":2700`) {
+			t.Fatalf("warm=%v: last Kelvin write %s, want the dial's final 2700 (clamped)", warm, got[lastKelvin])
+		}
+		if scenes != 1 || firstScene < lastKelvin {
+			t.Fatalf("warm=%v: want one scene restart after the last Kelvin, got %v", warm, got)
+		}
+		mu.Unlock()
 	}
 }

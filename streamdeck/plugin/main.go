@@ -13,6 +13,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"image"
 	"log"
 	"os"
 	"path/filepath"
@@ -142,6 +143,9 @@ type instance struct {
 	// an event already in flight still carries the settings from before the
 	// push and would move it straight back.
 	knob string
+	// layout is the touch-strip layout last set on a monitor bar dial, ""
+	// until the plugin has set one.
+	layout string
 }
 
 type settings struct {
@@ -181,6 +185,8 @@ type plugin struct {
 	state     lw.State
 	haveState bool
 	phase     float64
+	// icons holds scene pictures already read from disk, by path.
+	icons map[string]image.Image
 
 	// How many lights the sweep knob is currently asking for, and when it was
 	// last turned. sweepLoop walks the room towards the target one light at a
@@ -902,13 +908,18 @@ func (p *plugin) renderMonitor(inst *instance, st lw.State) {
 	fb := map[string]any{}
 	var strip string
 	var err error
+	layout := layoutDial
 	switch knob {
 	case knobScene:
 		fb["title"] = name + " · Scene"
 		switch {
 		case st.BarScene != "":
 			fb["value"] = st.BarScene
-			strip, err = render.PositionStrip(st.BarSceneIndex, st.BarSceneCount)
+			icon := p.sceneIcon(st.BarSceneIcon)
+			if icon != nil {
+				layout = layoutScene
+			}
+			strip, err = render.SceneStrip(icon, st.BarSceneIndex, st.BarSceneCount)
 		case st.BarSceneCount == 0:
 			// An older Lightwave, or the scene list has not loaded yet.
 			fb["value"] = "No scenes"
@@ -937,7 +948,48 @@ func (p *plugin) renderMonitor(inst *instance, st lw.State) {
 	} else {
 		fb["strip"] = strip
 	}
+	p.mu.Lock()
+	swap := inst.layout != layout
+	inst.layout = layout
+	p.mu.Unlock()
+	if swap {
+		p.sd.SetFeedbackLayout(inst.context, layout)
+	}
 	p.sd.SetFeedback(inst.context, fb)
+}
+
+// Touch-strip layouts for the monitor bar dial. The scene layout narrows the
+// name so it stops short of the scene's picture.
+const (
+	layoutDial  = "layouts/dial.json"
+	layoutScene = "layouts/scene.json"
+)
+
+// sceneIcon returns the scene picture at path, read once and then kept. nil
+// when there is none yet or it will not decode.
+func (p *plugin) sceneIcon(path string) image.Image {
+	if path == "" {
+		return nil
+	}
+	p.mu.Lock()
+	icon, ok := p.icons[path]
+	p.mu.Unlock()
+	if ok {
+		return icon
+	}
+	icon, err := render.LoadIcon(path)
+	if err != nil {
+		// Remembered as nil, so a bad file is not re-read on every redraw.
+		log.Printf("scene icon %s: %v", path, err)
+		icon = nil
+	}
+	p.mu.Lock()
+	if p.icons == nil {
+		p.icons = map[string]image.Image{}
+	}
+	p.icons[path] = icon
+	p.mu.Unlock()
+	return icon
 }
 
 // renderPaletteKey draws a palette key: where a press lands, or in Warmness

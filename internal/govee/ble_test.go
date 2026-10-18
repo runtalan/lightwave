@@ -410,10 +410,10 @@ func TestSendColorUnknownSKUNoSegment(t *testing.T) {
 
 func TestSendGradientLANNoSolidOverwrite(t *testing.T) {
 	var payloads []string
-	testControlSink = func(ip, payload string) {
+	SetTestControlSink(func(ip, payload string) {
 		payloads = append(payloads, payload)
-	}
-	t.Cleanup(func() { testControlSink = nil })
+	})
+	t.Cleanup(func() { SetTestControlSink(nil) })
 	Remember("192.0.2.23", "H6072")
 	cols := make([]color.RGBK, 8)
 	for i := range cols {
@@ -444,10 +444,10 @@ func TestSendGradientLANNoSolidOverwrite(t *testing.T) {
 
 func TestSendBrightnessNeverZeroOrTurnOff(t *testing.T) {
 	var payloads []string
-	testControlSink = func(_, payload string) {
+	SetTestControlSink(func(_, payload string) {
 		payloads = append(payloads, payload)
-	}
-	t.Cleanup(func() { testControlSink = nil })
+	})
+	t.Cleanup(func() { SetTestControlSink(nil) })
 
 	if err := SendBrightness("192.0.2.10", 0); err != nil {
 		t.Fatal(err)
@@ -500,10 +500,10 @@ func TestSendBrightnessH6001NeverZeroByte(t *testing.T) {
 
 func TestApplyPoolBrightnessZeroIsDimNotOff(t *testing.T) {
 	var payloads []string
-	testControlSink = func(_, payload string) {
+	SetTestControlSink(func(_, payload string) {
 		payloads = append(payloads, payload)
-	}
-	t.Cleanup(func() { testControlSink = nil })
+	})
+	t.Cleanup(func() { SetTestControlSink(nil) })
 	lastBright.Delete("192.0.2.11")
 
 	ApplyPoolBrightness([]string{"192.0.2.11"}, 0, false)
@@ -529,10 +529,10 @@ func TestApplyPoolBrightnessZeroIsDimNotOff(t *testing.T) {
 // the old bands and the single/gradient toggle looks broken.
 func TestSendColorLANRGBICClearsSegments(t *testing.T) {
 	var payloads []string
-	testControlSink = func(_, payload string) {
+	SetTestControlSink(func(_, payload string) {
 		payloads = append(payloads, payload)
-	}
-	t.Cleanup(func() { testControlSink = nil })
+	})
+	t.Cleanup(func() { SetTestControlSink(nil) })
 
 	const ip = "192.0.2.77"
 	Remember(ip, "H6072")

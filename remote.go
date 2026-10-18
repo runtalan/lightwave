@@ -260,6 +260,8 @@ type RemoteState struct {
 	BarScene      string `json:"barScene"`
 	BarSceneIndex int    `json:"barSceneIndex"`
 	BarSceneCount int    `json:"barSceneCount"`
+	// BarSceneIcon is the scene's picture on disk, "" until it downloads.
+	BarSceneIcon string `json:"barSceneIcon,omitempty"`
 	// Mode is "warmness", "palette" or "solid": the two flags above folded
 	// into the one choice a mode switch presents.
 	Mode     string        `json:"mode"`
@@ -322,6 +324,7 @@ func (a *App) remoteState() string {
 	for i, sc := range scenes {
 		if sc.Name == a.barScene {
 			st.BarSceneIndex = i + 1
+			st.BarSceneIcon = sceneIconFile(sc)
 			break
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"lightwave/internal/color"
@@ -592,13 +593,18 @@ func controlConn() (*net.UDPConn, error) {
 }
 
 // testControlSink, when set, captures LAN payloads instead of writing UDP.
-var testControlSink func(ip, payload string)
+// Atomic because a test swaps it while timers (scene settles) may be sending.
+var testControlSink atomic.Pointer[func(ip, payload string)]
 
 // SetTestControlSink redirects LAN control writes to f instead of the network.
 // Exported so tests outside this package (the paint path lives in main) can
 // assert on what a scene actually sends. Passing nil restores real UDP.
 func SetTestControlSink(f func(ip, payload string)) {
-	testControlSink = f
+	if f == nil {
+		testControlSink.Store(nil)
+		return
+	}
+	testControlSink.Store(&f)
 }
 
 func sendControl(ip, payload string) (err error) {
@@ -611,8 +617,8 @@ func sendControl(ip, payload string) (err error) {
 	if ip == "" || IsBLE(ip) {
 		return nil
 	}
-	if testControlSink != nil {
-		testControlSink(ip, payload)
+	if sink := testControlSink.Load(); sink != nil {
+		(*sink)(ip, payload)
 		return nil
 	}
 	raddr, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(ip, fmt.Sprintf("%d", ControlPort)))

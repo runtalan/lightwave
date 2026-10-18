@@ -294,3 +294,13 @@ func (w *Conn) SetFeedback(context string, payload map[string]any) {
 		"payload": payload,
 	})
 }
+
+// SetFeedbackLayout swaps an encoder's touch-strip layout, given as a path
+// inside the plugin folder or a built-in id such as "$B1".
+func (w *Conn) SetFeedbackLayout(context, layout string) {
+	_ = w.send(map[string]any{
+		"event":   "setFeedbackLayout",
+		"context": context,
+		"payload": map[string]any{"layout": layout},
+	})
+}
