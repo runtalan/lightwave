@@ -1137,7 +1137,14 @@ func (p *plugin) renderStatus(inst *instance, st lw.State) {
 // actually on screen, and runs slowly when the fade animation is off, so an
 // idle deck is not repainted for no reason.
 func (p *plugin) animate() {
-	const step = 220 * time.Millisecond
+	// The wave crosses the key in about 18s either way; idle it takes fewer,
+	// larger steps, since each frame is a PNG encoded here and decoded again by
+	// Stream Deck.
+	const (
+		danceStep = 220 * time.Millisecond
+		idleStep  = time.Second
+	)
+	step := idleStep
 	t := time.NewTicker(step)
 	defer t.Stop()
 	for range t.C {
@@ -1155,9 +1162,13 @@ func (p *plugin) animate() {
 		st, have := p.state, p.haveState
 		// A drifting wave when idle, faster while the colour fade runs, so the
 		// key's motion mirrors what the lights are doing.
-		inc := 0.012
+		want, inc := idleStep, 0.055
 		if st.Dancing {
-			inc = 0.05
+			want, inc = danceStep, 0.05
+		}
+		if want != step {
+			step = want
+			t.Reset(step)
 		}
 		p.phase += inc
 		if p.phase > 1 {
