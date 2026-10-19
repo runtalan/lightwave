@@ -55,6 +55,13 @@ type Payload struct {
 type Conn struct {
 	c  net.Conn
 	mu sync.Mutex // serializes frame writes
+
+	// sent remembers the last setImage and setFeedback message per context, so
+	// a poll that redraws an unchanged key does not make Stream Deck decode the
+	// same PNG again. sentMu is held across the write, so the record always
+	// matches what reached Stream Deck last.
+	sentMu sync.Mutex
+	sent   map[string]map[string]string // context → event → message
 }
 
 // Dial connects to Stream Deck and registers the plugin.
@@ -144,6 +151,11 @@ func (w *Conn) Run(handler func(Event)) {
 		if err := json.Unmarshal(payload, &ev); err != nil {
 			continue
 		}
+		if ev.Event == "willAppear" || ev.Event == "willDisappear" {
+			// A key coming on screen starts from its default image, so whatever
+			// was sent to it before has to be sent again.
+			w.forget(ev.Context)
+		}
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -161,6 +173,50 @@ func (w *Conn) send(v any) error {
 		return err
 	}
 	return w.writeFrame(0x1, b)
+}
+
+// sendChanged sends a message unless it is identical to the last one of the
+// same event sent to this context.
+func (w *Conn) sendChanged(context, event string, payload any) {
+	b, err := json.Marshal(map[string]any{"event": event, "context": context, "payload": payload})
+	if err != nil {
+		return
+	}
+	msg := string(b)
+	w.sentMu.Lock()
+	defer w.sentMu.Unlock()
+	if w.sent[context][event] == msg {
+		return
+	}
+	if err := w.writeFrame(0x1, b); err != nil {
+		delete(w.sent[context], event)
+		return
+	}
+	if w.sent == nil {
+		w.sent = map[string]map[string]string{}
+	}
+	if w.sent[context] == nil {
+		w.sent[context] = map[string]string{}
+	}
+	w.sent[context][event] = msg
+}
+
+// sendResetting sends a message that makes Stream Deck repaint part of a key
+// itself, and forgets the named events so the next one is sent in full.
+func (w *Conn) sendResetting(context string, v any, events ...string) {
+	w.sentMu.Lock()
+	defer w.sentMu.Unlock()
+	_ = w.send(v)
+	for _, e := range events {
+		delete(w.sent[context], e)
+	}
+}
+
+// forget drops everything last sent to a context.
+func (w *Conn) forget(context string) {
+	w.sentMu.Lock()
+	defer w.sentMu.Unlock()
+	delete(w.sent, context)
 }
 
 // writeFrame writes a client frame. Client->server frames must be masked.
@@ -248,21 +304,19 @@ func (w *Conn) SetTitle(context, title string) {
 	})
 }
 
-// SetImage sets a key's image. data must be a data: URI (base64 PNG).
+// SetImage sets a key's image. data must be a data: URI (base64 PNG). An image
+// identical to the one the key already has is not sent again.
 func (w *Conn) SetImage(context, data string) {
-	_ = w.send(map[string]any{
-		"event":   "setImage",
-		"context": context,
-		"payload": map[string]any{"image": data, "target": 0},
-	})
+	w.sendChanged(context, "setImage", map[string]any{"image": data, "target": 0})
 }
 
+// SetState switches a key's state, which brings up that state's own image.
 func (w *Conn) SetState(context string, state int) {
-	_ = w.send(map[string]any{
+	w.sendResetting(context, map[string]any{
 		"event":   "setState",
 		"context": context,
 		"payload": map[string]any{"state": state},
-	})
+	}, "setImage")
 }
 
 func (w *Conn) ShowAlert(context string) {
@@ -300,21 +354,19 @@ func (w *Conn) SendToPropertyInspector(context, action string, v any) {
 
 // SetFeedback updates the slots of a Stream Deck + touch-strip layout. Keys
 // carry their state in an image; an encoder carries it in the layout, so a dial
-// action needs this as well as SetImage.
+// action needs this as well as SetImage. A payload identical to the last one
+// is not sent again.
 func (w *Conn) SetFeedback(context string, payload map[string]any) {
-	_ = w.send(map[string]any{
-		"event":   "setFeedback",
-		"context": context,
-		"payload": payload,
-	})
+	w.sendChanged(context, "setFeedback", payload)
 }
 
 // SetFeedbackLayout swaps an encoder's touch-strip layout, given as a path
-// inside the plugin folder or a built-in id such as "$B1".
+// inside the plugin folder or a built-in id such as "$B1". The new layout
+// starts blank, so the next feedback is sent in full.
 func (w *Conn) SetFeedbackLayout(context, layout string) {
-	_ = w.send(map[string]any{
+	w.sendResetting(context, map[string]any{
 		"event":   "setFeedbackLayout",
 		"context": context,
 		"payload": map[string]any{"layout": layout},
-	})
+	}, "setFeedback")
 }
