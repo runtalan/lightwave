@@ -240,6 +240,8 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Vacuum** | Start or pause a Dreame robot vacuum, or send it home. The key shows its battery and what it's doing. See [Dreame vacuum](#dreame-vacuum) |
 | **Vacuum Status** | For the **Stream Deck Neo** info bar: the Dreame vacuum's state, battery, and the minutes and area cleaned in the current run. It shows the account's one vacuum. Needs Stream Deck 7.6 or later. See [Dreame vacuum](#dreame-vacuum) |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
+| **Light Brightness** | A **Stream Deck +** dial for each light on its own. Turn to dim or brighten the light named on the touch strip, above or below the rest of the room; push to move to the next light that's on (lights that are off are skipped). The main slider still moves every light together, keeping each one's offset |
+| **Light Color** | A **Stream Deck +** dial that gives each light its own color. Turn to step the light through palettes — the touch strip previews the palette, outlining the color a single-color bulb takes from it — or warmer and cooler on a white. Tap the touch strip to switch the light between **Color**, **Warm** white and following the **Room**; push to move to the next light that's on. Pushing either light dial moves both, so they always adjust the same light |
 
 ### The Status key
 

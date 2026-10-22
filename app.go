@@ -1147,7 +1147,13 @@ func (a *App) danceLoop(gen int) {
 			return
 		}
 		pal := a.engine.Palette()
-		dests := a.poolDestsLocked()
+		// Lamps with their own colour hold it through the fade.
+		var dests []lampDest
+		for _, d := range a.poolDestsLocked() {
+			if d.Own == nil {
+				dests = append(dests, d)
+			}
+		}
 		grad := a.gradient
 		period := a.settings.FadeDuration()
 		// Widen (or narrow) the palette before walking it. Done here rather
@@ -1789,11 +1795,16 @@ func ignitedBrightness(percent int) int {
 // slider already gives the lamp is that send coming back and leaves the slider
 // be; anything else was set elsewhere and is scaled back up by the trim.
 func sliderFromReported(reported, slider, trim int) int {
-	if trim <= 0 || trim > 100 {
+	if trim <= 0 || trim > config.MaxTrim {
 		trim = 100
 	}
 	expected := ignitedBrightness(ignitedBrightness(slider) * trim / 100)
 	if d := reported - expected; d >= -1 && d <= 1 {
+		return slider
+	}
+	if trim > 100 && reported >= 100 {
+		// A boosted lamp tops out at full well before the slider does, so full
+		// says nothing about where the slider is.
 		return slider
 	}
 	return clampBrightness((reported*100 + trim/2) / trim)
@@ -1909,6 +1920,9 @@ func (a *App) applyPaletteToPool() {
 	warm := a.warmMode
 	a.mu.Unlock()
 	if dancing {
+		// The fade leaves lamps with their own colour alone, so a lamp lit
+		// mid-fade still needs its colour from here.
+		a.paintOwnLamps(false)
 		return
 	}
 	if warm {
@@ -1942,7 +1956,17 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 		return
 	}
 	a.mu.Lock()
-	dests := a.poolDestsLocked()
+	all := a.poolDestsLocked()
+	// Lamps with their own colour sit out of the room's spread, so the rest
+	// still share the palette between them.
+	var dests, own []lampDest
+	for _, d := range all {
+		if d.Own != nil {
+			own = append(own, d)
+		} else {
+			dests = append(dests, d)
+		}
+	}
 	grad := a.gradient
 	pal := a.engine.Palette()
 	swatches := a.engine.SceneColors(len(dests), grad)
@@ -1957,6 +1981,11 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	// actually showing — the next slider move must reach them.
 	a.lastSentBright = -1
 	a.mu.Unlock()
+	for _, d := range own {
+		if only == nil || only(d) {
+			a.paintOwn(d, turnOn)
+		}
+	}
 	if len(dests) == 0 || len(swatches) == 0 {
 		return
 	}
@@ -2424,6 +2453,10 @@ func (a *App) paintWarmnessOnly(turnOn bool, only func(lampDest) bool) {
 		if only != nil && !only(d) {
 			continue
 		}
+		if d.Own != nil {
+			a.paintOwn(d, turnOn)
+			continue
+		}
 		if turnOn {
 			_ = govee.SendTurn(d.IP, true)
 		}
@@ -2483,9 +2516,12 @@ func (a *App) poolIPsLocked() []string {
 type lampDest struct {
 	IP    string
 	Model string
-	// Trim is this lamp's share of the brightness slider, 1-100 (100 = no
-	// trim). See config.SlotBinding.Trim.
+	// Trim is this lamp's share of the brightness slider (100 = no trim).
+	// See config.SlotBinding.Trim.
 	Trim int
+	// Own is the lamp's binding when it shows a colour of its own rather
+	// than the room's, nil when it follows the room. See paintOwn.
+	Own *config.SlotBinding
 }
 
 func (a *App) poolDestsLocked() []lampDest {
@@ -2506,7 +2542,11 @@ func (a *App) poolDestsLocked() []lampDest {
 			continue
 		}
 		govee.Remember(ip, model)
-		out = append(out, lampDest{IP: ip, Model: model, Trim: a.slots[n-1].EffectiveTrim()})
+		d := lampDest{IP: ip, Model: model, Trim: a.slots[n-1].EffectiveTrim()}
+		if s := a.slots[n-1]; s.OwnColor() {
+			d.Own = &s
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -2709,8 +2749,8 @@ func (a *App) SetSlotTrim(slot int, percent int) (HUDState, error) {
 	if percent < 0 {
 		percent = 0
 	}
-	if percent > 100 {
-		percent = 100
+	if percent > config.MaxTrim {
+		percent = config.MaxTrim
 	}
 	a.mu.Lock()
 	if slot > len(a.slots) || a.slots[slot-1].DeviceID == "" {

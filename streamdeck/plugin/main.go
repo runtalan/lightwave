@@ -42,6 +42,8 @@ const (
 	actSweep      = "com.dinksf.lightwave.sweep"
 	actMode       = "com.dinksf.lightwave.mode"
 	actMonitor    = "com.dinksf.lightwave.monitor"
+	actLightLevel = "com.dinksf.lightwave.lightlevel"
+	actLightColor = "com.dinksf.lightwave.lightcolor"
 	actTapo       = "com.dinksf.lightwave.tapo"
 	actVacuum     = "com.dinksf.lightwave.vacuum"
 	actVacuumBar  = "com.dinksf.lightwave.vacuumbar"
@@ -169,6 +171,8 @@ type settings struct {
 	Direction string `json:"direction,omitempty"`
 	// Knob is a monitor bar dial's saved page; see instance.knob.
 	Knob string `json:"knob,omitempty"`
+	// Light is the pad the light dials were last on; see plugin.light.
+	Light int `json:"light,omitempty"`
 	// Host and Name are a Tapo plug key's plug: its address on the LAN, and the
 	// label to draw on the key.
 	Host string `json:"host,omitempty"`
@@ -239,6 +243,11 @@ type plugin struct {
 	// What the user has called the vacuum's rooms, by the map's room number.
 	rooms map[int]string
 
+	// light is the pad the Light Brightness and Light Color dials are on, 0
+	// until one has been pushed. The two share it, so pushing either moves
+	// both to the next light and they always adjust the same one.
+	light int
+
 	// The info bar is tied to the account's one vacuum, which it finds itself:
 	// barDID is that vacuum, and barErr why it could not be found.
 	barDID     string
@@ -272,8 +281,17 @@ func (p *plugin) onEvent(ev sd.Event) {
 	case "dialRotate":
 		p.trackContext(ev)
 		p.rotate(ev)
-	case "dialDown", "touchTap":
+	case "dialDown":
 		p.trackContext(ev)
+		p.press(ev)
+	case "touchTap":
+		p.trackContext(ev)
+		if ev.Action == actLightColor {
+			// The push is taken by moving between lights, so the strip is how
+			// this dial switches the light between room, colour and white.
+			p.tapLightColor(ev)
+			break
+		}
 		p.press(ev)
 	}
 }
@@ -392,6 +410,10 @@ func (p *plugin) trackContext(ev sd.Event) {
 	}
 	// Keep the title bookkeeping: only action and settings come from the event.
 	inst.action, inst.settings = ev.Action, s
+	if isLightDial(ev.Action) && p.light == 0 && s.Light != 0 {
+		// The light dials were on this pad when Stream Deck last ran.
+		p.light = s.Light
+	}
 	// Only appearance and settings events name the controller; key and dial
 	// events that omit it must not wipe it.
 	if ev.Payload.Controller != "" {
@@ -462,6 +484,11 @@ func (p *plugin) press(ev sd.Event) {
 		p.sd.SetSettings(ev.Context, saved)
 		p.refreshOne(ev.Context)
 		return
+	case actLightLevel, actLightColor:
+		// Pushing either light dial moves both to the next light. Nothing is
+		// sent to any lamp.
+		p.nextLightDial(st, have)
+		return
 	case actPalette:
 		if inst.controller == encoder {
 			// The dial turns through palettes or temperatures; pushing it is
@@ -531,6 +558,14 @@ func (p *plugin) rotate(ev sd.Event) {
 	}
 	if inst != nil && inst.action == actPalette {
 		p.rotatePalette(ev)
+		return
+	}
+	if inst != nil && inst.action == actLightLevel {
+		p.rotateLightLevel(ev)
+		return
+	}
+	if inst != nil && inst.action == actLightColor {
+		p.rotateLightColor(ev)
 		return
 	}
 	if inst != nil && inst.action == actMode {
@@ -936,6 +971,10 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		p.renderMode(inst, st, dial)
 	case actMonitor:
 		p.renderMonitor(inst, st)
+	case actLightLevel:
+		p.renderLightLevel(inst, st)
+	case actLightColor:
+		p.renderLightColor(inst, st)
 	case actDance:
 		// Title names the action, not the state: the key says what it will do.
 		if st.Dancing {

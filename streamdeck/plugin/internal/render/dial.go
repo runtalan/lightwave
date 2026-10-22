@@ -81,6 +81,21 @@ func SwatchStrip(sw []Swatch) (string, error) {
 	return encode(img)
 }
 
+// PaletteStrip renders a palette's colours with swatch lead outlined: the one
+// colour a lamp that cannot show a whole palette takes from it. lead < 0
+// outlines nothing, for a strip that shows them all.
+func PaletteStrip(sw []Swatch, lead int) (string, error) {
+	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
+	swatchBar(img, band, sw, 1)
+	if lead >= 0 && lead < len(sw) {
+		w := float64(band.Dx()) / float64(len(sw))
+		cell := image.Rect(band.Min.X+int(float64(lead)*w), band.Min.Y, band.Min.X+int(float64(lead+1)*w), band.Max.Y)
+		outline(img, cell.Inset(-4), color.RGBA{0, 0, 0, 255})
+		outline(img, cell.Inset(-2), ice)
+	}
+	return encode(img)
+}
+
 // SolidStrip renders the one colour every light shares.
 func SolidStrip(c Swatch) (string, error) {
 	return SwatchStrip([]Swatch{c})
