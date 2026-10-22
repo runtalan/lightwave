@@ -48,21 +48,45 @@ type SlotBinding struct {
 	// cloud/BLE catalog on every scan, so a rename has to be recorded
 	// separately or it would be overwritten minutes later.
 	Custom string `json:"custom,omitempty"`
-	// Trim scales this lamp's share of the brightness slider, 1-100. 0 (the
-	// zero value, so existing configs need no migration) means "no trim":
-	// the lamp tracks the slider exactly. A trim of 70 means this lamp always
-	// runs at 70% of whatever the slider says, so one pad can read dimmer
-	// than the rest while a single fader still drives all of them together.
+	// Trim scales this lamp's share of the brightness slider, 1-MaxTrim. 0
+	// (the zero value, so existing configs need no migration) means "no
+	// trim": the lamp tracks the slider exactly. A trim of 70 means this lamp
+	// always runs at 70% of whatever the slider says, so one pad can read
+	// dimmer than the rest while a single fader still drives all of them
+	// together. Above 100 the lamp runs brighter than the slider, up to full.
 	Trim int `json:"trim,omitempty"`
+	// Color is this lamp's own colour, set apart from the room's: LampPalette
+	// shows Palette, LampWarm a white at Kelvin. "" (the zero value) follows
+	// the room, which is what every lamp did before lamps had their own.
+	Color   string `json:"color,omitempty"`
+	Palette string `json:"palette,omitempty"`
+	Kelvin  int    `json:"kelvin,omitempty"`
 }
+
+// A lamp's own colour modes; see SlotBinding.Color.
+const (
+	LampRoom    = ""
+	LampPalette = "palette"
+	LampWarm    = "warm"
+)
+
+// MaxTrim caps SlotBinding.Trim. It is high enough that a lamp can reach full
+// brightness from a slider at 1%.
+const MaxTrim = 10000
 
 // EffectiveTrim is the percentage of the slider this lamp actually gets:
 // Trim when set, or 100 (untrimmed) otherwise.
 func (s SlotBinding) EffectiveTrim() int {
-	if s.Trim <= 0 || s.Trim > 100 {
+	if s.Trim <= 0 || s.Trim > MaxTrim {
 		return 100
 	}
 	return s.Trim
+}
+
+// OwnColor reports whether the lamp shows a colour of its own rather than the
+// room's.
+func (s SlotBinding) OwnColor() bool {
+	return s.Color == LampPalette || s.Color == LampWarm
 }
 
 // Label is the name to display: the user's rename when set, else whatever

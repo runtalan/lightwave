@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lightwave/internal/color"
+	"lightwave/internal/config"
 	"lightwave/internal/govee"
 )
 
@@ -40,7 +41,13 @@ import (
 //	WARMNESS <kelvin>  -> set a white temperature from 2000 to 6500K
 //	FRONT_WARMTH <kelvin> -> set the front-light temperature, 2700 to 6500K,
 //	                      on lamps that have a front light
-//	TRIM <1-9> <0-100> -> one pad's share of the brightness slider; 0 clears it
+//	TRIM <1-9> <0-10000> -> one pad's share of the brightness slider, in
+//	                      percent; 0 clears it, above 100 runs brighter
+//	LEVEL <1-9> <1-100> -> set how bright one pad's lamp is now, as a share of
+//	                      the slider, so the slider still carries it
+//	LIGHT_COLOR <1-9> ROOM | PALETTE <name|index> | WARM <kelvin>
+//	                   -> give one pad's lamp its own palette or white, or
+//	                      return it to the room's
 //	BAR_SCENE <steps>|OFF|<name>
 //	                   -> step through the Govee scenes on a front-light
 //	                      lamp's back light, turn them off so it follows the
@@ -188,6 +195,60 @@ func (a *App) RemoteCommand(cmd string) string {
 		}
 		return a.remoteState()
 
+	case "LEVEL":
+		if len(fields) < 3 {
+			return "ERR LEVEL needs a pad and a percent"
+		}
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 || n > 9 {
+			return "ERR pad must be 1-9"
+		}
+		pct, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return "ERR bad level"
+		}
+		if err := a.SetSlotLevel(n, pct); err != nil {
+			return "ERR " + err.Error()
+		}
+		return a.remoteState()
+
+	case "LIGHT_COLOR":
+		if len(fields) < 3 {
+			return "ERR LIGHT_COLOR needs a pad and ROOM, PALETTE or WARM"
+		}
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 || n > 9 {
+			return "ERR pad must be 1-9"
+		}
+		var mode, pal string
+		kelvin := 0
+		switch strings.ToUpper(fields[2]) {
+		case "ROOM":
+			mode = config.LampRoom
+		case "PALETTE":
+			// The rest of the line is the name, as for PALETTE SET.
+			rest := strings.Join(fields[3:], " ")
+			if i, err := strconv.Atoi(rest); err == nil && len(color.Palettes) > 0 {
+				i = (i%len(color.Palettes) + len(color.Palettes)) % len(color.Palettes)
+				rest = color.Palettes[i].Name
+			}
+			mode, pal = config.LampPalette, rest
+		case "WARM":
+			if len(fields) < 4 {
+				return "ERR LIGHT_COLOR WARM needs a Kelvin value"
+			}
+			if kelvin, err = strconv.Atoi(fields[3]); err != nil {
+				return "ERR bad Kelvin value"
+			}
+			mode = config.LampWarm
+		default:
+			return "ERR LIGHT_COLOR needs ROOM, PALETTE or WARM"
+		}
+		if err := a.SetSlotColor(n, mode, pal, kelvin); err != nil {
+			return "ERR " + err.Error()
+		}
+		return a.remoteState()
+
 	case "BAR_SCENE":
 		rest := strings.TrimSpace(strings.Join(fields[1:], " "))
 		if strings.EqualFold(rest, "OFF") {
@@ -297,8 +358,19 @@ type RemotePad struct {
 	// Front marks a lamp with a white front light of its own, the kind
 	// FRONT_WARMTH drives.
 	Front bool `json:"front,omitempty"`
-	// Trim is this pad's share of the brightness slider, 1-100.
+	// Trim is this pad's share of the brightness slider, in percent; above
+	// 100 the lamp runs brighter than the slider.
 	Trim int `json:"trim"`
+	// Level is how bright the lamp is at the current slider, 1-100.
+	Level int `json:"level"`
+	// Color is the lamp's own colour, "" while it follows the room, "palette"
+	// with Palette, or "warm" with Kelvin. See config.SlotBinding.Color.
+	Color   string `json:"color,omitempty"`
+	Palette string `json:"palette,omitempty"`
+	Kelvin  int    `json:"kelvin,omitempty"`
+	// Segments marks a strip that shows a palette as a ramp across its zones;
+	// other lamps show one colour from it.
+	Segments bool `json:"segments,omitempty"`
 }
 
 func (a *App) remoteState() string {
@@ -354,13 +426,18 @@ func (a *App) remoteState() string {
 			link = "lan"
 		}
 		st.Pads = append(st.Pads, RemotePad{
-			Number: i,
-			Name:   s.Label(),
-			Bound:  s.DeviceID != "",
-			On:     a.pool[i],
-			Link:   link,
-			Front:  govee.HasFrontLight(s.Model),
-			Trim:   s.EffectiveTrim(),
+			Number:   i,
+			Name:     s.Label(),
+			Bound:    s.DeviceID != "",
+			On:       a.pool[i],
+			Link:     link,
+			Front:    govee.HasFrontLight(s.Model),
+			Trim:     s.EffectiveTrim(),
+			Level:    ignitedBrightness(ignitedBrightness(a.brightness) * s.EffectiveTrim() / 100),
+			Color:    s.Color,
+			Palette:  s.Palette,
+			Kelvin:   s.Kelvin,
+			Segments: govee.SupportsSegments(s.Model),
 		})
 	}
 	a.mu.Unlock()

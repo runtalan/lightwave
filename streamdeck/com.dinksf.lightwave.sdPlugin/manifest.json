@@ -218,6 +218,54 @@
       "UserTitleEnabled": false
     },
     {
+      "UUID": "com.dinksf.lightwave.lightlevel",
+      "Name": "Light Brightness",
+      "Icon": "imgs/actions/lightlevel",
+      "Tooltip": "Set each light's brightness on its own. Turn to dim or brighten the light shown, above or below the rest of the room; push to move to the next light that is on. Pairs with Light Color: pushing either moves both to the next light.",
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/dial.json",
+        "TriggerDescription": {
+          "Rotate": "This light's brightness",
+          "Push": "Next light",
+          "Touch": "Next light"
+        }
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/lightlevel",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.dinksf.lightwave.lightcolor",
+      "Name": "Light Color",
+      "Icon": "imgs/actions/lightcolor",
+      "Tooltip": "Give each light its own color. Turn to step the light shown through palettes, with the touch strip previewing the palette, or warmer and cooler when it is on a white. Tap the touch strip to switch the light between Color, Warm white and following the room; push to move to the next light that is on. Pairs with Light Brightness: pushing either moves both to the next light.",
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/dial.json",
+        "TriggerDescription": {
+          "Rotate": "This light's palette / warmth",
+          "Push": "Next light",
+          "Touch": "Color / Warm / Room"
+        }
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/lightcolor",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "UserTitleEnabled": false
+    },
+    {
       "UUID": "com.dinksf.lightwave.sweep",
       "Name": "Light Sweep",
       "Icon": "imgs/actions/sweep",
