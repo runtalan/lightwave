@@ -978,10 +978,12 @@ func (a *App) statusPollLoop() {
 		dancing := a.dancing
 		ips := make([]string, 0, 9)
 		var bles []string
-		for _, s := range a.slots {
+		for i, s := range a.slots {
 			ip := strings.TrimSpace(s.IP)
 			switch {
 			case ip == "" || s.DeviceID == "":
+			case dancing && a.pool[i+1]:
+				// The fade probes its own lamps before every write.
 			case govee.IsBLE(ip):
 				bles = append(bles, ip)
 			default:
@@ -998,12 +1000,10 @@ func (a *App) statusPollLoop() {
 			}
 		}
 
-		// The animation is writing colours continuously; polling during it adds
-		// traffic and tells us nothing we did not just set ourselves.
-		if !dancing {
-			for _, ip := range ips {
-				_ = govee.QueryStatus(ip)
-			}
+		// Lamps outside the fade still need polling, or one switched on from
+		// its own remote would go unnoticed until the fade stops.
+		for _, ip := range ips {
+			_ = govee.QueryStatus(ip)
 		}
 
 		next := statusPollActive
@@ -1659,8 +1659,8 @@ func (a *App) AllOn() HUDState {
 	}
 	now := time.Now()
 	type target struct {
-		n  int
-		ip string
+		n, trim int
+		ip      string
 	}
 	var targets []target
 	limit := len(a.slots)
@@ -1678,7 +1678,7 @@ func (a *App) AllOn() HUDState {
 		}
 		a.pool[n] = true
 		a.slotTouched[n] = now
-		targets = append(targets, target{n: n, ip: ip})
+		targets = append(targets, target{n: n, trim: s.EffectiveTrim(), ip: ip})
 	}
 	bright := ignitedBrightness(a.brightness)
 	// The pool changed, so the pump's "same value, skip it" shortcut no longer
@@ -1687,8 +1687,10 @@ func (a *App) AllOn() HUDState {
 	a.mu.Unlock()
 
 	for _, t := range targets {
+		// Trimmed, as ToggleSlot does, so a dimmed pad does not flash at the
+		// full slider level until the palette paint reasserts its share.
 		_ = sendTurn(t.ip, true)
-		_ = govee.SendBrightness(t.ip, bright)
+		_ = govee.SendBrightness(t.ip, ignitedBrightness(bright*t.trim/100))
 	}
 	a.applyPaletteToPool()
 	a.applyBarScene(false)
