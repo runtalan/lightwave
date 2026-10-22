@@ -300,9 +300,9 @@ func broadcast(n *net.IPNet) net.IP {
 // arrives asynchronously on the :4002 listener.
 func QueryStatus(ip string) error {
 	if IsBLE(ip) {
-		// BLE state readback needs notification plumbing; until then the HUD
-		// trusts what it last sent to these lamps.
-		return nil
+		// The heartbeat doubles as a power query; the reply arrives through
+		// OnBLEStatus.
+		return bleSend(ip, blePacketKeepAlive())
 	}
 	return sendControl(ip, `{"msg":{"cmd":"devStatus","data":{}}}`)
 }

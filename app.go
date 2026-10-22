@@ -68,6 +68,11 @@ const (
 	// rather than strobe. How long a full tour of the palette takes is the
 	// user's to set — see config.Settings.FadeDuration.
 	danceStep = 900 * time.Millisecond
+	// danceProbeWait is how long each fade tick waits for devStatus replies
+	// before writing, so a lamp turned off elsewhere is not relit.
+	// Bluetooth replies queue behind the lamp's pending writes, hence the
+	// margin over a LAN round trip.
+	danceProbeWait = 250 * time.Millisecond
 )
 
 // sendPoolBrightness is a seam so tests can observe the LAN write rate.
@@ -1137,6 +1142,26 @@ func (a *App) danceLoop(gen int) {
 		case <-a.stop:
 			return
 		case <-t.C:
+		}
+
+		// A colour write powers a lamp on, so a lamp switched off from its own
+		// remote would be relit by the next tick before the status poll (idle
+		// during the fade) or the 2s Bluetooth heartbeat noticed. Ask the
+		// lamps first and give the replies a moment to drop any that are now
+		// off from the pool.
+		a.mu.Lock()
+		var probe []string
+		for _, d := range a.poolDestsLocked() {
+			if d.Own == nil {
+				probe = append(probe, d.IP)
+			}
+		}
+		a.mu.Unlock()
+		if len(probe) > 0 {
+			for _, ip := range probe {
+				_ = govee.QueryStatus(ip)
+			}
+			time.Sleep(danceProbeWait)
 		}
 
 		a.mu.Lock()
