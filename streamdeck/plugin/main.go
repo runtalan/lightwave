@@ -236,6 +236,9 @@ type plugin struct {
 	// poll now rather than at the next tick.
 	plugs    map[string]plugView
 	plugWake chan struct{}
+	// haveGlobals is set once Stream Deck has sent the plugin-wide settings,
+	// which carry the TP-Link login.
+	haveGlobals bool
 
 	// The same for Dreame vacuums, by device id.
 	vacs    map[string]vacView
