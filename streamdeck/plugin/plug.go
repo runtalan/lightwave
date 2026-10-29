@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"lightwave-sd/internal/render"
@@ -24,6 +23,11 @@ const plugPoll = 3 * time.Second
 // asked again at this pace, or at once when the login or the key changes.
 const loginRetry = time.Minute
 
+// A plug that stops answering is asked less often the longer it stays away, up
+// to this. Each attempt is a login, and a plug that does answer again is
+// counting them.
+const offlineRetry = 30 * time.Second
+
 // plugView is the last thing known about one plug.
 type plugView struct {
 	reading tapo.Reading
@@ -31,6 +35,26 @@ type plugView struct {
 	err     error
 	// retryAt, when set, holds off polling until then.
 	retryAt time.Time
+	// fails counts failed reads in a row.
+	fails int
+}
+
+// plugRetry is how long to hold a plug off after its fails-th failure in a row.
+// The first failure keeps the normal pace; a plug that refused the login, or is
+// refusing logins because it has had too many, is left for a minute.
+func plugRetry(err error, fails int) time.Duration {
+	msg := err.Error()
+	if strings.Contains(msg, "login rejected") || strings.Contains(msg, "plug throttled") {
+		return loginRetry
+	}
+	if fails <= 1 {
+		return 0
+	}
+	d := plugPoll << (fails - 1)
+	if d > offlineRetry || d <= 0 {
+		d = offlineRetry
+	}
+	return d
 }
 
 // globalSettings are the plugin-wide settings an inspector can change.
@@ -108,30 +132,38 @@ func (p *plugin) wakePlugs() {
 
 // plugLoop re-reads every plug that has a key on screen. Nothing runs while no
 // Tapo key is on the deck, so a deck without one never starts Python.
+//
+// Each plug is read on its own: a plug that has gone away takes up to the full
+// call timeout to fail, and the others keep their pace meanwhile. A plug still
+// being read is skipped rather than asked again.
 func (p *plugin) plugLoop() {
 	t := time.NewTicker(plugPoll)
 	defer t.Stop()
+	busy := map[string]bool{}
+	done := make(chan string)
 	for {
 		select {
 		case <-t.C:
 		case <-p.plugWake:
+		case host := <-done:
+			delete(busy, host)
+			continue
 		}
-		var wg sync.WaitGroup
+		now := time.Now()
 		for _, host := range p.plugHosts() {
 			p.mu.Lock()
-			held := time.Now().Before(p.plugs[host].retryAt)
+			held := now.Before(p.plugs[host].retryAt)
 			p.mu.Unlock()
-			if held {
+			if held || busy[host] {
 				continue
 			}
-			wg.Add(1)
+			busy[host] = true
 			go func(host string) {
-				defer wg.Done()
 				r, err := p.tapo.State(host)
 				p.setPlug(host, r, err)
+				done <- host
 			}(host)
 		}
-		wg.Wait()
 	}
 }
 
@@ -176,9 +208,10 @@ func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 	if err != nil {
 		// Keep the last good reading around, but the key reports the failure.
 		prev.err = err
+		prev.fails++
 		prev.retryAt = time.Time{}
-		if strings.Contains(err.Error(), "login rejected") {
-			prev.retryAt = time.Now().Add(loginRetry)
+		if d := plugRetry(err, prev.fails); d > 0 {
+			prev.retryAt = time.Now().Add(d)
 		}
 		p.plugs[host] = prev
 	} else {
@@ -236,6 +269,8 @@ func (p *plugin) plugProblem(err error) string {
 		return "NOT SET UP"
 	case strings.Contains(err.Error(), "login rejected"):
 		return "BAD LOGIN"
+	case strings.Contains(err.Error(), "plug throttled"):
+		return "THROTTLED"
 	case !p.tapo.HasLogin():
 		return "NO LOGIN"
 	}

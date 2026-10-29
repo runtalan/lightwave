@@ -17,9 +17,12 @@ One request per line, one reply per line, matched by "id":
     {"id": 3, "ok": false, "error": "..."}
 
 Requests run concurrently, so a slow discovery never holds up a toggle. Calls
-to the same plug are serialised. A plug that errors is dropped and re-opened on
-the next request, which is what makes a rebooted plug or a changed IP recover
-without restarting anything.
+to the same plug are serialised. A plug's session is kept across failures:
+python-kasa already re-handshakes after a timeout or an expired session, and
+every handshake is a login the plug counts. Dropping the session too would add
+a discovery and another login to each failed poll, and Tapo plugs answer a
+burst of logins by refusing them for a while (STAT_ACCESS_ERROR). Only a plug
+that keeps failing is dropped and found again, in case it changed protocol.
 
 Anything the script prints other than reply lines would corrupt the stream, so
 diagnostics go to stderr.
@@ -41,6 +44,11 @@ else:
 # How long to wait on a single plug before giving up, in seconds.
 CONNECT_TIMEOUT = 8
 DISCOVERY_TIMEOUT = 5
+# A plug that fails this many requests in a row is dropped and discovered again.
+FORGET_AFTER = 5
+# How many times python-kasa retries a failed request. Each retry is a fresh
+# login, and its default of three turns one bad poll into four logins.
+QUERY_RETRIES = 1
 
 
 def log(msg):
@@ -52,6 +60,7 @@ class Bridge:
         self.credentials = None
         self.devices = {}
         self.locks = {}
+        self.failures = {}
         # Injectable so the protocol handling can be tested without a network.
         self._discover = discover or self._discover_single
 
@@ -64,6 +73,7 @@ class Bridge:
         )
         if dev is None:
             raise RuntimeError("no device answered at " + host)
+        limit_retries(dev)
         return dev
 
     async def handle(self, req):
@@ -89,10 +99,14 @@ class Bridge:
                     await self.switch(dev, not dev.is_on)
                 elif cmd != "state":
                     raise ValueError("unknown command " + str(cmd))
-                return await self.snapshot(dev)
+                out = await self.snapshot(dev)
             except Exception:
-                await self.forget(host)
+                self.failures[host] = self.failures.get(host, 0) + 1
+                if self.failures[host] >= FORGET_AFTER:
+                    await self.forget(host)
                 raise
+            self.failures.pop(host, None)
+            return out
 
     async def set_auth(self, username, password):
         creds = Credentials(username, password) if username and password else None
@@ -107,6 +121,7 @@ class Bridge:
         self.credentials = creds
 
     async def forget(self, host):
+        self.failures.pop(host, None)
         dev = self.devices.pop(host, None)
         if dev is not None:
             try:
@@ -164,6 +179,24 @@ class Bridge:
         return entry
 
 
+def limit_retries(dev):
+    """Cap python-kasa's own retries on a plug's requests (see QUERY_RETRIES)."""
+    proto = getattr(dev, "protocol", None)
+    query = getattr(proto, "query", None)
+    if query is None:
+        return
+
+    async def limited(request, retry_count=QUERY_RETRIES):
+        return await query(request, retry_count=min(retry_count, QUERY_RETRIES))
+
+    proto.query = limited
+
+
+def is_throttled(msg):
+    """Whether a plug is refusing logins because it has had too many."""
+    return "STAT_ACCESS_ERROR" in msg or "(-2203)" in msg
+
+
 def is_login_error(exc, msg):
     """Whether a failure means the TP-Link login is wrong.
 
@@ -187,6 +220,8 @@ async def serve(bridge, lines, write):
             msg = str(exc) or exc.__class__.__name__
             if is_login_error(exc, msg):
                 msg = "login rejected: check the TP-Link account email and password"
+            elif is_throttled(msg):
+                msg = "plug throttled: refusing logins after too many attempts"
             reply["ok"], reply["error"] = False, msg
         write(reply)
 

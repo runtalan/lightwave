@@ -107,7 +107,7 @@ export function emptySettings(): SettingsView {
     configPath: '',
     mappingPath: '',
     launchAtLogin: false,
-    webEnabled: false,
+    webEnabled: true,
     webAddr: ':8787',
     webRunning: false,
     webHasToken: false,

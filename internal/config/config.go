@@ -195,12 +195,12 @@ type Settings struct {
 	MidiCCMin int `json:"midiCCMin"`
 	MidiCCMax int `json:"midiCCMax"`
 	// MidiDisabled keeps the MIDI listener stopped, including across
-	// launches. Stored inverted so a settings file without it keeps listening.
+	// launches. On by default: a settings file without it also stays stopped.
 	MidiDisabled    bool   `json:"midiDisabled"`
 	IdleHideSeconds int    `json:"idleHideSeconds"`
 	GoveeAPIKey     string `json:"goveeApiKey,omitempty"`
-	// WebEnabled starts the phone control server at launch. Off by default:
-	// nothing binds a port until the user asks for it.
+	// WebEnabled starts the phone control server at launch. On by default;
+	// the private-network check on every request is what keeps it safe.
 	WebEnabled bool `json:"webEnabled"`
 	// WebAddr is the listen address, e.g. ":8787" for every interface or
 	// "100.92.4.7:8787" to bind only a VPN address.
@@ -313,6 +313,8 @@ func DefaultSettings() Settings {
 		IdleHideSeconds: 3,
 		FadeSeconds:     DefaultFadeSeconds,
 		FadeDrift:       DefaultFadeDrift,
+		MidiDisabled:    true,
+		WebEnabled:      true,
 		WebAddr:         DefaultWebAddr,
 		Warmness:        DefaultWarmness,
 		FrontWarmth:     DefaultFrontWarmth,

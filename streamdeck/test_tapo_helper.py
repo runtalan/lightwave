@@ -83,22 +83,48 @@ class BridgeTest(unittest.TestCase):
 
         self.assertEqual(run(go()), (True, True, False))
 
-    def test_connection_is_reused_until_it_fails(self):
+    def test_session_survives_a_failure_and_is_dropped_only_if_it_keeps_failing(self):
         plug = FakePlug(on=True)
         b = self.bridge(plug)
 
-        async def go():
-            await b.handle({"cmd": "state", "host": "h"})
-            await b.handle({"cmd": "state", "host": "h"})
-            plug.fail = RuntimeError("timed out")
+        async def fail_once():
             with self.assertRaises(RuntimeError):
                 await b.handle({"cmd": "state", "host": "h"})
+
+        async def go():
+            await b.handle({"cmd": "state", "host": "h"})
+            plug.fail = RuntimeError("timed out")
+            await fail_once()
+            plug.fail = None
+            await b.handle({"cmd": "state", "host": "h"})
+            # A success resets the count, so the session is kept again.
+            self.assertEqual(b.opened, ["h"])
+            self.assertFalse(plug.disconnected)
+
+            plug.fail = RuntimeError("timed out")
+            for _ in range(tapo_helper.FORGET_AFTER):
+                await fail_once()
             plug.fail = None
             await b.handle({"cmd": "state", "host": "h"})
 
         run(go())
-        self.assertEqual(b.opened, ["h", "h"])  # reopened once, after the failure
+        self.assertEqual(b.opened, ["h", "h"])  # found again once, after the run of failures
         self.assertTrue(plug.disconnected)
+
+    def test_kasa_retries_are_capped(self):
+        seen = []
+
+        class Proto:
+            async def query(self, request, retry_count=3):
+                seen.append(retry_count)
+                return {}
+
+        dev = FakePlug()
+        dev.protocol = Proto()
+        tapo_helper.limit_retries(dev)
+        run(dev.protocol.query({}))
+        run(dev.protocol.query({}, retry_count=0))
+        self.assertEqual(seen, [tapo_helper.QUERY_RETRIES, 0])
 
     def test_missing_host_is_an_error(self):
         b = self.bridge(FakePlug())
@@ -161,6 +187,24 @@ class BridgeTest(unittest.TestCase):
         run(go())
         self.assertFalse(out[0]["ok"])
         self.assertIn("login rejected", out[0]["error"])
+
+    def test_throttled_plug_is_named_as_such(self):
+        class Failing(FakePlug):
+            async def update(self):
+                raise RuntimeError("TPAP pake_share failed for h: STAT_ACCESS_ERROR(-2203) (error_code=STAT_ACCESS_ERROR)")
+
+        b = self.bridge(Failing())
+        out = []
+
+        async def go():
+            q = asyncio.Queue()
+            q.put_nowait(json.dumps({"id": 1, "cmd": "state", "host": "h"}))
+            q.put_nowait(None)
+            await tapo_helper.serve(b, q, out.append)
+
+        run(go())
+        self.assertFalse(out[0]["ok"])
+        self.assertIn("plug throttled", out[0]["error"])
 
 
 if __name__ == "__main__":
