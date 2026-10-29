@@ -21,6 +21,7 @@ func TestPlugProblemSaysWhatToFix(t *testing.T) {
 		{tapo.ErrNotSetUp, "NOT SET UP"},
 		{fmt.Errorf("wrapped: %w", tapo.ErrNotSetUp), "NOT SET UP"},
 		{errors.New("login rejected: check the TP-Link account email and password"), "BAD LOGIN"},
+		{errors.New("plug throttled: refusing logins after too many attempts"), "THROTTLED"},
 		// No account entered yet, and the plug would not answer: say so, rather
 		// than leaving "OFFLINE" for a plug that is only waiting on a login.
 		{errors.New("timed out waiting for the plug"), "NO LOGIN"},
@@ -65,10 +66,46 @@ func TestRejectedLoginIsNotRetriedEveryPoll(t *testing.T) {
 	if !p.plugs["h"].retryAt.IsZero() {
 		t.Fatal("a new login or key should release the hold")
 	}
-	// An unreachable plug is not a login problem and keeps its normal pace.
+	// A plug that misses one read keeps its normal pace.
+	p.plugs["h"] = plugView{}
 	p.setPlug("h", tapo.Reading{}, errors.New("timed out waiting for the plug"))
 	if !p.plugs["h"].retryAt.IsZero() {
-		t.Fatal("only login failures should back off")
+		t.Fatal("one missed read should not back off")
+	}
+}
+
+func TestUnreachablePlugIsAskedLessOftenUntilItAnswers(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
+	gone := errors.New("timed out waiting for the plug")
+	var last time.Duration
+	for i := 0; i < 8; i++ {
+		p.setPlug("h", tapo.Reading{}, gone)
+		var hold time.Duration
+		if at := p.plugs["h"].retryAt; !at.IsZero() {
+			hold = time.Until(at)
+		}
+		if i > 0 && hold < last-time.Second {
+			t.Fatalf("failure %d held %v, less than the %v before it", i+1, hold, last)
+		}
+		if hold > offlineRetry {
+			t.Fatalf("failure %d held %v, past the %v cap", i+1, hold, offlineRetry)
+		}
+		last = hold
+	}
+	if last < offlineRetry-time.Second {
+		t.Fatalf("a plug gone for a while is held %v, want about %v", last, offlineRetry)
+	}
+	p.setPlug("h", tapo.Reading{On: true}, nil)
+	if v := p.plugs["h"]; v.fails != 0 || !v.retryAt.IsZero() {
+		t.Fatalf("an answer should reset the backoff, got %+v", v)
+	}
+}
+
+func TestThrottledPlugIsLeftAlone(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
+	p.setPlug("h", tapo.Reading{}, errors.New("plug throttled: refusing logins after too many attempts"))
+	if time.Until(p.plugs["h"].retryAt) < loginRetry-time.Second {
+		t.Fatal("a throttling plug should be left for the login retry period")
 	}
 }
 

@@ -105,7 +105,7 @@ Two further controls:
   your lights. Open the URL with `?token=…` once and the phone stores it, so
   bookmarking or adding to the home screen keeps working.
 
-The server is **off until you switch it on** and binds nothing before that.
+The server is **on by default**. Turn it off in **Config → Remote** if you don't want it.
 Starting and stopping take effect immediately — no restart.
 
 ### What it costs
@@ -170,7 +170,7 @@ Useful extras: **drag a pad onto another** to move or swap it, and click the **�
 
 ## Using a keypad, knob, or dial
 
-Lightwave listens to **any MIDI controller**. It's built around a numpad, but a knob box, a DJ controller, or a MIDI foot pedal works just as well — anything that sends MIDI over USB.
+Lightwave listens to **any MIDI controller**. It's built around a numpad, but a knob box, a DJ controller, or a MIDI foot pedal works just as well — anything that sends MIDI over USB. MIDI listening is **off by default**; turn it on in **Config → MIDI** ("Start listening").
 
 ### The quick path: auto-learn
 

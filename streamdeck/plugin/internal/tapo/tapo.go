@@ -59,7 +59,10 @@ type Client struct {
 	// Empty means the installed locations; tests set them.
 	Python, Helper string
 
-	mu         sync.Mutex
+	mu sync.Mutex
+	// startMu is held while a helper starts and takes its login, so no
+	// command reaches a helper that does not have the login yet.
+	startMu    sync.Mutex
 	p          *helper.Proc
 	user, pass string
 	failedAt   time.Time
@@ -155,38 +158,64 @@ func (c *Client) call(req map[string]any, timeout time.Duration) (json.RawMessag
 
 // proc returns the running helper, starting it if it is not.
 func (c *Client) proc() (*helper.Proc, error) {
-	c.mu.Lock()
-	if c.p != nil && c.p.Alive() {
-		p := c.p
-		c.mu.Unlock()
+	if p := c.running(); p != nil {
 		return p, nil
 	}
+	// Callers that arrive while the helper starts wait here for it, rather than
+	// sending their commands ahead of the login. A plug asked without the login
+	// rejects it, and that holds the plug off for a minute.
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if p := c.running(); p != nil {
+		return p, nil
+	}
+
+	c.mu.Lock()
 	if c.failure != nil && time.Since(c.failedAt) < restartBackoff {
 		err := c.failure
 		c.mu.Unlock()
 		return nil, err
 	}
+	c.mu.Unlock()
 	python, helperPath, err := c.locate()
+	var p *helper.Proc
 	if err == nil {
-		c.p, err = helper.Start("Tapo", python, helperPath)
+		p, err = helper.Start("Tapo", python, helperPath)
 	}
 	if err != nil {
+		c.mu.Lock()
 		c.failure, c.failedAt = err, time.Now()
 		c.mu.Unlock()
 		return nil, err
 	}
-	c.failure = nil
-	p, user := c.p, c.user != ""
-	c.mu.Unlock()
 
-	if user {
-		// The helper runs requests concurrently, so wait for the login to land
-		// before the caller's first command can overtake it.
-		if _, err := p.Call(c.authRequest(), callTimeout); err != nil {
+	// The helper is published only once it has the current login. SetLogin
+	// cannot reach it before then, so send again if the login changed meanwhile.
+	sentUser, sentPass := "", ""
+	for {
+		c.mu.Lock()
+		user, pass := c.user, c.pass
+		if user == sentUser && pass == sentPass {
+			c.p, c.failure = p, nil
+			c.mu.Unlock()
+			return p, nil
+		}
+		c.mu.Unlock()
+		if _, err := p.Call(map[string]any{"cmd": "auth", "username": user, "password": pass}, callTimeout); err != nil {
 			log.Printf("tapo: sending login: %v", err)
 		}
+		sentUser, sentPass = user, pass
 	}
-	return p, nil
+}
+
+// running is the helper if it is up.
+func (c *Client) running() *helper.Proc {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.p != nil && c.p.Alive() {
+		return c.p
+	}
+	return nil
 }
 
 func (c *Client) locate() (python, script string, err error) {

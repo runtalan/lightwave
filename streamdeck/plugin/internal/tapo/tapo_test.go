@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -21,38 +22,54 @@ func TestMain(m *testing.M) {
 }
 
 func fakeHelper() {
-	on := false
+	// Like the real helper, requests are answered concurrently, so a command
+	// sent while the login is still being handled can overtake it.
+	var mu sync.Mutex
+	on, authed := false, false
 	sc := bufio.NewScanner(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
 	for sc.Scan() {
 		var req map[string]any
 		_ = json.Unmarshal(sc.Bytes(), &req)
-		rep := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
-		switch req["cmd"] {
-		case "auth":
-			if req["username"] != "me@example.com" {
-				rep["ok"], rep["error"] = false, "login rejected"
+		go func() {
+			rep := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
+			if req["cmd"] == "auth" && req["username"] == "me@example.com" {
+				time.Sleep(50 * time.Millisecond)
 			}
-		case "toggle":
-			on = !on
-			rep["result"] = map[string]any{"on": on, "watts": 12.5, "alias": "Desk"}
-		case "set":
-			on, _ = req["on"].(bool)
-			rep["result"] = map[string]any{"on": on, "watts": nil, "alias": "Desk"}
-		case "state":
-			if req["host"] == "gone" {
-				rep["ok"], rep["error"] = false, "no device answered at gone"
-				break
+			mu.Lock()
+			defer mu.Unlock()
+			switch req["cmd"] {
+			case "auth":
+				if req["username"] != "me@example.com" {
+					rep["ok"], rep["error"] = false, "login rejected"
+					break
+				}
+				authed = true
+			case "toggle":
+				on = !on
+				rep["result"] = map[string]any{"on": on, "watts": 12.5, "alias": "Desk"}
+			case "set":
+				on, _ = req["on"].(bool)
+				rep["result"] = map[string]any{"on": on, "watts": nil, "alias": "Desk"}
+			case "state":
+				if req["host"] == "needs-login" && !authed {
+					rep["ok"], rep["error"] = false, "login rejected"
+					break
+				}
+				if req["host"] == "gone" {
+					rep["ok"], rep["error"] = false, "no device answered at gone"
+					break
+				}
+				rep["result"] = map[string]any{"on": on, "watts": 3.0, "alias": "Desk"}
+			case "discover":
+				rep["result"] = map[string]any{"plugs": []map[string]any{
+					{"host": "10.0.0.5", "alias": "Desk", "model": "P110", "auth": true},
+				}}
+			case "die":
+				os.Exit(1)
 			}
-			rep["result"] = map[string]any{"on": on, "watts": 3.0, "alias": "Desk"}
-		case "discover":
-			rep["result"] = map[string]any{"plugs": []map[string]any{
-				{"host": "10.0.0.5", "alias": "Desk", "model": "P110", "auth": true},
-			}}
-		case "die":
-			os.Exit(1)
-		}
-		_ = out.Encode(rep)
+			_ = out.Encode(rep)
+		}()
 	}
 }
 
@@ -133,5 +150,25 @@ func TestMissingSetupIsReportedAndNotRetriedHot(t *testing.T) {
 	}
 	if c.p != nil {
 		t.Fatal("started a process despite no setup")
+	}
+}
+
+func TestCommandsThatRaceTheStartWaitForTheLogin(t *testing.T) {
+	c := fakeClient(t)
+	c.SetLogin("me@example.com", "pw")
+	// The fake answers "state" for a plug at "needs-login" only once it has the
+	// login, and takes its time over the login, so any command that overtakes
+	// it fails.
+	errs := make(chan error, 8)
+	for i := 0; i < cap(errs); i++ {
+		go func() {
+			_, err := c.State("needs-login")
+			errs <- err
+		}()
+	}
+	for i := 0; i < cap(errs); i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("a command overtook the login: %v", err)
+		}
 	}
 }
