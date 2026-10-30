@@ -401,6 +401,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.ble.StartTransport()
 	a.ble.OnAdapter(func() { a.scheduleStateEmit() })
+	a.ble.OnReady(a.repaintReconnected)
 	if err := a.ble.Start(func(d govee.Device) {
 		a.mergeBLE(d)
 		a.scheduleStateEmit()
@@ -2022,6 +2023,26 @@ func (a *App) beginPaint(turnOn, whole bool) (bool, bool) {
 		}
 	}
 	return turnOn, true
+}
+
+// repaintReconnected gives a Bluetooth lamp the room's colour again when its
+// link comes back: whatever was sent while it was out of reach was dropped, so
+// a lamp that dropped and rejoined would otherwise keep its old colour.
+func (a *App) repaintReconnected(addr string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("ble repaint recovered: %v", r)
+		}
+	}()
+	// Let the worker finish its handshake and the first keep-alive.
+	time.Sleep(700 * time.Millisecond)
+	a.mu.Lock()
+	dancing := a.dancing
+	a.mu.Unlock()
+	if dancing {
+		return // the fade repaints every lamp on its next step
+	}
+	a.paintSceneOnly(false, func(d lampDest) bool { return strings.EqualFold(d.IP, addr) })
 }
 
 // paintSceneOnly is paintScene narrowed to the lamps only accepts, each still

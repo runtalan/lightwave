@@ -62,6 +62,7 @@ type BLE struct {
 	statusAsked map[string]time.Time
 	onAdapter   func()
 	onLink      func()
+	onReady     func(addr string)
 	found       map[string]Device
 	conns       map[string]*bleConn
 	rssi        map[string]int
@@ -109,6 +110,15 @@ func (b *BLE) Start(onDev func(Device)) error {
 func (b *BLE) OnAdapter(f func()) {
 	b.mu.Lock()
 	b.onAdapter = f
+	b.mu.Unlock()
+}
+
+// OnReady is called, off the radio's callback, each time a lamp's connection
+// comes up. Packets sent while a lamp is unreachable are dropped, so this is
+// the moment to send it what it missed.
+func (b *BLE) OnReady(f func(addr string)) {
+	b.mu.Lock()
+	b.onReady = f
 	b.mu.Unlock()
 }
 
@@ -600,8 +610,18 @@ func (b *BLE) RequestStatus(addr string) {
 
 func bleOnReady(id string) {
 	if c := bleLookup(id); c != nil {
-		c.ready.Store(true)
+		was := c.ready.Swap(true)
 		c.ping()
+		if !was {
+			if b := bleActive.Load(); b != nil {
+				b.mu.Lock()
+				f := b.onReady
+				b.mu.Unlock()
+				if f != nil {
+					go f(BLEPrefix + strings.ToUpper(id))
+				}
+			}
+		}
 	}
 }
 
