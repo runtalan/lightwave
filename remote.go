@@ -22,8 +22,8 @@ import (
 //	TOGGLE_SLOT <1-9>  -> ignite/extinguish one pad
 //	SLOT_ON <1-9>      -> ignite (idempotent)
 //	SLOT_OFF <1-9>     -> extinguish (idempotent)
-//	BRIGHTNESS <0-100> -> absolute level for the pool
-//	BRIGHTNESS +/-<n>  -> relative nudge
+//	BRIGHTNESS <0-100> -> every lamp to this level, clearing their trims
+//	BRIGHTNESS +/-<n>  -> every lamp n points from its own level
 //	ALL_OFF            -> everything off, pool cleared
 //	ALL_ON             -> every bound light on at the slider level
 //	ALL_TOGGLE         -> all off if anything is lit, else all on
@@ -102,23 +102,19 @@ func (a *App) RemoteCommand(cmd string) string {
 		if arg == "" {
 			return "ERR brightness needs a value"
 		}
-		var target int
 		if arg[0] == '+' || arg[0] == '-' {
 			delta, err := strconv.Atoi(arg)
 			if err != nil {
 				return "ERR bad brightness delta"
 			}
-			a.mu.Lock()
-			target = a.brightness + delta
-			a.mu.Unlock()
-		} else {
-			v, err := strconv.Atoi(arg)
-			if err != nil {
-				return "ERR bad brightness"
-			}
-			target = v
+			a.NudgeBrightness(delta)
+			return a.remoteState()
 		}
-		a.SetBrightness(clampBrightness(target))
+		v, err := strconv.Atoi(arg)
+		if err != nil {
+			return "ERR bad brightness"
+		}
+		a.SetBrightness(clampBrightness(v))
 		return a.remoteState()
 
 	case "ALL_OFF":

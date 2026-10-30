@@ -161,6 +161,9 @@ type instance struct {
 	// an event already in flight still carries the settings from before the
 	// push and would move it straight back.
 	knob string
+	// pick is the light the main brightness dial is on, 0 for every light.
+	// A tap moves it; held here for the same reason as knob.
+	pick int
 	// layout is the touch-strip layout last set on a monitor bar dial, ""
 	// until the plugin has set one.
 	layout string
@@ -171,7 +174,8 @@ type settings struct {
 	Direction string `json:"direction,omitempty"`
 	// Knob is a monitor bar dial's saved page; see instance.knob.
 	Knob string `json:"knob,omitempty"`
-	// Light is the pad the light dials were last on; see plugin.light.
+	// Light is the pad the light dials were last on; see plugin.light. On the
+	// main brightness dial it is that dial's own light; see instance.pick.
 	Light int `json:"light,omitempty"`
 	// Host and Name are a Tapo plug key's plug: its address on the LAN, and the
 	// label to draw on the key.
@@ -406,6 +410,9 @@ func (p *plugin) trackContext(ev sd.Event) {
 	inst := p.contexts[ev.Context]
 	if inst == nil {
 		inst = &instance{context: ev.Context, knob: s.Knob}
+		if ev.Action == actBrightness {
+			inst.pick = s.Light
+		}
 		p.contexts[ev.Context] = inst
 	}
 	// Keep the title bookkeeping: only action and settings come from the event.
@@ -523,9 +530,28 @@ func (p *plugin) press(ev sd.Event) {
 		// where they land — doing it from here was a hidden side effect.
 		cmds = []string{"RECALL_TOGGLE"}
 	case actBrightness:
-		// Deliberately inert: brightness belongs to the app's slider, and this
-		// key is only a readout. Dial rotation still adjusts it — see rotate() —
-		// because a dial is a slider rather than a button.
+		if inst.controller != encoder {
+			// A key is only a readout: brightness belongs to the slider.
+			return
+		}
+		// Tapping or pushing the dial moves it through each light that is on,
+		// then back to all of them. Nothing is sent to any lamp.
+		if !have {
+			fresh, err := p.client.Command("STATE")
+			if err != nil {
+				log.Printf("brightness dial: %v", err)
+				p.sd.ShowAlert(ev.Context)
+				return
+			}
+			p.applyState(fresh)
+			st = fresh
+		}
+		p.mu.Lock()
+		inst.pick = nextBrightnessPick(st, inst.pick)
+		saved := settings{Light: inst.pick}
+		p.mu.Unlock()
+		p.sd.SetSettings(ev.Context, saved)
+		p.refreshOne(ev.Context)
 		return
 	default:
 		return
@@ -575,6 +601,18 @@ func (p *plugin) rotate(ev sd.Event) {
 	if inst != nil && inst.action == actMonitor {
 		p.rotateMonitor(ev, inst)
 		return
+	}
+	if inst != nil && inst.action == actBrightness {
+		p.mu.Lock()
+		st, pick := p.state, inst.pick
+		p.mu.Unlock()
+		if pad := brightnessPick(st, pick); pad != nil {
+			// On one light, the dial is that light's brightness.
+			if cmd, _ := lightLevelCmd(st, pad, ev.Payload.Ticks); cmd != "" {
+				p.run(ev.Context, cmd)
+			}
+			return
+		}
 	}
 	p.rotateBrightness(ev)
 }
@@ -681,7 +719,8 @@ func (p *plugin) rotateMode(ev sd.Event) {
 	}
 }
 
-// rotateBrightness maps a dial to the pool brightness.
+// rotateBrightness brightens or dims every light by the same amount from its
+// own level, so lights set apart from the room keep their distance from it.
 func (p *plugin) rotateBrightness(ev sd.Event) {
 	ticks := ev.Payload.Ticks
 	if ticks == 0 {
@@ -928,20 +967,18 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			p.sd.SetState(inst.context, 0)
 		}
 	case actBrightness:
+		if dial {
+			// The dial keeps its manifest icon and draws its touch strip like
+			// Light Brightness does, for every light at once.
+			p.sd.SetImage(inst.context, "")
+			p.renderBrightnessDial(inst, st)
+			break
+		}
 		// A read-only gauge: the slider owns the value, this reports it.
 		if img, err := render.Level(st.Brightness, st.AnyOn()); err == nil {
 			p.sd.SetImage(inst.context, img)
 		} else {
 			log.Printf("level render: %v", err)
-		}
-		// On a Stream Deck + dial the image fills only the icon slot; the
-		// touch strip's value comes from the layout, as with the other dials.
-		if dial {
-			p.sd.SetFeedback(inst.context, map[string]any{
-				"title":     "Brightness",
-				"value":     strconv.Itoa(st.Brightness) + "%",
-				"indicator": st.Brightness,
-			})
 		}
 	case actSweep:
 		// The dial reports how far through the room the knob has walked, as a

@@ -98,6 +98,10 @@ export function MoveSlot(arg1, arg2) {
   return window['go']['main']['App']['MoveSlot'](arg1, arg2);
 }
 
+export function NudgeBrightness(arg1) {
+  return window['go']['main']['App']['NudgeBrightness'](arg1);
+}
+
 export function OpenConfig() {
   return window['go']['main']['App']['OpenConfig']();
 }
@@ -150,8 +154,20 @@ export function ScanLAN() {
   return window['go']['main']['App']['ScanLAN']();
 }
 
+export function SelectBarScene(arg1) {
+  return window['go']['main']['App']['SelectBarScene'](arg1);
+}
+
+export function SetBarScene(arg1) {
+  return window['go']['main']['App']['SetBarScene'](arg1);
+}
+
 export function SetBrightness(arg1) {
   return window['go']['main']['App']['SetBrightness'](arg1);
+}
+
+export function SetColorMode(arg1) {
+  return window['go']['main']['App']['SetColorMode'](arg1);
 }
 
 export function SetConfigAPIKey(arg1) {
@@ -176,6 +192,14 @@ export function SetMIDIListening(arg1) {
 
 export function SetPalette(arg1) {
   return window['go']['main']['App']['SetPalette'](arg1);
+}
+
+export function SetSlotColor(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetSlotColor'](arg1, arg2, arg3, arg4);
+}
+
+export function SetSlotLevel(arg1, arg2) {
+  return window['go']['main']['App']['SetSlotLevel'](arg1, arg2);
 }
 
 export function SetSlotTrim(arg1, arg2) {
@@ -204,6 +228,14 @@ export function ShowHUD() {
 
 export function StartWindowDrag() {
   return window['go']['main']['App']['StartWindowDrag']();
+}
+
+export function StepBarScene(arg1) {
+  return window['go']['main']['App']['StepBarScene'](arg1);
+}
+
+export function StepColorMode(arg1) {
+  return window['go']['main']['App']['StepColorMode'](arg1);
 }
 
 export function ToggleAll() {

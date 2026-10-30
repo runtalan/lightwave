@@ -1858,7 +1858,25 @@ func (a *App) applyBrightness(percent int) {
 	a.mu.Lock()
 	a.brightness = percent
 	a.lastBrightTouch = time.Now()
+	// The slider is absolute: it puts every lamp at its level, so a lamp set
+	// above or below the room by a dial comes back in line with the rest.
+	cleared := false
+	for i := range a.slots {
+		if a.slots[i].Trim != 0 {
+			a.slots[i].Trim = 0
+			cleared = true
+		}
+	}
+	var snapshot config.SlotFile
+	if cleared {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
 	a.mu.Unlock()
+	if cleared {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("brightness: save failed: %v", err)
+		}
+	}
 	a.pendingBright.Store(int32(percent))
 	select {
 	case a.brightKick <- struct{}{}:
@@ -2130,6 +2148,7 @@ func (a *App) ToggleGradient() HUDState {
 		}
 	}()
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	a.gradient = !a.gradient
 	on := a.gradient
@@ -2162,6 +2181,7 @@ func (a *App) CycleColor(direction int) HUDState {
 		direction = 1
 	}
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	if a.warmMode {
 		// Positive palette movement means more warmth: step down in Kelvin.
@@ -2189,6 +2209,7 @@ func (a *App) CycleColor(direction int) HUDState {
 // temperature. Palette selections remain available when switched back.
 func (a *App) ToggleWarmMode() HUDState {
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	a.warmMode = !a.warmMode
 	if a.warmMode {
@@ -2255,13 +2276,14 @@ func (a *App) StepColorMode(direction int) HUDState {
 // toggling warm mode and then the gradient would paint the room twice.
 func (a *App) SetColorMode(mode string) HUDState {
 	a.recordUserActivity()
+	released := a.releaseOwnColors()
 	a.mu.Lock()
 	warm := mode == ModeWarmness
 	grad := a.gradient
 	if !warm {
 		grad = mode == ModePalette
 	}
-	if warm == a.warmMode && grad == a.gradient {
+	if warm == a.warmMode && grad == a.gradient && !released {
 		a.mu.Unlock()
 		return a.snapshot()
 	}
@@ -2295,6 +2317,7 @@ func (a *App) SetColorMode(mode string) HUDState {
 // SetWarmness sets a native white temperature in Kelvin.
 func (a *App) SetWarmness(kelvin int) HUDState {
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	a.warmness = clampWarmness(kelvin)
 	s := a.settings
@@ -2520,6 +2543,7 @@ func (a *App) SetPalette(index int) HUDState {
 		}
 	}()
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	n := len(color.Palettes)
 	a.engine.Index = ((index % n) + n) % n
