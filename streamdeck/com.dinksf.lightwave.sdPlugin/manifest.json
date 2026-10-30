@@ -173,16 +173,17 @@
       "UUID": "com.dinksf.lightwave.brightness",
       "Name": "Brightness",
       "Icon": "imgs/actions/brightness",
-      "Tooltip": "Shows the current brightness. Read-only on a key — set the level with the app's slider; on Stream Deck + the dial adjusts it.",
+      "Tooltip": "Shows the current brightness. Read-only on a key. On Stream Deck + turn the dial to brighten or dim every light by the same amount from where each one is, so lights set brighter or dimmer than the rest stay that way. Tap or push it to move through each light that is on, turning just that one, and on past the last back to all of them. The app's slider and the MIDI fader instead set every light to the one level.",
       "Controllers": [
         "Keypad",
         "Encoder"
       ],
       "Encoder": {
-        "layout": "$B1",
+        "layout": "layouts/dial.json",
         "TriggerDescription": {
-          "Rotate": "Brightness",
-          "Push": ""
+          "Rotate": "Brighter / dimmer",
+          "Push": "Next light / all",
+          "Touch": "Next light / all"
         }
       },
       "States": [
@@ -221,7 +222,7 @@
       "UUID": "com.dinksf.lightwave.lightlevel",
       "Name": "Light Brightness",
       "Icon": "imgs/actions/lightlevel",
-      "Tooltip": "Set each light's brightness on its own. Turn to dim or brighten the light shown, above or below the rest of the room; push to move to the next light that is on. Pairs with Light Color: pushing either moves both to the next light.",
+      "Tooltip": "Set each light's brightness on its own. Turn to dim or brighten the light shown, above or below the rest of the room; the Brightness dial keeps the difference, the app's slider and the MIDI fader bring every light back to one level. Push to move to the next light that is on. Pairs with Light Color: pushing either moves both to the next light.",
       "Controllers": [
         "Encoder"
       ],

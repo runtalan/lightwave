@@ -280,6 +280,12 @@ func (p *plugin) renderLightLevel(inst *instance, st lw.State) {
 		p.sd.SetFeedback(inst.context, map[string]any{"title": "Light Brightness", "value": "No lights on", "strip": ""})
 		return
 	}
+	p.renderPadLevel(inst, st, pad)
+}
+
+// renderPadLevel fills a brightness touch strip with one light: its name, its
+// place among the lights that are on, how bright it is, and a bar to match.
+func (p *plugin) renderPadLevel(inst *instance, st lw.State, pad *lw.Pad) {
 	pads := litPads(st)
 	place := 1
 	for i, q := range pads {
@@ -297,6 +303,82 @@ func (p *plugin) renderLightLevel(inst *instance, st lw.State) {
 		fb["strip"] = strip
 	} else {
 		log.Printf("light strip render: %v", err)
+	}
+	p.sd.SetFeedback(inst.context, fb)
+}
+
+// allLevels is the range of brightness across the lights that are on, or the
+// slider's level when none is.
+func allLevels(st lw.State) (lo, hi int) {
+	pads := litPads(st)
+	if len(pads) == 0 {
+		return st.Brightness, st.Brightness
+	}
+	lo, hi = 100, 0
+	for _, pad := range pads {
+		level := lightLevel(st, pad)
+		lo, hi = min(lo, level), max(hi, level)
+	}
+	return lo, hi
+}
+
+// brightnessPick is the light the main brightness dial is on: pick while that
+// light is lit, otherwise nil, which is every light at once.
+func brightnessPick(st lw.State, pick int) *lw.Pad {
+	if p := st.Pad(pick); p != nil && p.Bound && p.On {
+		return p
+	}
+	return nil
+}
+
+// nextBrightnessPick is where a tap moves the main brightness dial: from All
+// to the first light that is on, through each lit light in pad order, and
+// from the last back to All (0).
+func nextBrightnessPick(st lw.State, pick int) int {
+	cur := 0
+	if brightnessPick(st, pick) != nil {
+		cur = pick
+	}
+	for _, p := range litPads(st) {
+		if p.Number > cur {
+			return p.Number
+		}
+	}
+	return 0
+}
+
+// renderBrightnessDial fills the main brightness dial's touch strip with the
+// light it is on, or every light when it is on All.
+func (p *plugin) renderBrightnessDial(inst *instance, st lw.State) {
+	p.mu.Lock()
+	pick := inst.pick
+	p.mu.Unlock()
+	if pad := brightnessPick(st, pick); pad != nil {
+		p.renderPadLevel(inst, st, pad)
+		return
+	}
+	p.renderAllLevels(inst, st)
+}
+
+// renderAllLevels fills the main brightness dial's touch strip: how many lights
+// are on, how bright they are (a range when they differ), and a bar to match
+// the brightest.
+func (p *plugin) renderAllLevels(inst *instance, st lw.State) {
+	on, _ := st.CountOn()
+	title := "All Lights · " + strconv.Itoa(on) + " on"
+	if on == 0 {
+		title = "All Lights · off"
+	}
+	lo, hi := allLevels(st)
+	value := strconv.Itoa(hi) + "%"
+	if lo != hi {
+		value = strconv.Itoa(lo) + "–" + strconv.Itoa(hi) + "%"
+	}
+	fb := map[string]any{"title": title, "value": value}
+	if strip, err := render.LevelStrip(hi); err == nil {
+		fb["strip"] = strip
+	} else {
+		log.Printf("brightness strip render: %v", err)
 	}
 	p.sd.SetFeedback(inst.context, fb)
 }

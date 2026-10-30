@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"lightwave/internal/color"
 	"lightwave/internal/config"
@@ -43,6 +44,59 @@ func (a *App) SetSlotLevel(slot, level int) error {
 	a.mu.Unlock()
 	_, err := a.SetSlotTrim(slot, trimForLevel(level, slider))
 	return err
+}
+
+// NudgeBrightness moves every lamp delta points from its own level, clamped to
+// 1-100, so lamps set above or below the room keep their distance from it as
+// the whole room brightens or dims. The slider moves by the same amount and
+// each trim is re-picked to land its lamp on the new level.
+func (a *App) NudgeBrightness(delta int) {
+	if delta == 0 {
+		return
+	}
+	a.mu.Lock()
+	slider := clampBrightness(a.brightness + delta)
+	changed := false
+	for i := range a.slots {
+		if a.slots[i].DeviceID == "" {
+			continue
+		}
+		level := max(1, min(100, a.slotLevelLocked(i+1)+delta))
+		trim := trimForLevel(level, slider)
+		if trim == 100 {
+			// Level with the slider: no trim at all.
+			trim = 0
+		}
+		if trim == a.slots[i].Trim {
+			continue
+		}
+		a.slots[i].Trim = trim
+		changed = true
+		if ip, _, _ := a.slotLinkLocked(i + 1); ip != "" {
+			if a.trimDirty == nil {
+				a.trimDirty = map[string]bool{}
+			}
+			a.trimDirty[ip] = true
+		}
+	}
+	a.brightness = slider
+	a.lastBrightTouch = time.Now()
+	var snapshot config.SlotFile
+	if changed {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
+	a.mu.Unlock()
+	if changed {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("brightness nudge: save failed: %v", err)
+		}
+	}
+	a.pendingBright.Store(int32(slider))
+	select {
+	case a.brightKick <- struct{}{}:
+	default:
+	}
+	a.scheduleStateEmit()
 }
 
 // SetSlotColor gives one pad's lamp a colour of its own: mode is

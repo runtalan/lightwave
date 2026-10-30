@@ -1858,7 +1858,25 @@ func (a *App) applyBrightness(percent int) {
 	a.mu.Lock()
 	a.brightness = percent
 	a.lastBrightTouch = time.Now()
+	// The slider is absolute: it puts every lamp at its level, so a lamp set
+	// above or below the room by a dial comes back in line with the rest.
+	cleared := false
+	for i := range a.slots {
+		if a.slots[i].Trim != 0 {
+			a.slots[i].Trim = 0
+			cleared = true
+		}
+	}
+	var snapshot config.SlotFile
+	if cleared {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
 	a.mu.Unlock()
+	if cleared {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("brightness: save failed: %v", err)
+		}
+	}
 	a.pendingBright.Store(int32(percent))
 	select {
 	case a.brightKick <- struct{}{}:
