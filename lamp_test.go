@@ -113,3 +113,17 @@ func TestReleaseOwnColorsReturnsLampsToRoom(t *testing.T) {
 		t.Fatal("nothing left to release, yet reported one")
 	}
 }
+
+// A scene playing on the bar's back light rejoins the room too, but switching
+// the back light off is left alone.
+func TestReleaseOwnColorsEndsBarScene(t *testing.T) {
+	a := nudgeTestApp(80, 0)
+	a.barScene = "Siren"
+	if !a.releaseOwnColors() || a.barScene != "" {
+		t.Fatalf("scene kept: %q", a.barScene)
+	}
+	a.barScene = barBackOff
+	if a.releaseOwnColors() || a.barScene != barBackOff {
+		t.Fatalf("back light off was undone: %q", a.barScene)
+	}
+}

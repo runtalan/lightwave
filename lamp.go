@@ -99,8 +99,8 @@ func (a *App) NudgeBrightness(delta int) {
 	a.scheduleStateEmit()
 }
 
-// releaseOwnColors returns every lamp with a colour of its own to the room's,
-// and reports whether any was. Changing the room's palette, warmness or mode
+// releaseOwnColors returns every lamp with a colour of its own, and a bar's
+// Govee scene, to the room's, and reports whether any were. Changing the room's palette, warmness or mode
 // means the whole room, so a lamp set apart with a dial must not sit it out.
 // The caller repaints.
 func (a *App) releaseOwnColors() bool {
@@ -116,13 +116,30 @@ func (a *App) releaseOwnColors() bool {
 	if released {
 		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
 	}
+	// A Govee scene on a monitor bar's back light is the same thing: the room
+	// painters leave it alone while it plays. The bar being switched off is
+	// a choice about the light, not a colour, so that one stays.
+	sceneOver := a.barScene != "" && a.barScene != barBackOff
+	var s config.Settings
+	if sceneOver {
+		a.barScene = ""
+		a.barSceneGen++ // a scene still waiting to be sent must not land
+		s = a.settings
+		s.BarScene = ""
+		a.settings = s
+	}
 	a.mu.Unlock()
 	if released {
 		if err := config.SaveSlotFile(snapshot); err != nil {
 			log.Printf("lamp colour: save failed: %v", err)
 		}
 	}
-	return released
+	if sceneOver {
+		if err := config.SaveSettings(s); err != nil {
+			log.Printf("persist bar scene: %v", err)
+		}
+	}
+	return released || sceneOver
 }
 
 // SetSlotColor gives one pad's lamp a colour of its own: mode is
