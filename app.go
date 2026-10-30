@@ -237,6 +237,15 @@ type App struct {
 	stop          chan struct{}
 	brightKick    chan struct{}
 	pendingBright atomic.Int32
+	// paintMu serialises lamp paints. A fast spin of a palette dial starts a
+	// paint per detent, and Bluetooth lamps queue what they are sent, so
+	// overlapping paints interleave and the last colour a lamp ends on can be
+	// an earlier palette's. paintSeq numbers whole-room paints so a paint
+	// that a newer one has overtaken can be skipped, and paintOn carries a
+	// skipped paint's turn-on forward to the one that runs.
+	paintMu  sync.Mutex
+	paintSeq atomic.Uint64
+	paintOn  atomic.Bool
 	emitPending   atomic.Uint32
 	// midiLastCC is the last fader reading applied, packed as
 	// 1<<16 | cc<<8 | value (0 = none yet). Repeats of it are dropped.
@@ -1990,14 +1999,44 @@ func (a *App) paintScene(turnOn bool) {
 	a.paintSceneOnly(turnOn, nil)
 }
 
+// beginPaint takes the paint lock. For a whole-room paint it reports false
+// when a newer whole-room paint has been asked for since, which will paint the
+// state as it now stands, and otherwise folds in any turn-on it skipped. The
+// caller defers a.paintMu.Unlock() when ok.
+func (a *App) beginPaint(turnOn, whole bool) (bool, bool) {
+	var seq uint64
+	if whole {
+		seq = a.paintSeq.Add(1)
+		if turnOn {
+			a.paintOn.Store(true)
+		}
+	}
+	a.paintMu.Lock()
+	if whole {
+		if a.paintSeq.Load() != seq {
+			a.paintMu.Unlock()
+			return turnOn, false
+		}
+		if a.paintOn.Swap(false) {
+			turnOn = true
+		}
+	}
+	return turnOn, true
+}
+
 // paintSceneOnly is paintScene narrowed to the lamps only accepts, each still
 // taking the swatch its place in the pool gives it. nil paints every lamp.
 func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
+	turnOn, ok := a.beginPaint(turnOn, only == nil)
+	if !ok {
+		return
+	}
+	defer a.paintMu.Unlock()
 	a.mu.Lock()
 	warm := a.warmMode
 	a.mu.Unlock()
 	if warm {
-		a.paintWarmnessOnly(turnOn, only)
+		a.paintWarmnessBody(turnOn, only)
 		return
 	}
 	a.mu.Lock()
@@ -2492,6 +2531,16 @@ func (a *App) paintWarmness(turnOn bool) {
 // Lamps with a front light take frontWarmth rather than the main warmth: the
 // monitor bar keeps its own temperature, set from its own dial.
 func (a *App) paintWarmnessOnly(turnOn bool, only func(lampDest) bool) {
+	turnOn, ok := a.beginPaint(turnOn, only == nil)
+	if !ok {
+		return
+	}
+	defer a.paintMu.Unlock()
+	a.paintWarmnessBody(turnOn, only)
+}
+
+// paintWarmnessBody is paintWarmnessOnly with the paint lock already held.
+func (a *App) paintWarmnessBody(turnOn bool, only func(lampDest) bool) {
 	a.mu.Lock()
 	dests := a.poolDestsLocked()
 	room := warmRGB(a.warmness)
