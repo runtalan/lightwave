@@ -42,9 +42,9 @@ Lights that are on glow on screen, so the window is a live map of the room. If y
 
 ### Color palettes
 
-Thirteen built-in palettes, in two groups.
+Sixteen built-in palettes, in two groups.
 
-**Vivid** — for when the lights are part of the room's character: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset.
+**Vivid** — for when the lights are part of the room's character: Warm Whites, Soft Ambers, Deep Oranges, Reds, Purples, Ocean, Fall Leaves, Sunset, Campfire, Embers, Golden Hour.
 
 **Peaceful** — quiet light to live under rather than look at: Sage, Lavender Mist, Candlelight, Morning Haze, Blush.
 

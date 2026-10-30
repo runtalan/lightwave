@@ -104,6 +104,43 @@ var Palettes = []Palette{
 			{R: 96, G: 52, B: 168},
 		},
 	},
+	{
+		// Flame at the middle of a fire: bright orange with the yellow of a
+		// flare-up and the red-brown of the logs either side. Solid takes the
+		// centre swatch, so it lands on the orange.
+		Name: "Campfire",
+		Colors: []RGBK{
+			{R: 196, G: 48, B: 10},
+			{R: 238, G: 88, B: 14},
+			{R: 255, G: 122, B: 20},
+			{R: 255, G: 170, B: 40},
+			{R: 150, G: 32, B: 8},
+		},
+	},
+	{
+		// The last of a fire: coals running from dark red to a glowing orange,
+		// nothing brighter, so it stays low and warm.
+		Name: "Embers",
+		Colors: []RGBK{
+			{R: 150, G: 30, B: 8},
+			{R: 214, G: 58, B: 12},
+			{R: 240, G: 84, B: 14},
+			{R: 255, G: 126, B: 24},
+			{R: 120, G: 22, B: 6},
+		},
+	},
+	{
+		// Low sun: amber and honey with a pale gold at the top, lighter and
+		// yellower than Deep Oranges.
+		Name: "Golden Hour",
+		Colors: []RGBK{
+			{R: 255, G: 176, B: 64},
+			{R: 255, G: 146, B: 40},
+			{R: 255, G: 196, B: 92},
+			{R: 238, G: 118, B: 30},
+			{R: 255, G: 214, B: 128},
+		},
+	},
 
 	// Quiet palettes for living in rather than looking at. Three things set
 	// them apart from the saturated set above:
