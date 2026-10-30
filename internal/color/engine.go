@@ -141,6 +141,44 @@ var Palettes = []Palette{
 			{R: 255, G: 214, B: 128},
 		},
 	},
+	{
+		// Last light: the sun sinking from gold through orange into a dark
+		// brick red. It stays in the warm half of the wheel, unlike Sunset,
+		// which climbs on into violet.
+		Name: "Last Light",
+		Colors: []RGBK{
+			{R: 255, G: 160, B: 60},
+			{R: 238, G: 104, B: 38},
+			{R: 190, G: 56, B: 44},
+			{R: 110, G: 28, B: 36},
+			{R: 244, G: 128, B: 46},
+		},
+	},
+	{
+		// A 1970s kitchen at dusk: mustard, burnt orange and rust with a deep
+		// wine to settle them. The centre swatch is the burnt orange.
+		Name: "Seventies",
+		Colors: []RGBK{
+			{R: 238, G: 168, B: 40},
+			{R: 188, G: 74, B: 26},
+			{R: 224, G: 102, B: 28},
+			{R: 120, G: 34, B: 38},
+			{R: 214, G: 132, B: 34},
+		},
+	},
+	{
+		// Faded desert sunset, like an old postcard: terracotta, coral and
+		// peach with a dusty mauve in the shadows. Softer than the other
+		// oranges, so it reads as vintage rather than fire.
+		Name: "Desert Dusk",
+		Colors: []RGBK{
+			{R: 226, G: 116, B: 76},
+			{R: 238, G: 150, B: 96},
+			{R: 212, G: 94, B: 84},
+			{R: 160, G: 74, B: 92},
+			{R: 248, G: 176, B: 120},
+		},
+	},
 
 	// Quiet palettes for living in rather than looking at. Three things set
 	// them apart from the saturated set above:
