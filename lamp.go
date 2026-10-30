@@ -99,6 +99,32 @@ func (a *App) NudgeBrightness(delta int) {
 	a.scheduleStateEmit()
 }
 
+// releaseOwnColors returns every lamp with a colour of its own to the room's,
+// and reports whether any was. Changing the room's palette, warmness or mode
+// means the whole room, so a lamp set apart with a dial must not sit it out.
+// The caller repaints.
+func (a *App) releaseOwnColors() bool {
+	a.mu.Lock()
+	released := false
+	for i := range a.slots {
+		if a.slots[i].OwnColor() {
+			a.slots[i].Color, a.slots[i].Palette, a.slots[i].Kelvin = config.LampRoom, "", 0
+			released = true
+		}
+	}
+	var snapshot config.SlotFile
+	if released {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
+	a.mu.Unlock()
+	if released {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("lamp colour: save failed: %v", err)
+		}
+	}
+	return released
+}
+
 // SetSlotColor gives one pad's lamp a colour of its own: mode is
 // config.LampPalette with a palette name, config.LampWarm with a temperature in
 // Kelvin, or config.LampRoom to follow the room again.

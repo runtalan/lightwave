@@ -98,3 +98,18 @@ func TestSetBrightnessClearsTrims(t *testing.T) {
 		t.Fatalf("slider at 100: levels %v, want all 100", got)
 	}
 }
+
+// A lamp set apart with a dial rejoins the room when the room's colour changes.
+func TestReleaseOwnColorsReturnsLampsToRoom(t *testing.T) {
+	a := nudgeTestApp(80, 0, 0)
+	a.slots[1].Color, a.slots[1].Palette = config.LampPalette, "Warm Whites"
+	if !a.releaseOwnColors() {
+		t.Fatal("a lamp with its own colour was not released")
+	}
+	if a.slots[1].OwnColor() || a.slots[1].Palette != "" {
+		t.Fatalf("lamp kept its own colour: %+v", a.slots[1])
+	}
+	if a.releaseOwnColors() {
+		t.Fatal("nothing left to release, yet reported one")
+	}
+}
