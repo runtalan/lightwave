@@ -158,3 +158,44 @@ func TestClip(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestAllLevelsSpansLitLights(t *testing.T) {
+	st := lw.State{Brightness: 80, Pads: []lw.Pad{
+		{Number: 1, Bound: true, On: true, Level: 80},
+		{Number: 2, Bound: true, On: true, Level: 45},
+		{Number: 3, Bound: true, On: false, Level: 10},
+	}}
+	if lo, hi := allLevels(st); lo != 45 || hi != 80 {
+		t.Fatalf("got %d-%d, want 45-80", lo, hi)
+	}
+	if lo, hi := allLevels(lw.State{Brightness: 60}); lo != 60 || hi != 60 {
+		t.Fatalf("nothing on: got %d-%d, want the slider's 60", lo, hi)
+	}
+}
+
+// Tapping the brightness dial walks the lit lights in pad order, then All.
+func TestNextBrightnessPickCyclesLitLightsThenAll(t *testing.T) {
+	st := lw.State{Pads: []lw.Pad{
+		{Number: 2, Bound: true, On: true},
+		{Number: 4, Bound: true, On: false},
+		{Number: 7, Bound: true, On: true},
+	}}
+	want := []int{2, 7, 0, 2}
+	pick := 0
+	for i, w := range want {
+		pick = nextBrightnessPick(st, pick)
+		if pick != w {
+			t.Fatalf("tap %d: on pad %d, want %d", i+1, pick, w)
+		}
+	}
+	// A light switched off while picked reads as All, so the next tap starts over.
+	if got := nextBrightnessPick(st, 4); got != 2 {
+		t.Fatalf("from an unlit pick: got %d, want 2", got)
+	}
+	if brightnessPick(st, 4) != nil {
+		t.Fatal("an unlit light must not be picked")
+	}
+	if got := nextBrightnessPick(lw.State{}, 0); got != 0 {
+		t.Fatalf("nothing on: got %d, want All", got)
+	}
+}

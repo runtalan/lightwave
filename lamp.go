@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"lightwave/internal/color"
 	"lightwave/internal/config"
@@ -43,6 +44,85 @@ func (a *App) SetSlotLevel(slot, level int) error {
 	a.mu.Unlock()
 	_, err := a.SetSlotTrim(slot, trimForLevel(level, slider))
 	return err
+}
+
+// NudgeBrightness moves every lamp delta points from its own level, clamped to
+// 1-100, so lamps set above or below the room keep their distance from it as
+// the whole room brightens or dims. The slider moves by the same amount and
+// each trim is re-picked to land its lamp on the new level.
+func (a *App) NudgeBrightness(delta int) {
+	if delta == 0 {
+		return
+	}
+	a.mu.Lock()
+	slider := clampBrightness(a.brightness + delta)
+	changed := false
+	for i := range a.slots {
+		if a.slots[i].DeviceID == "" {
+			continue
+		}
+		level := max(1, min(100, a.slotLevelLocked(i+1)+delta))
+		trim := trimForLevel(level, slider)
+		if trim == 100 {
+			// Level with the slider: no trim at all.
+			trim = 0
+		}
+		if trim == a.slots[i].Trim {
+			continue
+		}
+		a.slots[i].Trim = trim
+		changed = true
+		if ip, _, _ := a.slotLinkLocked(i + 1); ip != "" {
+			if a.trimDirty == nil {
+				a.trimDirty = map[string]bool{}
+			}
+			a.trimDirty[ip] = true
+		}
+	}
+	a.brightness = slider
+	a.lastBrightTouch = time.Now()
+	var snapshot config.SlotFile
+	if changed {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
+	a.mu.Unlock()
+	if changed {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("brightness nudge: save failed: %v", err)
+		}
+	}
+	a.pendingBright.Store(int32(slider))
+	select {
+	case a.brightKick <- struct{}{}:
+	default:
+	}
+	a.scheduleStateEmit()
+}
+
+// releaseOwnColors returns every lamp with a colour of its own to the room's,
+// and reports whether any was. Changing the room's palette, warmness or mode
+// means the whole room, so a lamp set apart with a dial must not sit it out.
+// The caller repaints.
+func (a *App) releaseOwnColors() bool {
+	a.mu.Lock()
+	released := false
+	for i := range a.slots {
+		if a.slots[i].OwnColor() {
+			a.slots[i].Color, a.slots[i].Palette, a.slots[i].Kelvin = config.LampRoom, "", 0
+			released = true
+		}
+	}
+	var snapshot config.SlotFile
+	if released {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
+	a.mu.Unlock()
+	if released {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("lamp colour: save failed: %v", err)
+		}
+	}
+	return released
 }
 
 // SetSlotColor gives one pad's lamp a colour of its own: mode is

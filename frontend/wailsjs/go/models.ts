@@ -8,6 +8,9 @@ export namespace config {
 	    ip: string;
 	    custom?: string;
 	    trim?: number;
+	    color?: string;
+	    palette?: string;
+	    kelvin?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SlotBinding(source);
@@ -22,6 +25,9 @@ export namespace config {
 	        this.ip = source["ip"];
 	        this.custom = source["custom"];
 	        this.trim = source["trim"];
+	        this.color = source["color"];
+	        this.palette = source["palette"];
+	        this.kelvin = source["kelvin"];
 	    }
 	}
 
