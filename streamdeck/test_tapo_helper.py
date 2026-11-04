@@ -111,6 +111,21 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(b.opened, ["h", "h"])  # found again once, after the run of failures
         self.assertTrue(plug.disconnected)
 
+    def test_refused_login_drops_the_session_at_once(self):
+        from kasa.exceptions import AuthenticationError
+
+        plug = FakePlug()
+        b = self.bridge(plug)
+
+        async def go():
+            await b.handle({"cmd": "state", "host": "h"})
+            plug.fail = AuthenticationError("bad login")
+            with self.assertRaises(AuthenticationError):
+                await b.handle({"cmd": "state", "host": "h"})
+            self.assertNotIn("h", b.devices)
+
+        run(go())
+
     def test_kasa_retries_are_capped(self):
         seen = []
 

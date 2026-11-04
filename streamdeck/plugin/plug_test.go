@@ -109,6 +109,34 @@ func TestThrottledPlugIsLeftAlone(t *testing.T) {
 	}
 }
 
+func TestPlugThatKeepsRefusingIsGivenLongerToRecover(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
+	throttled := errors.New("plug throttled: refusing logins after too many attempts")
+	empty := errors.New("get_device_info not found in {} for device h")
+	hold := func() time.Duration { return time.Until(p.plugs["h"].retryAt).Round(time.Second) }
+
+	var got []time.Duration
+	for i := 0; i < 5; i++ {
+		p.setPlug("h", tapo.Reading{}, throttled)
+		got = append(got, hold())
+	}
+	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, refusedRetry}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("holds = %v, want %v", got, want)
+		}
+	}
+	// A login that gets through but whose read fails is still in the lockout.
+	p.setPlug("h", tapo.Reading{}, empty)
+	if hold() != refusedRetry {
+		t.Fatalf("a failed read after refusals held %v, want %v", hold(), refusedRetry)
+	}
+	p.setPlug("h", tapo.Reading{On: true}, nil)
+	if v := p.plugs["h"]; v.refusals != 0 || !v.retryAt.IsZero() {
+		t.Fatalf("an answer should reset the schedule, got %+v", v)
+	}
+}
+
 func TestVacuumProblemSaysWhatToFix(t *testing.T) {
 	p := &plugin{dreame: dreame.NewClient()}
 	if got := p.vacuumProblem(dreame.ErrNotSetUp); got != "NOT SET UP" {

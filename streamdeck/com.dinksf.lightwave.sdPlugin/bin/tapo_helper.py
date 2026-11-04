@@ -17,7 +17,8 @@ One request per line, one reply per line, matched by "id":
     {"id": 3, "ok": false, "error": "..."}
 
 Requests run concurrently, so a slow discovery never holds up a toggle. Calls
-to the same plug are serialised. A plug's session is kept across failures:
+to the same plug are serialised. A plug's session is kept across failures
+other than a refused login:
 python-kasa already re-handshakes after a timeout or an expired session, and
 every handshake is a login the plug counts. Dropping the session too would add
 a discovery and another login to each failed poll, and Tapo plugs answer a
@@ -100,9 +101,11 @@ class Bridge:
                 elif cmd != "state":
                     raise ValueError("unknown command " + str(cmd))
                 out = await self.snapshot(dev)
-            except Exception:
+            except Exception as exc:
                 self.failures[host] = self.failures.get(host, 0) + 1
-                if self.failures[host] >= FORGET_AFTER:
+                # A refused login means the session is no good, perhaps opened
+                # before the login arrived: start afresh with the current one.
+                if self.failures[host] >= FORGET_AFTER or is_login_error(exc, str(exc)):
                     await self.forget(host)
                 raise
             self.failures.pop(host, None)
