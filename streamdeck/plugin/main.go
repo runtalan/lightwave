@@ -83,6 +83,7 @@ func main() {
 		pluginUUID: *pluginUUID,
 		contexts:   map[string]*instance{},
 		plugs:      map[string]plugView{},
+		plugBusy:   map[string]bool{},
 		vacs:       map[string]vacView{},
 		sweepWake:  make(chan struct{}, 1),
 		plugWake:   make(chan struct{}, 1),
@@ -123,15 +124,11 @@ func setupLogging() {
 		}
 		logDir = filepath.Join(dir, "Library", "Logs", "Lightwave")
 	}
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	l := &logFile{path: filepath.Join(logDir, "streamdeck-plugin.log")}
+	if err := l.open(); err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(logDir, "streamdeck-plugin.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return
-	}
-	log.SetOutput(f)
+	log.SetOutput(l)
 }
 
 // instance is one key on the deck.
@@ -228,9 +225,10 @@ type plugin struct {
 	sweepAt     time.Time
 	sweepWake   chan struct{}
 
-	// What each Tapo plug last reported, by host, and a nudge for plugLoop to
-	// poll now rather than at the next tick.
+	// What each Tapo plug last reported, by host, which are being read right
+	// now, and a nudge for plugLoop to poll now rather than at the next tick.
 	plugs    map[string]plugView
+	plugBusy map[string]bool
 	plugWake chan struct{}
 
 	// The same for Dreame vacuums, by device id.

@@ -3,8 +3,10 @@ package tapo
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -21,7 +23,11 @@ func TestMain(m *testing.M) {
 }
 
 func fakeHelper() {
+	if os.Getenv("FAKE_TAPO_HELPER") == "quit" {
+		os.Exit(1) // as a helper with python-kasa missing does
+	}
 	on := false
+	user := ""
 	sc := bufio.NewScanner(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
 	for sc.Scan() {
@@ -30,7 +36,8 @@ func fakeHelper() {
 		rep := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
 		switch req["cmd"] {
 		case "auth":
-			if req["username"] != "me@example.com" {
+			user, _ = req["username"].(string)
+			if user != "me@example.com" {
 				rep["ok"], rep["error"] = false, "login rejected"
 			}
 		case "toggle":
@@ -42,6 +49,16 @@ func fakeHelper() {
 		case "state":
 			if req["host"] == "gone" {
 				rep["ok"], rep["error"] = false, "no device answered at gone"
+				break
+			}
+			// A plug on current firmware: nothing without the right account.
+			if req["host"] == "locked" && user != "me@example.com" {
+				rep["ok"], rep["error"] = false, "login rejected"
+				break
+			}
+			if req["host"] == "slow" {
+				time.Sleep(300 * time.Millisecond)
+				rep["ok"], rep["error"] = false, "timed out"
 				break
 			}
 			rep["result"] = map[string]any{"on": on, "watts": 3.0, "alias": "Desk"}
@@ -133,5 +150,79 @@ func TestMissingSetupIsReportedAndNotRetriedHot(t *testing.T) {
 	}
 	if c.p != nil {
 		t.Fatal("started a process despite no setup")
+	}
+}
+
+func TestNoCommandOvertakesTheLoginAtStartup(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		c := fakeClient(t)
+		c.SetLogin("me@example.com", "pw")
+		// plugLoop reads every plug at once, so several first commands race
+		// the helper's start.
+		var wg sync.WaitGroup
+		errs := make(chan error, 4)
+		for n := 0; n < 4; n++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, err := c.State("locked"); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("run %d: a first command beat the login: %v", i, err)
+		}
+	}
+}
+
+func TestANewLoginIsUsedByTheVeryNextCommand(t *testing.T) {
+	c := fakeClient(t)
+	if _, err := c.State("locked"); err == nil {
+		t.Fatal("the plug answered without a login")
+	}
+	// What applyGlobals does: set the login, then poll at once.
+	c.SetLogin("me@example.com", "pw")
+	if _, err := c.State("locked"); err != nil {
+		t.Fatalf("the poll after the login change used the old one: %v", err)
+	}
+	c.SetLogin("", "")
+	if _, err := c.State("locked"); err == nil {
+		t.Fatal("a cleared login was not passed on")
+	}
+}
+
+func TestAFailureDuringALoginChangeIsReportedAsStale(t *testing.T) {
+	c := fakeClient(t)
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.State("slow")
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	c.SetLogin("me@example.com", "pw")
+	if err := <-done; !errors.Is(err, ErrLoginChanged) {
+		t.Fatalf("err = %v, want ErrLoginChanged", err)
+	}
+	// Without a change in between, a failure is just a failure.
+	if _, err := c.State("slow"); err == nil || errors.Is(err, ErrLoginChanged) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAHelperThatQuitsAtStartIsNotRespawnedEveryPoll(t *testing.T) {
+	c := fakeClient(t)
+	t.Setenv("FAKE_TAPO_HELPER", "quit")
+	_, err := c.State("h")
+	if !errors.Is(err, ErrNotSetUp) {
+		t.Fatalf("first err = %v, want ErrNotSetUp so the key says NOT SET UP", err)
+	}
+	if _, err := c.State("h"); !errors.Is(err, ErrNotSetUp) {
+		t.Fatalf("second err = %v", err)
+	}
+	if c.p != nil {
+		t.Fatal("started the helper again inside the restart backoff")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"lightwave-sd/internal/render"
@@ -24,11 +23,18 @@ const plugPoll = 3 * time.Second
 // asked again at this pace, or at once when the login or the key changes.
 const loginRetry = time.Minute
 
+// A plug that keeps failing to answer is asked less and less often, up to this
+// gap. Each try at one that has gone away costs a discovery broadcast and
+// several seconds of waiting in the helper.
+const offlineRetryMax = 30 * time.Second
+
 // plugView is the last thing known about one plug.
 type plugView struct {
 	reading tapo.Reading
 	have    bool
 	err     error
+	// fails is how many reads in a row have failed.
+	fails int
 	// retryAt, when set, holds off polling until then.
 	retryAt time.Time
 }
@@ -93,7 +99,7 @@ func (p *plugin) clearBackoff(host string) {
 	defer p.mu.Unlock()
 	for h, v := range p.plugs {
 		if host == "" || h == host {
-			v.retryAt = time.Time{}
+			v.retryAt, v.fails = time.Time{}, 0
 			p.plugs[h] = v
 		}
 	}
@@ -116,23 +122,35 @@ func (p *plugin) plugLoop() {
 		case <-t.C:
 		case <-p.plugWake:
 		}
-		var wg sync.WaitGroup
-		for _, host := range p.plugHosts() {
-			p.mu.Lock()
-			held := time.Now().Before(p.plugs[host].retryAt)
-			p.mu.Unlock()
-			if held {
-				continue
-			}
-			wg.Add(1)
+		for _, host := range p.plugsDue() {
 			go func(host string) {
-				defer wg.Done()
 				r, err := p.tapo.State(host)
+				p.mu.Lock()
+				delete(p.plugBusy, host)
+				p.mu.Unlock()
 				p.setPlug(host, r, err)
 			}(host)
 		}
-		wg.Wait()
 	}
+}
+
+// plugsDue is every plug on the deck that is to be read now, marked as being
+// read. Each plug keeps its own pace: one that is slow to answer, or not
+// answering, is skipped until it has, rather than holding up the rest.
+func (p *plugin) plugsDue() []string {
+	hosts := p.plugHosts()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	var due []string
+	for _, h := range hosts {
+		if p.plugBusy[h] || now.Before(p.plugs[h].retryAt) {
+			continue
+		}
+		p.plugBusy[h] = true
+		due = append(due, h)
+	}
+	return due
 }
 
 // plugHosts is every distinct plug address among the Tapo keys on the deck.
@@ -166,6 +184,11 @@ func (p *plugin) togglePlug(context, host string) {
 
 // setPlug records a plug's latest reading (or failure) and repaints its keys.
 func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
+	if errors.Is(err, tapo.ErrLoginChanged) {
+		// Asked under the old login; the answer under the new one is what counts.
+		p.wakePlugs()
+		return
+	}
 	p.mu.Lock()
 	prev := p.plugs[host]
 	// Log a failure when it starts or changes, not on every poll: the key shows
@@ -176,9 +199,14 @@ func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 	if err != nil {
 		// Keep the last good reading around, but the key reports the failure.
 		prev.err = err
+		prev.fails++
 		prev.retryAt = time.Time{}
-		if strings.Contains(err.Error(), "login rejected") {
+		switch {
+		case strings.Contains(err.Error(), "login rejected"):
 			prev.retryAt = time.Now().Add(loginRetry)
+		case prev.fails > 1:
+			// One miss may be a blip; after that, back off.
+			prev.retryAt = time.Now().Add(offlineHold(prev.fails))
 		}
 		p.plugs[host] = prev
 	} else {
@@ -194,6 +222,16 @@ func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 	for _, inst := range keys {
 		p.renderPlug(inst)
 	}
+}
+
+// offlineHold is how long to leave a plug that has failed fails reads in a row:
+// one poll's gap after the second, doubling from there up to offlineRetryMax.
+func offlineHold(fails int) time.Duration {
+	d := plugPoll
+	for i := 2; i < fails && d < offlineRetryMax; i++ {
+		d *= 2
+	}
+	return min(d, offlineRetryMax)
 }
 
 // renderPlug paints one Tapo key from what its plug last reported.

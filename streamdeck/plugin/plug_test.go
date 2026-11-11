@@ -65,10 +65,58 @@ func TestRejectedLoginIsNotRetriedEveryPoll(t *testing.T) {
 	if !p.plugs["h"].retryAt.IsZero() {
 		t.Fatal("a new login or key should release the hold")
 	}
-	// An unreachable plug is not a login problem and keeps its normal pace.
+	// An unreachable plug is not a login problem: one miss keeps the normal pace.
 	p.setPlug("h", tapo.Reading{}, errors.New("timed out waiting for the plug"))
 	if !p.plugs["h"].retryAt.IsZero() {
-		t.Fatal("only login failures should back off")
+		t.Fatal("a single miss should not back off")
+	}
+}
+
+func TestAnOfflinePlugIsAskedLessOften(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
+	gone := errors.New("no device answered at h")
+	want := []time.Duration{0, 3 * time.Second, 6 * time.Second, 12 * time.Second, 24 * time.Second, 30 * time.Second, 30 * time.Second}
+	for i, w := range want {
+		p.setPlug("h", tapo.Reading{}, gone)
+		var hold time.Duration
+		if at := p.plugs["h"].retryAt; !at.IsZero() {
+			hold = time.Until(at).Round(time.Second)
+		}
+		if hold != w {
+			t.Errorf("hold after %d misses = %v, want %v", i+1, hold, w)
+		}
+	}
+	p.setPlug("h", tapo.Reading{On: true}, nil)
+	if v := p.plugs["h"]; v.fails != 0 || !v.retryAt.IsZero() {
+		t.Fatalf("an answer should reset the backoff: %+v", v)
+	}
+}
+
+func TestASlowPlugDoesNotHoldUpTheOthers(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, plugBusy: map[string]bool{}, contexts: map[string]*instance{
+		"a": {action: actTapo, settings: settings{Host: "slow"}},
+		"b": {action: actTapo, settings: settings{Host: "fast"}},
+	}}
+	if due := p.plugsDue(); len(due) != 2 {
+		t.Fatalf("first round = %v", due)
+	}
+	// fast answered; slow is still being read.
+	delete(p.plugBusy, "fast")
+	if due := p.plugsDue(); len(due) != 1 || due[0] != "fast" {
+		t.Fatalf("second round = %v, want only the plug that answered", due)
+	}
+}
+
+func TestAnAnswerFromBeforeALoginChangeIsIgnored(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}, plugWake: make(chan struct{}, 1)}
+	p.setPlug("h", tapo.Reading{}, tapo.ErrLoginChanged)
+	if v, ok := p.plugs["h"]; ok {
+		t.Fatalf("recorded a stale failure: %+v", v)
+	}
+	select {
+	case <-p.plugWake:
+	default:
+		t.Fatal("should ask again under the new login")
 	}
 }
 

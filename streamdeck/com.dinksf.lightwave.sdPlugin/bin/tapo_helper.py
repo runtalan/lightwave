@@ -96,15 +96,16 @@ class Bridge:
 
     async def set_auth(self, username, password):
         creds = Credentials(username, password) if username and password else None
-        if (creds is None) != (self.credentials is None) or (
+        old, self.credentials = self.credentials, creds
+        # Set before anything is awaited, so a plug opened in the meantime gets
+        # the new login rather than the old one.
+        if (creds is None) != (old is None) or (
             creds is not None
-            and (creds.username, creds.password)
-            != (self.credentials.username, self.credentials.password)
+            and (creds.username, creds.password) != (old.username, old.password)
         ):
             # Open sessions were authenticated with the old login.
             for host in list(self.devices):
                 await self.forget(host)
-        self.credentials = creds
 
     async def forget(self, host):
         dev = self.devices.pop(host, None)

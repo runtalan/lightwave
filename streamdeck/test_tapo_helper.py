@@ -119,6 +119,32 @@ class BridgeTest(unittest.TestCase):
 
         run(go())
 
+    def test_plug_opened_during_a_login_change_gets_the_new_login(self):
+        class SlowToClose(FakePlug):
+            async def disconnect(self):
+                await asyncio.sleep(0.01)
+                self.disconnected = True
+
+        logins = {}
+
+        async def discover(host):
+            logins[host] = b.credentials.password if b.credentials else None
+            return SlowToClose()
+
+        b = tapo_helper.Bridge(discover=discover)
+
+        async def go():
+            await b.set_auth("a@example.com", "one")
+            await b.handle({"cmd": "state", "host": "h"})
+            # Closing h's session yields, and h2 is opened in the meantime.
+            await asyncio.gather(
+                b.set_auth("a@example.com", "two"),
+                b.handle({"cmd": "state", "host": "h2"}),
+            )
+
+        run(go())
+        self.assertEqual(logins["h2"], "two")
+
     def test_serve_matches_replies_to_ids_and_reports_errors(self):
         b = self.bridge(FakePlug(on=True, watts=3.0))
         out = []

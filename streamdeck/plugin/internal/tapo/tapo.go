@@ -11,6 +11,7 @@ package tapo
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -53,6 +54,13 @@ const (
 // plugin to use.
 var ErrNotSetUp = errors.New("Tapo support is not set up; run streamdeck/setup-tapo.sh")
 
+// ErrLoginChanged means a request failed while the login was being changed, so
+// its answer says nothing about the new login. Ask again.
+var ErrLoginChanged = errors.New("the TP-Link login changed while the plug was answering")
+
+// errQuit is why a helper that exits before answering is not restarted at once.
+var errQuit = fmt.Errorf("%w (its helper quit without answering; the plugin log has its error)", ErrNotSetUp)
+
 // Client talks to one helper process, starting and restarting it as needed.
 type Client struct {
 	// Python and Helper override where the interpreter and script are found.
@@ -62,30 +70,34 @@ type Client struct {
 	mu         sync.Mutex
 	p          *helper.Proc
 	user, pass string
-	failedAt   time.Time
-	failure    error
+	// gen counts login changes, so a request can tell whether the login it
+	// was sent under is still the current one.
+	gen      int
+	failedAt time.Time
+	failure  error
+
+	// authMu is held while a login is on its way to the helper. The helper
+	// runs requests concurrently, so a command sent alongside the login could
+	// reach a plug under the old one; every command waits here instead.
+	authMu sync.Mutex
+	// authP and authGen are the helper that has a login, and which one.
+	authP   *helper.Proc
+	authGen int
 }
 
 func NewClient() *Client { return &Client{} }
 
 // SetLogin sets the TP-Link account the plugs are enrolled under. Tapo plugs on
-// current firmware refuse local control without it.
+// current firmware refuse local control without it. The helper is given it
+// before the next command.
 func (c *Client) SetLogin(user, pass string) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if user == c.user && pass == c.pass {
-		c.mu.Unlock()
 		return
 	}
 	c.user, c.pass = user, pass
-	p := c.p
-	c.mu.Unlock()
-	if p != nil && p.Alive() {
-		go func() {
-			if _, err := p.Call(c.authRequest(), callTimeout); err != nil {
-				log.Printf("tapo: sending login: %v", err)
-			}
-		}()
-	}
+	c.gen++
 }
 
 // HasLogin reports whether an account has been set.
@@ -95,10 +107,29 @@ func (c *Client) HasLogin() bool {
 	return c.user != "" && c.pass != ""
 }
 
-func (c *Client) authRequest() map[string]any {
+// sendLogin makes sure p has the current login, and returns which login that
+// is. It returns at once when p already has it.
+func (c *Client) sendLogin(p *helper.Proc) int {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return map[string]any{"cmd": "auth", "username": c.user, "password": c.pass}
+	gen, user, pass := c.gen, c.user, c.pass
+	have := c.authP == p && c.authGen == gen
+	c.mu.Unlock()
+	// A new helper starts with no login, so with none to give it there is
+	// nothing to send.
+	if !have && (c.authP == p || user != "" && pass != "") {
+		req := map[string]any{"cmd": "auth", "username": user, "password": pass}
+		if _, err := p.Call(req, callTimeout); err != nil {
+			// Not retried before every command: the plug will say if it
+			// needs the login.
+			log.Printf("tapo: sending login: %v", err)
+		}
+	}
+	c.mu.Lock()
+	c.authP, c.authGen = p, gen
+	c.mu.Unlock()
+	return gen
 }
 
 // State reads a plug.
@@ -150,7 +181,20 @@ func (c *Client) call(req map[string]any, timeout time.Duration) (json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	return p.Call(req, timeout)
+	gen := c.sendLogin(p)
+	raw, err := p.Call(req, timeout)
+	if err != nil {
+		if p.QuitUnanswered() {
+			return nil, errQuit
+		}
+		c.mu.Lock()
+		changed := c.gen != gen
+		c.mu.Unlock()
+		if changed {
+			return nil, ErrLoginChanged
+		}
+	}
+	return raw, err
 }
 
 // proc returns the running helper, starting it if it is not.
@@ -160,6 +204,13 @@ func (c *Client) proc() (*helper.Proc, error) {
 		p := c.p
 		c.mu.Unlock()
 		return p, nil
+	}
+	if c.p != nil {
+		// Starting again straight away would only spawn Python on every poll.
+		if c.p.QuitUnanswered() {
+			c.failure, c.failedAt = errQuit, time.Now()
+		}
+		c.p = nil
 	}
 	if c.failure != nil && time.Since(c.failedAt) < restartBackoff {
 		err := c.failure
@@ -176,16 +227,8 @@ func (c *Client) proc() (*helper.Proc, error) {
 		return nil, err
 	}
 	c.failure = nil
-	p, user := c.p, c.user != ""
+	p := c.p
 	c.mu.Unlock()
-
-	if user {
-		// The helper runs requests concurrently, so wait for the login to land
-		// before the caller's first command can overtake it.
-		if _, err := p.Call(c.authRequest(), callTimeout); err != nil {
-			log.Printf("tapo: sending login: %v", err)
-		}
-	}
 	return p, nil
 }
 
