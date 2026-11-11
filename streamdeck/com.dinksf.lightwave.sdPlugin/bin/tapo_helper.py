@@ -23,13 +23,17 @@ python-kasa already re-handshakes after a timeout or an expired session, and
 every handshake is a login the plug counts. Dropping the session too would add
 a discovery and another login to each failed poll, and Tapo plugs answer a
 burst of logins by refusing them for a while (STAT_ACCESS_ERROR). Only a plug
-that keeps failing is dropped and found again, in case it changed protocol.
+that keeps failing is dropped and found again, in case it changed protocol,
+and so is one that has never answered: python-kasa treats a device as set up
+once its first read starts, so a first read that fails leaves an object whose
+every later read fails too.
 
 Anything the script prints other than reply lines would corrupt the stream, so
 diagnostics go to stderr.
 """
 import asyncio
 import json
+import re
 import sys
 import threading
 
@@ -62,6 +66,8 @@ class Bridge:
         self.devices = {}
         self.locks = {}
         self.failures = {}
+        # Plugs whose current session has answered at least once.
+        self.ready = set()
         # Injectable so the protocol handling can be tested without a network.
         self._discover = discover or self._discover_single
 
@@ -105,10 +111,15 @@ class Bridge:
                 self.failures[host] = self.failures.get(host, 0) + 1
                 # A refused login means the session is no good, perhaps opened
                 # before the login arrived: start afresh with the current one.
-                if self.failures[host] >= FORGET_AFTER or is_login_error(exc, str(exc)):
+                if (
+                    host not in self.ready
+                    or self.failures[host] >= FORGET_AFTER
+                    or is_login_error(exc, str(exc))
+                ):
                     await self.forget(host)
                 raise
             self.failures.pop(host, None)
+            self.ready.add(host)
             return out
 
     async def set_auth(self, username, password):
@@ -126,6 +137,7 @@ class Bridge:
 
     async def forget(self, host):
         self.failures.pop(host, None)
+        self.ready.discard(host)
         dev = self.devices.pop(host, None)
         if dev is not None:
             try:
@@ -162,12 +174,21 @@ class Bridge:
         plugs.sort(key=lambda p: (p["alias"].lower(), p["host"]))
         return plugs
 
-    @staticmethod
-    async def describe(host, dev):
+    async def describe(self, host, dev):
         family = dev.config.connection_type.device_family.value
         if "PLUG" not in family:
             return None  # bulbs, cameras, hubs: not what this key drives
         entry = {"host": host, "alias": "", "model": dev.model or "", "auth": True}
+        open_dev = self.devices.get(host)
+        if host in self.ready and open_dev is not None:
+            # A plug that is being polled already has a session: reading its
+            # name again would be another login, and every one counts.
+            entry["alias"] = open_dev.alias or ""
+            try:
+                await dev.disconnect()
+            except Exception:
+                pass
+            return entry
         try:
             await dev.update()
             entry["alias"] = dev.alias or ""
@@ -196,18 +217,43 @@ def limit_retries(dev):
     proto.query = limited
 
 
-def is_throttled(msg):
-    """Whether a plug is refusing logins because it has had too many."""
-    return "STAT_ACCESS_ERROR" in msg or "(-2203)" in msg
+def is_locked(msg):
+    """Whether a plug has locked itself after too many failed logins.
+
+    It answers every step with how long is left, which python-kasa reports as
+    DEVICE_BLOCKED. Nothing gets through until then, the right login included.
+    """
+    return "device blocked" in msg or "DEVICE_BLOCKED" in msg or "(-40404)" in msg
 
 
 def is_login_error(exc, msg):
     """Whether a failure means the TP-Link login is wrong.
 
-    python-kasa raises AuthenticationError for some handshakes, but the TPAP
-    one reports a wrong account as a plain device error, ACCOUNT_ERROR(-2101).
+    python-kasa raises AuthenticationError for most handshakes. TPAP reports a
+    wrong account as ACCOUNT_ERROR(-2101), and a wrong password as
+    STAT_ACCESS_ERROR(-2203), which older builds of the fork passed on as a
+    plain, retryable error.
     """
-    return isinstance(exc, AuthenticationError) or "ACCOUNT_ERROR" in msg or "(-2101)" in msg
+    if is_locked(msg):
+        return False
+    return isinstance(exc, AuthenticationError) or any(
+        s in msg for s in ("ACCOUNT_ERROR", "(-2101)", "STAT_ACCESS_ERROR", "(-2203)")
+    )
+
+
+def describe_error(exc):
+    """The reply's error text. The plugin reads its leading words, and the
+    numbers in it, to decide how long to leave the plug alone."""
+    msg = str(exc) or exc.__class__.__name__
+    if is_locked(msg):
+        out = "plug locked: too many failed logins"
+        m = re.search(r"retry in (\d+) minute", msg)
+        return out + (", retry in %s minutes" % m.group(1) if m else "")
+    if is_login_error(exc, msg):
+        out = "login rejected: check the TP-Link account email and password"
+        m = re.search(r"(\d+) attempts? left", msg)
+        return out + (" (%s attempts left before the plug locks)" % m.group(1) if m else "")
+    return msg
 
 
 async def serve(bridge, lines, write):
@@ -221,12 +267,7 @@ async def serve(bridge, lines, write):
             reply["result"] = await bridge.handle(req)
             reply["ok"] = True
         except Exception as exc:
-            msg = str(exc) or exc.__class__.__name__
-            if is_login_error(exc, msg):
-                msg = "login rejected: check the TP-Link account email and password"
-            elif is_throttled(msg):
-                msg = "plug throttled: refusing logins after too many attempts"
-            reply["ok"], reply["error"] = False, msg
+            reply["ok"], reply["error"] = False, describe_error(exc)
         write(reply)
 
     tasks = set()

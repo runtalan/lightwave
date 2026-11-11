@@ -882,7 +882,7 @@ func (p *plugin) refreshOne(context string) {
 	}
 	if inst.action == actTapo {
 		// Not Lightwave's to paint, and not "offline" when Lightwave is.
-		p.clearBackoff(inst.settings.Host)
+		p.releaseOffline(inst.settings.Host)
 		p.renderPlug(inst)
 		p.wakePlugs()
 		return

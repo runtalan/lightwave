@@ -3,8 +3,15 @@
 # which the Stream Deck plugin runs to talk to the plugs.
 #
 # Lives next to Lightwave's own data (not inside the plugin) so reinstalling the
-# plugin does not throw it away. Safe to re-run; it upgrades python-kasa.
+# plugin does not throw it away. Safe to re-run.
 set -euo pipefail
+
+# Released python-kasa cannot log in to Tapo plugs on current firmware (the TPAP
+# protocol), so this installs a fork that can, at a commit known to work: it
+# reports a wrong password as such, with the attempts the plug has left, and
+# logs in again when a plug drops the session. Every rejected login counts
+# toward the plug locking itself, so change this only to a commit you have tried.
+KASA="python-kasa @ git+https://github.com/ZeliardM/python-kasa.git@a1a6c3854ace705b21357b357354d4ae8b6307b4"
 
 if [[ "$(uname -s)" == Darwin ]]; then
   VENV="$HOME/Library/Application Support/Lightwave/tapo-venv"
@@ -17,7 +24,7 @@ mkdir -p "$(dirname "$VENV")"
 # python-kasa needs a recent Python (3.11+), newer than macOS's own.
 if command -v uv >/dev/null 2>&1; then
   uv venv --python 3.12 --allow-existing "$VENV"
-  uv pip install --python "$VENV/bin/python" --upgrade python-kasa
+  uv pip install --python "$VENV/bin/python" "$KASA"
 else
   PY=""
   for c in python3.13 python3.12 python3.11 python3; do
@@ -30,7 +37,7 @@ else
     exit 1
   fi
   "$PY" -m venv "$VENV"
-  "$VENV/bin/python" -m pip install --upgrade python-kasa
+  "$VENV/bin/python" -m pip install "$KASA"
 fi
 
 "$VENV/bin/python" -c 'import kasa; print("python-kasa", kasa.__version__ if hasattr(kasa, "__version__") else "installed")'
