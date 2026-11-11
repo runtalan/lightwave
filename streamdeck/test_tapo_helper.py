@@ -160,6 +160,32 @@ class BridgeTest(unittest.TestCase):
 
         run(go())
 
+    def test_plug_opened_during_a_login_change_gets_the_new_login(self):
+        class SlowToClose(FakePlug):
+            async def disconnect(self):
+                await asyncio.sleep(0.01)
+                self.disconnected = True
+
+        logins = {}
+
+        async def discover(host):
+            logins[host] = b.credentials.password if b.credentials else None
+            return SlowToClose()
+
+        b = tapo_helper.Bridge(discover=discover)
+
+        async def go():
+            await b.set_auth("a@example.com", "one")
+            await b.handle({"cmd": "state", "host": "h"})
+            # Closing h's session yields, and h2 is opened in the meantime.
+            await asyncio.gather(
+                b.set_auth("a@example.com", "two"),
+                b.handle({"cmd": "state", "host": "h2"}),
+            )
+
+        run(go())
+        self.assertEqual(logins["h2"], "two")
+
     def test_serve_matches_replies_to_ids_and_reports_errors(self):
         b = self.bridge(FakePlug(on=True, watts=3.0))
         out = []
@@ -203,10 +229,10 @@ class BridgeTest(unittest.TestCase):
         self.assertFalse(out[0]["ok"])
         self.assertIn("login rejected", out[0]["error"])
 
-    def test_throttled_plug_is_named_as_such(self):
+    def serve_one(self, failure):
         class Failing(FakePlug):
             async def update(self):
-                raise RuntimeError("TPAP pake_share failed for h: STAT_ACCESS_ERROR(-2203) (error_code=STAT_ACCESS_ERROR)")
+                raise failure
 
         b = self.bridge(Failing())
         out = []
@@ -219,7 +245,82 @@ class BridgeTest(unittest.TestCase):
 
         run(go())
         self.assertFalse(out[0]["ok"])
-        self.assertIn("plug throttled", out[0]["error"])
+        return out[0]["error"]
+
+    def test_wrong_password_reads_as_a_login_problem_with_attempts_left(self):
+        from kasa.exceptions import AuthenticationError
+
+        # What the pinned fork raises for a wrong password.
+        err = self.serve_one(AuthenticationError(
+            "TPAP pake_share failed for h: credentials rejected by device "
+            "(STAT_ACCESS_ERROR), 14 attempts left before the device locks"
+        ))
+        self.assertTrue(err.startswith("login rejected"), err)
+        self.assertIn("(14 attempts left before the plug locks)", err)
+
+    def test_older_fork_wrong_password_is_not_called_throttling(self):
+        # Older builds raised a wrong password as a retryable STAT_ACCESS_ERROR.
+        err = self.serve_one(RuntimeError(
+            "TPAP pake_share failed for h: STAT_ACCESS_ERROR(-2203) (error_code=STAT_ACCESS_ERROR)"
+        ))
+        self.assertTrue(err.startswith("login rejected"), err)
+        self.assertNotIn("attempts left", err)
+
+    def test_locked_plug_says_how_long(self):
+        from kasa.exceptions import DeviceError
+
+        err = self.serve_one(DeviceError(
+            "TPAP pake_register failed for h: device blocked after failed logins, retry in 27 minutes"
+        ))
+        self.assertEqual(err, "plug locked: too many failed logins, retry in 27 minutes")
+        self.assertFalse(tapo_helper.is_login_error(Exception(), err))
+
+    def test_a_plug_whose_first_read_fails_is_found_again(self):
+        plug = FakePlug()
+        b = self.bridge(plug)
+
+        async def go():
+            plug.fail = RuntimeError("get_device_info not found in {} for device h")
+            with self.assertRaises(RuntimeError):
+                await b.handle({"cmd": "state", "host": "h"})
+            self.assertNotIn("h", b.devices)
+            plug.fail = None
+            await b.handle({"cmd": "state", "host": "h"})
+
+        run(go())
+        self.assertEqual(b.opened, ["h", "h"])
+
+    def test_discovery_does_not_log_in_again_to_a_plug_being_polled(self):
+        class Conn:
+            class device_family:
+                value = "SMART.TAPOPLUG"
+
+        class Found(FakePlug):
+            model = "P110M"
+            config = type("Config", (), {"connection_type": Conn})()
+
+            def __init__(self, alias):
+                super().__init__()
+                self.alias = alias
+                self.updates = 0
+
+            async def update(self):
+                self.updates += 1
+
+        polled = Found("Desk")
+        b = self.bridge(polled)
+        fresh, other = Found("ignored"), Found("Lamp")
+
+        async def go():
+            await b.handle({"cmd": "state", "host": "h"})
+            return await asyncio.gather(b.describe("h", fresh), b.describe("o", other))
+
+        mine, theirs = run(go())
+        self.assertEqual(mine["alias"], "Desk")
+        self.assertEqual(fresh.updates, 0)
+        self.assertTrue(fresh.disconnected)
+        self.assertEqual(theirs["alias"], "Lamp")
+        self.assertEqual(other.updates, 1)
 
 
 if __name__ == "__main__":

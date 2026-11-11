@@ -112,3 +112,7 @@ func appHWND() uintptr {
 	procEnumWindows.Call(cb, 0)
 	return found
 }
+
+// watchActivation is nil on Windows, where dockReopenLoop polls the
+// foreground window instead.
+func watchActivation() <-chan bool { return nil }

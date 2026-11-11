@@ -22,7 +22,7 @@ type Plug struct {
 // draw in large type, or OFF, or a note about why neither is known. Like the
 // other readouts it is drawn rather than switched between fixed images, because
 // the number changes every few seconds.
-func PlugKey(p Plug) (string, error) {
+func plugKey(p Plug) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	grid(img)
 

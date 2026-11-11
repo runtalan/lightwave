@@ -370,53 +370,68 @@ func ApplyPoolBrightness(ips []string, percent int, turnOn bool) {
 // while still moving in lockstep with them. Same power/ramping rules as
 // ApplyPoolBrightness, applied per lamp.
 func ApplyPoolBrightnessMap(targets map[string]int, turnOn bool) {
+	type ramp struct {
+		ip       string
+		from, to int
+		steps    int
+	}
+	ramps := make([]ramp, 0, len(targets))
 	for ip, percent := range targets {
 		if strings.TrimSpace(ip) == "" {
 			continue
 		}
-		if percent < 1 {
-			percent = 1
+		percent = max(1, min(100, percent))
+		if turnOn {
+			guardSend(ip, func() { _ = SendTurn(ip, true) })
 		}
-		if percent > 100 {
-			percent = 100
+		from := percent
+		if v, ok := lastBright.Load(ip); ok {
+			from = v.(int)
 		}
-		func(ip string, percent int) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("govee: brightness send recovered (%s): %v", ip, r)
-				}
-			}()
-			if turnOn {
-				_ = SendTurn(ip, true)
-			}
-			from := percent
-			if v, ok := lastBright.Load(ip); ok {
-				from = v.(int)
-			}
-			if from < 1 {
-				from = 1
-			}
-			steps := 1
-			delta := percent - from
-			if delta < 0 {
-				delta = -delta
-			}
-			if !turnOn && delta > 12 {
-				steps = 4
-			}
-			for i := 1; i <= steps; i++ {
-				v := from + (percent-from)*i/steps
-				if v < 1 {
-					v = 1
-				}
-				_ = SendBrightness(ip, v)
-				if i < steps {
-					time.Sleep(20 * time.Millisecond)
-				}
-			}
-			lastBright.Store(ip, percent)
-		}(ip, percent)
+		from = max(1, from)
+		steps := 1
+		delta := percent - from
+		if delta < 0 {
+			delta = -delta
+		}
+		if !turnOn && delta > 12 {
+			steps = 4
+		}
+		ramps = append(ramps, ramp{ip: ip, from: from, to: percent, steps: steps})
 	}
+	// Every lamp takes step i before any takes step i+1, so the pool moves
+	// together and the whole change takes 60ms however many lamps there are.
+	// One ramp after another made a nine-lamp room take over half a second.
+	maxSteps := 0
+	for _, r := range ramps {
+		maxSteps = max(maxSteps, r.steps)
+	}
+	for i := 1; i <= maxSteps; i++ {
+		for _, r := range ramps {
+			if i > r.steps {
+				continue
+			}
+			v := max(1, r.from+(r.to-r.from)*i/r.steps)
+			guardSend(r.ip, func() { _ = SendBrightness(r.ip, v) })
+		}
+		if i < maxSteps {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	for _, r := range ramps {
+		lastBright.Store(r.ip, r.to)
+	}
+}
+
+// guardSend runs one write, so a panic in one lamp's send does not stop the
+// rest of the pool from being written.
+func guardSend(ip string, send func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("govee: brightness send recovered (%s): %v", ip, r)
+		}
+	}()
+	send()
 }
 
 var lastBright sync.Map

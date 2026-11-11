@@ -125,15 +125,11 @@ func setupLogging() {
 		}
 		logDir = filepath.Join(dir, "Library", "Logs", "Lightwave")
 	}
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	l := &logFile{path: filepath.Join(logDir, "streamdeck-plugin.log")}
+	if err := l.open(); err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(logDir, "streamdeck-plugin.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return
-	}
-	log.SetOutput(f)
+	log.SetOutput(l)
 }
 
 // instance is one key on the deck.
@@ -886,7 +882,7 @@ func (p *plugin) refreshOne(context string) {
 	}
 	if inst.action == actTapo {
 		// Not Lightwave's to paint, and not "offline" when Lightwave is.
-		p.clearBackoff(inst.settings.Host)
+		p.releaseOffline(inst.settings.Host)
 		p.renderPlug(inst)
 		p.wakePlugs()
 		return
