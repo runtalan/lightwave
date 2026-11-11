@@ -26,50 +26,63 @@ func fakeHelper() {
 	if os.Getenv("FAKE_TAPO_HELPER") == "quit" {
 		os.Exit(1) // as a helper with python-kasa missing does
 	}
-	on := false
-	user := ""
+	// Like the real helper, requests are answered concurrently, and the login
+	// takes a while, so a command sent alongside it can overtake it.
+	var mu, outMu sync.Mutex
+	on, user := false, ""
 	sc := bufio.NewScanner(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
 	for sc.Scan() {
 		var req map[string]any
 		_ = json.Unmarshal(sc.Bytes(), &req)
-		rep := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
-		switch req["cmd"] {
-		case "auth":
-			user, _ = req["username"].(string)
-			if user != "me@example.com" {
-				rep["ok"], rep["error"] = false, "login rejected"
+		go func() {
+			rep := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
+			switch req["cmd"] {
+			case "auth":
+				time.Sleep(50 * time.Millisecond)
+				mu.Lock()
+				user, _ = req["username"].(string)
+				mu.Unlock()
+				if req["username"] != "me@example.com" {
+					rep["ok"], rep["error"] = false, "login rejected"
+				}
+			case "toggle":
+				mu.Lock()
+				on = !on
+				rep["result"] = map[string]any{"on": on, "watts": 12.5, "alias": "Desk"}
+				mu.Unlock()
+			case "set":
+				mu.Lock()
+				on, _ = req["on"].(bool)
+				rep["result"] = map[string]any{"on": on, "watts": nil, "alias": "Desk"}
+				mu.Unlock()
+			case "state":
+				mu.Lock()
+				cur, isOn := user, on
+				mu.Unlock()
+				switch {
+				case req["host"] == "gone":
+					rep["ok"], rep["error"] = false, "no device answered at gone"
+				case req["host"] == "locked" && cur != "me@example.com":
+					// A plug on current firmware: nothing without the right account.
+					rep["ok"], rep["error"] = false, "login rejected"
+				case req["host"] == "slow":
+					time.Sleep(300 * time.Millisecond)
+					rep["ok"], rep["error"] = false, "timed out"
+				default:
+					rep["result"] = map[string]any{"on": isOn, "watts": 3.0, "alias": "Desk"}
+				}
+			case "discover":
+				rep["result"] = map[string]any{"plugs": []map[string]any{
+					{"host": "10.0.0.5", "alias": "Desk", "model": "P110", "auth": true},
+				}}
+			case "die":
+				os.Exit(1)
 			}
-		case "toggle":
-			on = !on
-			rep["result"] = map[string]any{"on": on, "watts": 12.5, "alias": "Desk"}
-		case "set":
-			on, _ = req["on"].(bool)
-			rep["result"] = map[string]any{"on": on, "watts": nil, "alias": "Desk"}
-		case "state":
-			if req["host"] == "gone" {
-				rep["ok"], rep["error"] = false, "no device answered at gone"
-				break
-			}
-			// A plug on current firmware: nothing without the right account.
-			if req["host"] == "locked" && user != "me@example.com" {
-				rep["ok"], rep["error"] = false, "login rejected"
-				break
-			}
-			if req["host"] == "slow" {
-				time.Sleep(300 * time.Millisecond)
-				rep["ok"], rep["error"] = false, "timed out"
-				break
-			}
-			rep["result"] = map[string]any{"on": on, "watts": 3.0, "alias": "Desk"}
-		case "discover":
-			rep["result"] = map[string]any{"plugs": []map[string]any{
-				{"host": "10.0.0.5", "alias": "Desk", "model": "P110", "auth": true},
-			}}
-		case "die":
-			os.Exit(1)
-		}
-		_ = out.Encode(rep)
+			outMu.Lock()
+			_ = out.Encode(rep)
+			outMu.Unlock()
+		}()
 	}
 }
 

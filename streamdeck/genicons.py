@@ -116,6 +116,20 @@ def glyph(kind, on=True):
             box(im,(x-8,73-i*9,x+8,94),fill=(DIM,NEON,'#d82be4',MAG)[i],radius=4)
         line(im,[(32,108),(111,108)],ICE,3)
         line(im,[(104,102),(111,108),(104,114)],ICE,3)
+    elif kind == 'lightlevel':
+        # A bulb with a level meter beside it: one light, and how bright.
+        circle(im,50,58,22,outline=ICE if on else DIM,width=4)
+        line(im,[(41,88),(59,88)],ink,4)
+        line(im,[(44,98),(56,98)],ink,4)
+        for i,c in enumerate((NEON,'#d82be4',MAG)):
+            x=86+i*15
+            box(im,(x,92-(i+1)*17,x+10,92),fill=c if on else DIM,radius=3)
+    elif kind == 'lightcolor':
+        # A ring of the palette's colours with the white that Warmness sets in
+        # the middle.
+        for i,c in enumerate((NEON,'#d82be4',MAG,'#ff7a3d','#ffc27a',ICE)):
+            arc(im,(34,28,110,104),i*60-90,i*60-34,c if on else DIM,9)
+        circle(im,72,66,13,fill='#ffe3bd' if on else DIM)
     elif kind == 'mode':
         # Warmness, Palette, Solid stacked in the order the switch cycles.
         box(im,(28,34,92,50),fill='#ffc27a',radius=6)
@@ -174,7 +188,8 @@ def icon(kind, on=True, titled=False):
 
 ACTIONS = [('status','Status'),('pad','Light'),('alloff','All Lights'),
            ('palette','Palette'),('mode','Color Mode'),('dance','Color Fade'),('gradient','Pattern'),
-           ('brightness','Brightness'),('sweep','Light Sweep'),('monitor','Monitor Bar'),
+           ('brightness','Brightness'),('sweep','Light Sweep'),('lightlevel','Light Brightness'),('lightcolor','Light Color'),
+           ('monitor','Monitor Bar'),
            ('tapo','Tapo Plug'),('vacuum','Vacuum')]
 
 
@@ -196,7 +211,7 @@ def main():
             im.resize((size,size),Image.Resampling.LANCZOS).save(f'{path}{suffix}.png')
 
     # Review at actual key sizes, with titles to check the reserved text area.
-    sheet=Image.new('RGB',(1488,550),'#0a0612')
+    sheet=Image.new('RGB',(24+len(ACTIONS)*122+14,550),'#0a0612')
     d=ImageDraw.Draw(sheet)
     font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc',16) if Path('/System/Library/Fonts/Helvetica.ttc').exists() else ImageFont.load_default(size=16)
     d.text((24,18),'LIGHTWAVE / STREAM DECK',fill=ICE,font=font)

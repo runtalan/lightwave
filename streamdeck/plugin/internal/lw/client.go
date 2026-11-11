@@ -22,6 +22,10 @@ const (
 )
 
 func sockPath() string {
+	// For running the plugin against a stand-in Lightwave.
+	if p := os.Getenv("LIGHTWAVE_SOCK"); p != "" {
+		return p
+	}
 	if runtime.GOOS == "windows" {
 		return filepath.Join(os.TempDir(), "lightwave.sock")
 	}
@@ -40,7 +44,25 @@ type Pad struct {
 	// older Lightwave builds send neither.
 	Front bool `json:"front"`
 	Trim  int  `json:"trim"`
+	// Level is how bright the lamp is at the current slider, 1-100; 0 from
+	// Lightwave builds that do not send it.
+	Level int `json:"level"`
+	// Color is the lamp's own colour: "" while it follows the room,
+	// LampPalette with Palette, or LampWarm with Kelvin.
+	Color   string `json:"color"`
+	Palette string `json:"palette"`
+	Kelvin  int    `json:"kelvin"`
+	// Segments marks a strip that shows a whole palette across its zones;
+	// other lamps show the palette's centre colour.
+	Segments bool `json:"segments"`
 }
+
+// A lamp's own colour modes; see Pad.Color.
+const (
+	LampRoom    = ""
+	LampPalette = "palette"
+	LampWarm    = "warm"
+)
 
 // State is the snapshot Lightwave pushes to subscribers.
 type State struct {

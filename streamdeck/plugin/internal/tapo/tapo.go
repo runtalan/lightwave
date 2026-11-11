@@ -89,15 +89,16 @@ func NewClient() *Client { return &Client{} }
 
 // SetLogin sets the TP-Link account the plugs are enrolled under. Tapo plugs on
 // current firmware refuse local control without it. The helper is given it
-// before the next command.
-func (c *Client) SetLogin(user, pass string) {
+// before the next command. It reports whether the login changed.
+func (c *Client) SetLogin(user, pass string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if user == c.user && pass == c.pass {
-		return
+		return false
 	}
 	c.user, c.pass = user, pass
 	c.gen++
+	return true
 }
 
 // HasLogin reports whether an account has been set.

@@ -54,6 +54,8 @@ export function MarkUIReady():Promise<void>;
 
 export function MoveSlot(arg1:number,arg2:number):Promise<main.HUDState>;
 
+export function NudgeBrightness(arg1:number):Promise<void>;
+
 export function OpenConfig():Promise<void>;
 
 export function OpenSetup():Promise<void>;
@@ -80,7 +82,13 @@ export function SaveSettings(arg1:main.SettingsView):Promise<void>;
 
 export function ScanLAN():Promise<main.HUDState>;
 
+export function SelectBarScene(arg1:string):Promise<main.HUDState>;
+
+export function SetBarScene(arg1:string):Promise<main.HUDState>;
+
 export function SetBrightness(arg1:number):Promise<void>;
+
+export function SetColorMode(arg1:string):Promise<main.HUDState>;
 
 export function SetConfigAPIKey(arg1:string):Promise<void>;
 
@@ -93,6 +101,10 @@ export function SetLaunchAtLogin(arg1:boolean):Promise<main.SettingsView>;
 export function SetMIDIListening(arg1:boolean):Promise<void>;
 
 export function SetPalette(arg1:number):Promise<main.HUDState>;
+
+export function SetSlotColor(arg1:number,arg2:string,arg3:string,arg4:number):Promise<void>;
+
+export function SetSlotLevel(arg1:number,arg2:number):Promise<void>;
 
 export function SetSlotTrim(arg1:number,arg2:number):Promise<main.HUDState>;
 
@@ -107,6 +119,10 @@ export function SetWebEnabled(arg1:boolean):Promise<main.SettingsView>;
 export function ShowHUD():Promise<void>;
 
 export function StartWindowDrag():Promise<void>;
+
+export function StepBarScene(arg1:number):Promise<main.HUDState>;
+
+export function StepColorMode(arg1:number):Promise<main.HUDState>;
 
 export function ToggleAll():Promise<main.HUDState>;
 

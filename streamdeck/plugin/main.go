@@ -42,6 +42,8 @@ const (
 	actSweep      = "com.dinksf.lightwave.sweep"
 	actMode       = "com.dinksf.lightwave.mode"
 	actMonitor    = "com.dinksf.lightwave.monitor"
+	actLightLevel = "com.dinksf.lightwave.lightlevel"
+	actLightColor = "com.dinksf.lightwave.lightcolor"
 	actTapo       = "com.dinksf.lightwave.tapo"
 	actVacuum     = "com.dinksf.lightwave.vacuum"
 	actVacuumBar  = "com.dinksf.lightwave.vacuumbar"
@@ -83,7 +85,6 @@ func main() {
 		pluginUUID: *pluginUUID,
 		contexts:   map[string]*instance{},
 		plugs:      map[string]plugView{},
-		plugBusy:   map[string]bool{},
 		vacs:       map[string]vacView{},
 		sweepWake:  make(chan struct{}, 1),
 		plugWake:   make(chan struct{}, 1),
@@ -156,6 +157,9 @@ type instance struct {
 	// an event already in flight still carries the settings from before the
 	// push and would move it straight back.
 	knob string
+	// pick is the light the main brightness dial is on, 0 for every light.
+	// A tap moves it; held here for the same reason as knob.
+	pick int
 	// layout is the touch-strip layout last set on a monitor bar dial, ""
 	// until the plugin has set one.
 	layout string
@@ -166,6 +170,9 @@ type settings struct {
 	Direction string `json:"direction,omitempty"`
 	// Knob is a monitor bar dial's saved page; see instance.knob.
 	Knob string `json:"knob,omitempty"`
+	// Light is the pad the light dials were last on; see plugin.light. On the
+	// main brightness dial it is that dial's own light; see instance.pick.
+	Light int `json:"light,omitempty"`
 	// Host and Name are a Tapo plug key's plug: its address on the LAN, and the
 	// label to draw on the key.
 	Host string `json:"host,omitempty"`
@@ -225,17 +232,24 @@ type plugin struct {
 	sweepAt     time.Time
 	sweepWake   chan struct{}
 
-	// What each Tapo plug last reported, by host, which are being read right
-	// now, and a nudge for plugLoop to poll now rather than at the next tick.
+	// What each Tapo plug last reported, by host, and a nudge for plugLoop to
+	// poll now rather than at the next tick.
 	plugs    map[string]plugView
-	plugBusy map[string]bool
 	plugWake chan struct{}
+	// haveGlobals is set once Stream Deck has sent the plugin-wide settings,
+	// which carry the TP-Link login.
+	haveGlobals bool
 
 	// The same for Dreame vacuums, by device id.
 	vacs    map[string]vacView
 	vacWake chan struct{}
 	// What the user has called the vacuum's rooms, by the map's room number.
 	rooms map[int]string
+
+	// light is the pad the Light Brightness and Light Color dials are on, 0
+	// until one has been pushed. The two share it, so pushing either moves
+	// both to the next light and they always adjust the same one.
+	light int
 
 	// The info bar is tied to the account's one vacuum, which it finds itself:
 	// barDID is that vacuum, and barErr why it could not be found.
@@ -270,8 +284,17 @@ func (p *plugin) onEvent(ev sd.Event) {
 	case "dialRotate":
 		p.trackContext(ev)
 		p.rotate(ev)
-	case "dialDown", "touchTap":
+	case "dialDown":
 		p.trackContext(ev)
+		p.press(ev)
+	case "touchTap":
+		p.trackContext(ev)
+		if ev.Action == actLightColor {
+			// The push is taken by moving between lights, so the strip is how
+			// this dial switches the light between room, colour and white.
+			p.tapLightColor(ev)
+			break
+		}
 		p.press(ev)
 	}
 }
@@ -386,10 +409,17 @@ func (p *plugin) trackContext(ev sd.Event) {
 	inst := p.contexts[ev.Context]
 	if inst == nil {
 		inst = &instance{context: ev.Context, knob: s.Knob}
+		if ev.Action == actBrightness {
+			inst.pick = s.Light
+		}
 		p.contexts[ev.Context] = inst
 	}
 	// Keep the title bookkeeping: only action and settings come from the event.
 	inst.action, inst.settings = ev.Action, s
+	if isLightDial(ev.Action) && p.light == 0 && s.Light != 0 {
+		// The light dials were on this pad when Stream Deck last ran.
+		p.light = s.Light
+	}
 	// Only appearance and settings events name the controller; key and dial
 	// events that omit it must not wipe it.
 	if ev.Payload.Controller != "" {
@@ -460,6 +490,11 @@ func (p *plugin) press(ev sd.Event) {
 		p.sd.SetSettings(ev.Context, saved)
 		p.refreshOne(ev.Context)
 		return
+	case actLightLevel, actLightColor:
+		// Pushing either light dial moves both to the next light. Nothing is
+		// sent to any lamp.
+		p.nextLightDial(st, have)
+		return
 	case actPalette:
 		if inst.controller == encoder {
 			// The dial turns through palettes or temperatures; pushing it is
@@ -494,9 +529,28 @@ func (p *plugin) press(ev sd.Event) {
 		// where they land — doing it from here was a hidden side effect.
 		cmds = []string{"RECALL_TOGGLE"}
 	case actBrightness:
-		// Deliberately inert: brightness belongs to the app's slider, and this
-		// key is only a readout. Dial rotation still adjusts it — see rotate() —
-		// because a dial is a slider rather than a button.
+		if inst.controller != encoder {
+			// A key is only a readout: brightness belongs to the slider.
+			return
+		}
+		// Tapping or pushing the dial moves it through each light that is on,
+		// then back to all of them. Nothing is sent to any lamp.
+		if !have {
+			fresh, err := p.client.Command("STATE")
+			if err != nil {
+				log.Printf("brightness dial: %v", err)
+				p.sd.ShowAlert(ev.Context)
+				return
+			}
+			p.applyState(fresh)
+			st = fresh
+		}
+		p.mu.Lock()
+		inst.pick = nextBrightnessPick(st, inst.pick)
+		saved := settings{Light: inst.pick}
+		p.mu.Unlock()
+		p.sd.SetSettings(ev.Context, saved)
+		p.refreshOne(ev.Context)
 		return
 	default:
 		return
@@ -531,6 +585,14 @@ func (p *plugin) rotate(ev sd.Event) {
 		p.rotatePalette(ev)
 		return
 	}
+	if inst != nil && inst.action == actLightLevel {
+		p.rotateLightLevel(ev)
+		return
+	}
+	if inst != nil && inst.action == actLightColor {
+		p.rotateLightColor(ev)
+		return
+	}
 	if inst != nil && inst.action == actMode {
 		p.rotateMode(ev)
 		return
@@ -538,6 +600,18 @@ func (p *plugin) rotate(ev sd.Event) {
 	if inst != nil && inst.action == actMonitor {
 		p.rotateMonitor(ev, inst)
 		return
+	}
+	if inst != nil && inst.action == actBrightness {
+		p.mu.Lock()
+		st, pick := p.state, inst.pick
+		p.mu.Unlock()
+		if pad := brightnessPick(st, pick); pad != nil {
+			// On one light, the dial is that light's brightness.
+			if cmd, _ := lightLevelCmd(st, pad, ev.Payload.Ticks); cmd != "" {
+				p.run(ev.Context, cmd)
+			}
+			return
+		}
 	}
 	p.rotateBrightness(ev)
 }
@@ -644,7 +718,8 @@ func (p *plugin) rotateMode(ev sd.Event) {
 	}
 }
 
-// rotateBrightness maps a dial to the pool brightness.
+// rotateBrightness brightens or dims every light by the same amount from its
+// own level, so lights set apart from the room keep their distance from it.
 func (p *plugin) rotateBrightness(ev sd.Event) {
 	ticks := ev.Payload.Ticks
 	if ticks == 0 {
@@ -891,20 +966,18 @@ func (p *plugin) render(inst *instance, st lw.State) {
 			p.sd.SetState(inst.context, 0)
 		}
 	case actBrightness:
+		if dial {
+			// The dial keeps its manifest icon and draws its touch strip like
+			// Light Brightness does, for every light at once.
+			p.sd.SetImage(inst.context, "")
+			p.renderBrightnessDial(inst, st)
+			break
+		}
 		// A read-only gauge: the slider owns the value, this reports it.
 		if img, err := render.Level(st.Brightness, st.AnyOn()); err == nil {
 			p.sd.SetImage(inst.context, img)
 		} else {
 			log.Printf("level render: %v", err)
-		}
-		// On a Stream Deck + dial the image fills only the icon slot; the
-		// touch strip's value comes from the layout, as with the other dials.
-		if dial {
-			p.sd.SetFeedback(inst.context, map[string]any{
-				"title":     "Brightness",
-				"value":     strconv.Itoa(st.Brightness) + "%",
-				"indicator": st.Brightness,
-			})
 		}
 	case actSweep:
 		// The dial reports how far through the room the knob has walked, as a
@@ -934,6 +1007,10 @@ func (p *plugin) render(inst *instance, st lw.State) {
 		p.renderMode(inst, st, dial)
 	case actMonitor:
 		p.renderMonitor(inst, st)
+	case actLightLevel:
+		p.renderLightLevel(inst, st)
+	case actLightColor:
+		p.renderLightColor(inst, st)
 	case actDance:
 		// Title names the action, not the state: the key says what it will do.
 		if st.Dancing {

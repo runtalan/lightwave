@@ -2,14 +2,21 @@ package config
 
 import "testing"
 
-// Stopping the MIDI listener has to survive a relaunch, and a settings file
-// written before the toggle existed must still start listening.
+// MIDI starts stopped by default, and turning it on or off has to survive a
+// relaunch.
 func TestMidiDisabledRoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	if LoadSettings().MidiDisabled {
-		t.Fatal("fresh settings start with MIDI disabled")
+	if !LoadSettings().MidiDisabled {
+		t.Fatal("fresh settings should start with MIDI stopped")
 	}
 	s := DefaultSettings()
+	s.MidiDisabled = false
+	if err := SaveSettings(s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if LoadSettings().MidiDisabled {
+		t.Fatal("MIDI listening did not survive a save/load round trip")
+	}
 	s.MidiDisabled = true
 	if err := SaveSettings(s); err != nil {
 		t.Fatalf("save: %v", err)

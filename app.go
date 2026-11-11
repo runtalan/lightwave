@@ -68,6 +68,11 @@ const (
 	// rather than strobe. How long a full tour of the palette takes is the
 	// user's to set — see config.Settings.FadeDuration.
 	danceStep = 900 * time.Millisecond
+	// danceProbeWait is how long each fade tick waits for devStatus replies
+	// before writing, so a lamp turned off elsewhere is not relit.
+	// Bluetooth replies queue behind the lamp's pending writes, hence the
+	// margin over a LAN round trip.
+	danceProbeWait = 250 * time.Millisecond
 )
 
 // sendPoolBrightness is a seam so tests can observe the LAN write rate.
@@ -979,10 +984,12 @@ func (a *App) statusPollLoop() {
 		dancing := a.dancing
 		ips := make([]string, 0, 9)
 		var bles []string
-		for _, s := range a.slots {
+		for i, s := range a.slots {
 			ip := strings.TrimSpace(s.IP)
 			switch {
 			case ip == "" || s.DeviceID == "":
+			case dancing && a.pool[i+1]:
+				// The fade probes its own lamps before every write.
 			case govee.IsBLE(ip):
 				bles = append(bles, ip)
 			default:
@@ -999,12 +1006,10 @@ func (a *App) statusPollLoop() {
 			}
 		}
 
-		// The animation is writing colours continuously; polling during it adds
-		// traffic and tells us nothing we did not just set ourselves.
-		if !dancing {
-			for _, ip := range ips {
-				_ = govee.QueryStatus(ip)
-			}
+		// Lamps outside the fade still need polling, or one switched on from
+		// its own remote would go unnoticed until the fade stops.
+		for _, ip := range ips {
+			_ = govee.QueryStatus(ip)
 		}
 
 		next := statusPollActive
@@ -1145,6 +1150,26 @@ func (a *App) danceLoop(gen int) {
 		case <-t.C:
 		}
 
+		// A colour write powers a lamp on, so a lamp switched off from its own
+		// remote would be relit by the next tick before the status poll (idle
+		// during the fade) or the 2s Bluetooth heartbeat noticed. Ask the
+		// lamps first and give the replies a moment to drop any that are now
+		// off from the pool.
+		a.mu.Lock()
+		var probe []string
+		for _, d := range a.poolDestsLocked() {
+			if d.Own == nil {
+				probe = append(probe, d.IP)
+			}
+		}
+		a.mu.Unlock()
+		if len(probe) > 0 {
+			for _, ip := range probe {
+				_ = govee.QueryStatus(ip)
+			}
+			time.Sleep(danceProbeWait)
+		}
+
 		a.mu.Lock()
 		// A newer generation means the animation was restarted or stopped;
 		// this goroutine must retire rather than fight the current one.
@@ -1153,7 +1178,13 @@ func (a *App) danceLoop(gen int) {
 			return
 		}
 		pal := a.engine.Palette()
-		dests := a.poolDestsLocked()
+		// Lamps with their own colour hold it through the fade.
+		var dests []lampDest
+		for _, d := range a.poolDestsLocked() {
+			if d.Own == nil {
+				dests = append(dests, d)
+			}
+		}
 		grad := a.gradient
 		period := a.settings.FadeDuration()
 		// Widen (or narrow) the palette before walking it. Done here rather
@@ -1668,8 +1699,8 @@ func (a *App) AllOn() HUDState {
 	}
 	now := time.Now()
 	type target struct {
-		n  int
-		ip string
+		n, trim int
+		ip      string
 	}
 	var targets []target
 	limit := len(a.slots)
@@ -1687,7 +1718,7 @@ func (a *App) AllOn() HUDState {
 		}
 		a.pool[n] = true
 		a.slotTouched[n] = now
-		targets = append(targets, target{n: n, ip: ip})
+		targets = append(targets, target{n: n, trim: s.EffectiveTrim(), ip: ip})
 	}
 	bright := ignitedBrightness(a.brightness)
 	// The pool changed, so the pump's "same value, skip it" shortcut no longer
@@ -1696,8 +1727,10 @@ func (a *App) AllOn() HUDState {
 	a.mu.Unlock()
 
 	for _, t := range targets {
+		// Trimmed, as ToggleSlot does, so a dimmed pad does not flash at the
+		// full slider level until the palette paint reasserts its share.
 		_ = sendTurn(t.ip, true)
-		_ = govee.SendBrightness(t.ip, bright)
+		_ = govee.SendBrightness(t.ip, ignitedBrightness(bright*t.trim/100))
 	}
 	a.applyPaletteToPool()
 	a.applyBarScene(false)
@@ -1829,11 +1862,16 @@ func ignitedBrightness(percent int) int {
 // slider already gives the lamp is that send coming back and leaves the slider
 // be; anything else was set elsewhere and is scaled back up by the trim.
 func sliderFromReported(reported, slider, trim int) int {
-	if trim <= 0 || trim > 100 {
+	if trim <= 0 || trim > config.MaxTrim {
 		trim = 100
 	}
 	expected := ignitedBrightness(ignitedBrightness(slider) * trim / 100)
 	if d := reported - expected; d >= -1 && d <= 1 {
+		return slider
+	}
+	if trim > 100 && reported >= 100 {
+		// A boosted lamp tops out at full well before the slider does, so full
+		// says nothing about where the slider is.
 		return slider
 	}
 	return clampBrightness((reported*100 + trim/2) / trim)
@@ -1860,7 +1898,25 @@ func (a *App) applyBrightness(percent int) {
 	a.mu.Lock()
 	a.brightness = percent
 	a.lastBrightTouch = time.Now()
+	// The slider is absolute: it puts every lamp at its level, so a lamp set
+	// above or below the room by a dial comes back in line with the rest.
+	cleared := false
+	for i := range a.slots {
+		if a.slots[i].Trim != 0 {
+			a.slots[i].Trim = 0
+			cleared = true
+		}
+	}
+	var snapshot config.SlotFile
+	if cleared {
+		snapshot = config.SlotFile{Configured: a.configured, Slots: append([]config.SlotBinding(nil), a.slots...)}
+	}
 	a.mu.Unlock()
+	if cleared {
+		if err := config.SaveSlotFile(snapshot); err != nil {
+			log.Printf("brightness: save failed: %v", err)
+		}
+	}
 	a.pendingBright.Store(int32(percent))
 	select {
 	case a.brightKick <- struct{}{}:
@@ -1949,6 +2005,9 @@ func (a *App) applyPaletteToPool() {
 	warm := a.warmMode
 	a.mu.Unlock()
 	if dancing {
+		// The fade leaves lamps with their own colour alone, so a lamp lit
+		// mid-fade still needs its colour from here.
+		a.paintOwnLamps(false)
 		return
 	}
 	if warm {
@@ -1982,7 +2041,17 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 		return
 	}
 	a.mu.Lock()
-	dests := a.poolDestsLocked()
+	all := a.poolDestsLocked()
+	// Lamps with their own colour sit out of the room's spread, so the rest
+	// still share the palette between them.
+	var dests, own []lampDest
+	for _, d := range all {
+		if d.Own != nil {
+			own = append(own, d)
+		} else {
+			dests = append(dests, d)
+		}
+	}
 	grad := a.gradient
 	pal := a.engine.Palette()
 	swatches := a.engine.SceneColors(len(dests), grad)
@@ -1997,6 +2066,11 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	// actually showing — the next slider move must reach them.
 	a.lastSentBright = -1
 	a.mu.Unlock()
+	for _, d := range own {
+		if only == nil || only(d) {
+			a.paintOwn(d, turnOn)
+		}
+	}
 	if len(dests) == 0 || len(swatches) == 0 {
 		return
 	}
@@ -2128,6 +2202,7 @@ func (a *App) ToggleGradient() HUDState {
 		}
 	}()
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	a.gradient = !a.gradient
 	on := a.gradient
@@ -2160,6 +2235,7 @@ func (a *App) CycleColor(direction int) HUDState {
 		direction = 1
 	}
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	if a.warmMode {
 		// Positive palette movement means more warmth: step down in Kelvin.
@@ -2187,6 +2263,7 @@ func (a *App) CycleColor(direction int) HUDState {
 // temperature. Palette selections remain available when switched back.
 func (a *App) ToggleWarmMode() HUDState {
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	a.warmMode = !a.warmMode
 	if a.warmMode {
@@ -2253,13 +2330,14 @@ func (a *App) StepColorMode(direction int) HUDState {
 // toggling warm mode and then the gradient would paint the room twice.
 func (a *App) SetColorMode(mode string) HUDState {
 	a.recordUserActivity()
+	released := a.releaseOwnColors()
 	a.mu.Lock()
 	warm := mode == ModeWarmness
 	grad := a.gradient
 	if !warm {
 		grad = mode == ModePalette
 	}
-	if warm == a.warmMode && grad == a.gradient {
+	if warm == a.warmMode && grad == a.gradient && !released {
 		a.mu.Unlock()
 		return a.snapshot()
 	}
@@ -2293,6 +2371,7 @@ func (a *App) SetColorMode(mode string) HUDState {
 // SetWarmness sets a native white temperature in Kelvin.
 func (a *App) SetWarmness(kelvin int) HUDState {
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	a.warmness = clampWarmness(kelvin)
 	s := a.settings
@@ -2487,6 +2566,10 @@ func (a *App) paintWarmnessOnly(turnOn bool, only func(lampDest) bool) {
 		if only != nil && !only(d) {
 			continue
 		}
+		if d.Own != nil {
+			a.paintOwn(d, turnOn)
+			continue
+		}
 		if turnOn {
 			_ = govee.SendTurn(d.IP, true)
 		}
@@ -2523,6 +2606,7 @@ func (a *App) SetPalette(index int) HUDState {
 		}
 	}()
 	a.recordUserActivity()
+	a.releaseOwnColors()
 	a.mu.Lock()
 	n := len(color.Palettes)
 	a.engine.Index = ((index % n) + n) % n
@@ -2546,9 +2630,12 @@ func (a *App) poolIPsLocked() []string {
 type lampDest struct {
 	IP    string
 	Model string
-	// Trim is this lamp's share of the brightness slider, 1-100 (100 = no
-	// trim). See config.SlotBinding.Trim.
+	// Trim is this lamp's share of the brightness slider (100 = no trim).
+	// See config.SlotBinding.Trim.
 	Trim int
+	// Own is the lamp's binding when it shows a colour of its own rather
+	// than the room's, nil when it follows the room. See paintOwn.
+	Own *config.SlotBinding
 }
 
 func (a *App) poolDestsLocked() []lampDest {
@@ -2569,7 +2656,11 @@ func (a *App) poolDestsLocked() []lampDest {
 			continue
 		}
 		govee.Remember(ip, model)
-		out = append(out, lampDest{IP: ip, Model: model, Trim: a.slots[n-1].EffectiveTrim()})
+		d := lampDest{IP: ip, Model: model, Trim: a.slots[n-1].EffectiveTrim()}
+		if s := a.slots[n-1]; s.OwnColor() {
+			d.Own = &s
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -2772,8 +2863,8 @@ func (a *App) SetSlotTrim(slot int, percent int) (HUDState, error) {
 	if percent < 0 {
 		percent = 0
 	}
-	if percent > 100 {
-		percent = 100
+	if percent > config.MaxTrim {
+		percent = config.MaxTrim
 	}
 	a.mu.Lock()
 	if slot > len(a.slots) || a.slots[slot-1].DeviceID == "" {

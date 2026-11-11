@@ -21,6 +21,7 @@ func TestPlugProblemSaysWhatToFix(t *testing.T) {
 		{tapo.ErrNotSetUp, "NOT SET UP"},
 		{fmt.Errorf("wrapped: %w", tapo.ErrNotSetUp), "NOT SET UP"},
 		{errors.New("login rejected: check the TP-Link account email and password"), "BAD LOGIN"},
+		{errors.New("plug throttled: refusing logins after too many attempts"), "THROTTLED"},
 		// No account entered yet, and the plug would not answer: say so, rather
 		// than leaving "OFFLINE" for a plug that is only waiting on a login.
 		{errors.New("timed out waiting for the plug"), "NO LOGIN"},
@@ -65,58 +66,74 @@ func TestRejectedLoginIsNotRetriedEveryPoll(t *testing.T) {
 	if !p.plugs["h"].retryAt.IsZero() {
 		t.Fatal("a new login or key should release the hold")
 	}
-	// An unreachable plug is not a login problem: one miss keeps the normal pace.
+	// A plug that misses one read keeps its normal pace.
+	p.plugs["h"] = plugView{}
 	p.setPlug("h", tapo.Reading{}, errors.New("timed out waiting for the plug"))
 	if !p.plugs["h"].retryAt.IsZero() {
-		t.Fatal("a single miss should not back off")
+		t.Fatal("one missed read should not back off")
 	}
 }
 
-func TestAnOfflinePlugIsAskedLessOften(t *testing.T) {
+func TestUnreachablePlugIsAskedLessOftenUntilItAnswers(t *testing.T) {
 	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
-	gone := errors.New("no device answered at h")
-	want := []time.Duration{0, 3 * time.Second, 6 * time.Second, 12 * time.Second, 24 * time.Second, 30 * time.Second, 30 * time.Second}
-	for i, w := range want {
+	gone := errors.New("timed out waiting for the plug")
+	var last time.Duration
+	for i := 0; i < 8; i++ {
 		p.setPlug("h", tapo.Reading{}, gone)
 		var hold time.Duration
 		if at := p.plugs["h"].retryAt; !at.IsZero() {
-			hold = time.Until(at).Round(time.Second)
+			hold = time.Until(at)
 		}
-		if hold != w {
-			t.Errorf("hold after %d misses = %v, want %v", i+1, hold, w)
+		if i > 0 && hold < last-time.Second {
+			t.Fatalf("failure %d held %v, less than the %v before it", i+1, hold, last)
 		}
+		if hold > offlineRetry {
+			t.Fatalf("failure %d held %v, past the %v cap", i+1, hold, offlineRetry)
+		}
+		last = hold
+	}
+	if last < offlineRetry-time.Second {
+		t.Fatalf("a plug gone for a while is held %v, want about %v", last, offlineRetry)
 	}
 	p.setPlug("h", tapo.Reading{On: true}, nil)
 	if v := p.plugs["h"]; v.fails != 0 || !v.retryAt.IsZero() {
-		t.Fatalf("an answer should reset the backoff: %+v", v)
+		t.Fatalf("an answer should reset the backoff, got %+v", v)
 	}
 }
 
-func TestASlowPlugDoesNotHoldUpTheOthers(t *testing.T) {
-	p := &plugin{plugs: map[string]plugView{}, plugBusy: map[string]bool{}, contexts: map[string]*instance{
-		"a": {action: actTapo, settings: settings{Host: "slow"}},
-		"b": {action: actTapo, settings: settings{Host: "fast"}},
-	}}
-	if due := p.plugsDue(); len(due) != 2 {
-		t.Fatalf("first round = %v", due)
-	}
-	// fast answered; slow is still being read.
-	delete(p.plugBusy, "fast")
-	if due := p.plugsDue(); len(due) != 1 || due[0] != "fast" {
-		t.Fatalf("second round = %v, want only the plug that answered", due)
+func TestThrottledPlugIsLeftAlone(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
+	p.setPlug("h", tapo.Reading{}, errors.New("plug throttled: refusing logins after too many attempts"))
+	if time.Until(p.plugs["h"].retryAt) < loginRetry-time.Second {
+		t.Fatal("a throttling plug should be left for the login retry period")
 	}
 }
 
-func TestAnAnswerFromBeforeALoginChangeIsIgnored(t *testing.T) {
-	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}, plugWake: make(chan struct{}, 1)}
-	p.setPlug("h", tapo.Reading{}, tapo.ErrLoginChanged)
-	if v, ok := p.plugs["h"]; ok {
-		t.Fatalf("recorded a stale failure: %+v", v)
+func TestPlugThatKeepsRefusingIsGivenLongerToRecover(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}}
+	throttled := errors.New("plug throttled: refusing logins after too many attempts")
+	empty := errors.New("get_device_info not found in {} for device h")
+	hold := func() time.Duration { return time.Until(p.plugs["h"].retryAt).Round(time.Second) }
+
+	var got []time.Duration
+	for i := 0; i < 5; i++ {
+		p.setPlug("h", tapo.Reading{}, throttled)
+		got = append(got, hold())
 	}
-	select {
-	case <-p.plugWake:
-	default:
-		t.Fatal("should ask again under the new login")
+	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, refusedRetry}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("holds = %v, want %v", got, want)
+		}
+	}
+	// A login that gets through but whose read fails is still in the lockout.
+	p.setPlug("h", tapo.Reading{}, empty)
+	if hold() != refusedRetry {
+		t.Fatalf("a failed read after refusals held %v, want %v", hold(), refusedRetry)
+	}
+	p.setPlug("h", tapo.Reading{On: true}, nil)
+	if v := p.plugs["h"]; v.refusals != 0 || !v.retryAt.IsZero() {
+		t.Fatalf("an answer should reset the schedule, got %+v", v)
 	}
 }
 
@@ -248,5 +265,18 @@ func TestOnlyTheBarsVacuumIsPolledWhenABarIsOnTheDeck(t *testing.T) {
 	p.contexts["k"] = &instance{action: actVacuum, settings: settings{DID: "7"}}
 	if ids := p.vacuumIDs(); len(ids) != 1 {
 		t.Fatalf("same vacuum twice: %v", ids)
+	}
+}
+
+func TestAnAnswerFromBeforeALoginChangeIsIgnored(t *testing.T) {
+	p := &plugin{plugs: map[string]plugView{}, contexts: map[string]*instance{}, plugWake: make(chan struct{}, 1)}
+	p.setPlug("h", tapo.Reading{}, tapo.ErrLoginChanged)
+	if v, ok := p.plugs["h"]; ok {
+		t.Fatalf("recorded a stale failure: %+v", v)
+	}
+	select {
+	case <-p.plugWake:
+	default:
+		t.Fatal("should ask again under the new login")
 	}
 }

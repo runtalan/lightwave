@@ -105,7 +105,7 @@ Two further controls:
   your lights. Open the URL with `?token=…` once and the phone stores it, so
   bookmarking or adding to the home screen keeps working.
 
-The server is **off until you switch it on** and binds nothing before that.
+The server is **on by default**. Turn it off in **Config → Remote** if you don't want it.
 Starting and stopping take effect immediately — no restart.
 
 ### What it costs
@@ -170,7 +170,7 @@ Useful extras: **drag a pad onto another** to move or swap it, and click the **�
 
 ## Using a keypad, knob, or dial
 
-Lightwave listens to **any MIDI controller**. It's built around a numpad, but a knob box, a DJ controller, or a MIDI foot pedal works just as well — anything that sends MIDI over USB.
+Lightwave listens to **any MIDI controller**. It's built around a numpad, but a knob box, a DJ controller, or a MIDI foot pedal works just as well — anything that sends MIDI over USB. MIDI listening is **off by default**; turn it on in **Config → MIDI** ("Start listening").
 
 ### The quick path: auto-learn
 
@@ -230,7 +230,7 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Status** | Live display: what's on, brightness, palette (or warmness) and its colors, pattern, and fade state. Press to turn everything off, or bring back the lights that were on last |
 | **Light** | Toggle one light; the key shows its name and lights up when on. Rename it in Stream Deck if the light's own name is too long for a key |
 | **All Lights** | Everything off — or back on when all are off |
-| **Brightness** | A read-only readout of the current level. Set brightness with the app's slider; on **Stream Deck +**, the dial adjusts it |
+| **Brightness** | A read-only readout of the current level on a key. On **Stream Deck +**, turn the dial to brighten or dim every light by the same amount from where each one is, so a light set brighter or dimmer than the rest keeps that difference. Tap or push the dial to step through each light that's on and turn just that one; a tap past the last light goes back to **All**. The app's slider and the MIDI fader are absolute: they put every light at the slider's level (100% is 100% on every light) |
 | **Palette** | Step to the next or previous palette — or warmer/cooler in Warmness mode. Each key shows where you'll land. A key can also jump straight to one palette. On **Stream Deck +** the dial turns through palettes or temperatures, the touch strip shows the current one, and pushing it switches mode |
 | **Color Mode** | Switch between **Warmness** (one adjustable white), **Palette** (a gradient across your lights) and **Solid Color** (one shared color). The key shows the current mode, its colors, and which mode a press moves to. Works as a key or a **Stream Deck +** dial |
 | **Monitor Bar** | A **Stream Deck +** dial for a monitor light bar (H2800). Push it to step through **Temperature** (the front light's warmth), **Brightness** (the bar's share of the main slider) and **Scene**; turn to adjust whichever is showing. The Scene page plays Govee's effects for the bar (Cyber, Colorful, Esports, Flow and the rest) on its back light. Turn past the last scene, or back before the first, and the bar follows the room's colors again |
@@ -240,6 +240,8 @@ Lightwave ships an Elgato Stream Deck plugin, so your lights live on the deck al
 | **Vacuum** | Start or pause a Dreame robot vacuum, or send it home. The key shows its battery and what it's doing. See [Dreame vacuum](#dreame-vacuum) |
 | **Vacuum Status** | For the **Stream Deck Neo** info bar: the Dreame vacuum's state, battery, and the minutes and area cleaned in the current run. It shows the account's one vacuum. Needs Stream Deck 7.6 or later. See [Dreame vacuum](#dreame-vacuum) |
 | **Light Sweep** | A **Stream Deck +** dial. Turn right and your lights come up one at a time in pad order; turn left and they go back down, last one first. Push for all off, or all on |
+| **Light Brightness** | A **Stream Deck +** dial for each light on its own. Turn to dim or brighten the light named on the touch strip, above or below the rest of the room; push to move to the next light that's on (lights that are off are skipped). The Brightness dial moves every light together and keeps each one's difference; the app's slider and the MIDI fader put every light back on the one level |
+| **Light Color** | A **Stream Deck +** dial that gives each light its own color. Turn to step the light through palettes — the touch strip previews the palette, outlining the color a single-color bulb takes from it — or warmer and cooler on a white. Tap the touch strip to switch the light between **Color**, **Warm** white and following the **Room**; push to move to the next light that's on. Pushing either light dial moves both, so they always adjust the same light. Changing the room's palette, warmness or mode puts every light back on the **Room** |
 
 ### The Status key
 

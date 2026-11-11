@@ -17,26 +17,67 @@ import (
 // plugs.
 const plugPoll = 3 * time.Second
 
-// A plug that refused the login is left alone this long before trying again.
-// Retrying a wrong password every few seconds does nothing but get the plug to
-// start throttling the connections (TPAP answers STAT_ACCESS_ERROR), so it is
-// asked again at this pace, or at once when the login or the key changes.
-const loginRetry = time.Minute
+// A plug that refused the login is left alone this long before trying again,
+// doubling each time it refuses again, up to refusedRetry. Retrying every few
+// seconds does nothing but get the plug to throttle logins (TPAP answers
+// STAT_ACCESS_ERROR), and every attempt during the lockout seems to extend it,
+// so a plug that keeps refusing is given longer and longer to recover. It is
+// asked again at once when the login or the key changes.
+const (
+	loginRetry   = time.Minute
+	refusedRetry = 10 * time.Minute
+)
 
-// A plug that keeps failing to answer is asked less and less often, up to this
-// gap. Each try at one that has gone away costs a discovery broadcast and
-// several seconds of waiting in the helper.
-const offlineRetryMax = 30 * time.Second
+// A plug that stops answering is asked less often the longer it stays away, up
+// to this. Each attempt is a login, and a plug that does answer again is
+// counting them.
+const offlineRetry = 30 * time.Second
+
+// Plugs are not polled until Stream Deck has sent the TP-Link login, or this
+// long after startup if it never does. A plug asked without the login refuses
+// it, and is then held off for loginRetry.
+const loginWait = 5 * time.Second
 
 // plugView is the last thing known about one plug.
 type plugView struct {
 	reading tapo.Reading
 	have    bool
 	err     error
-	// fails is how many reads in a row have failed.
-	fails int
 	// retryAt, when set, holds off polling until then.
 	retryAt time.Time
+	// fails counts failed reads in a row, and refusals how many of them were
+	// the plug refusing the login.
+	fails, refusals int
+}
+
+// isRefusal reports whether a failure is the plug refusing the login, either
+// as wrong or because it has had too many.
+func isRefusal(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "login rejected") || strings.Contains(msg, "plug throttled")
+}
+
+// plugRetry is how long to hold a plug off after a failure. The first failure
+// keeps the normal pace. Once a plug has refused the login, every failure until
+// it answers again is held off on the refusal schedule: a throttled plug that
+// lets one login through can still fail the read, and asking again soon after
+// would only lock it out again.
+func plugRetry(fails, refusals int) time.Duration {
+	if refusals > 0 {
+		d := loginRetry << (refusals - 1)
+		if d > refusedRetry || d <= 0 {
+			d = refusedRetry
+		}
+		return d
+	}
+	if fails <= 1 {
+		return 0
+	}
+	d := plugPoll << (fails - 1)
+	if d > offlineRetry || d <= 0 {
+		d = offlineRetry
+	}
+	return d
 }
 
 // globalSettings are the plugin-wide settings an inspector can change.
@@ -64,8 +105,15 @@ func (p *plugin) applyGlobals(raw json.RawMessage) {
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &g)
 	}
-	p.tapo.SetLogin(strings.TrimSpace(g.TapoUser), g.TapoPass)
-	p.clearBackoff("")
+	// Inspectors resend the login whenever they open, so only a changed login
+	// releases a plug held off for refusing the old one.
+	changed := p.tapo.SetLogin(strings.TrimSpace(g.TapoUser), g.TapoPass)
+	p.mu.Lock()
+	p.haveGlobals = true
+	p.mu.Unlock()
+	if changed {
+		p.clearBackoff("")
+	}
 	p.wakePlugs()
 
 	p.dreame.SetLogin(strings.TrimSpace(g.DreameUser), g.DreamePass, strings.ToLower(strings.TrimSpace(g.DreameCountry)))
@@ -99,7 +147,7 @@ func (p *plugin) clearBackoff(host string) {
 	defer p.mu.Unlock()
 	for h, v := range p.plugs {
 		if host == "" || h == host {
-			v.retryAt, v.fails = time.Time{}, 0
+			v.retryAt, v.refusals = time.Time{}, 0
 			p.plugs[h] = v
 		}
 	}
@@ -114,43 +162,46 @@ func (p *plugin) wakePlugs() {
 
 // plugLoop re-reads every plug that has a key on screen. Nothing runs while no
 // Tapo key is on the deck, so a deck without one never starts Python.
+//
+// Each plug is read on its own: a plug that has gone away takes up to the full
+// call timeout to fail, and the others keep their pace meanwhile. A plug still
+// being read is skipped rather than asked again.
 func (p *plugin) plugLoop() {
 	t := time.NewTicker(plugPoll)
 	defer t.Stop()
+	busy := map[string]bool{}
+	done := make(chan string)
+	started := time.Now()
 	for {
 		select {
 		case <-t.C:
 		case <-p.plugWake:
+		case host := <-done:
+			delete(busy, host)
+			continue
 		}
-		for _, host := range p.plugsDue() {
+		now := time.Now()
+		p.mu.Lock()
+		ready := p.haveGlobals
+		p.mu.Unlock()
+		if !ready && now.Sub(started) < loginWait {
+			continue
+		}
+		for _, host := range p.plugHosts() {
+			p.mu.Lock()
+			held := now.Before(p.plugs[host].retryAt)
+			p.mu.Unlock()
+			if held || busy[host] {
+				continue
+			}
+			busy[host] = true
 			go func(host string) {
 				r, err := p.tapo.State(host)
-				p.mu.Lock()
-				delete(p.plugBusy, host)
-				p.mu.Unlock()
 				p.setPlug(host, r, err)
+				done <- host
 			}(host)
 		}
 	}
-}
-
-// plugsDue is every plug on the deck that is to be read now, marked as being
-// read. Each plug keeps its own pace: one that is slow to answer, or not
-// answering, is skipped until it has, rather than holding up the rest.
-func (p *plugin) plugsDue() []string {
-	hosts := p.plugHosts()
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	now := time.Now()
-	var due []string
-	for _, h := range hosts {
-		if p.plugBusy[h] || now.Before(p.plugs[h].retryAt) {
-			continue
-		}
-		p.plugBusy[h] = true
-		due = append(due, h)
-	}
-	return due
 }
 
 // plugHosts is every distinct plug address among the Tapo keys on the deck.
@@ -200,13 +251,12 @@ func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 		// Keep the last good reading around, but the key reports the failure.
 		prev.err = err
 		prev.fails++
+		if isRefusal(err) {
+			prev.refusals++
+		}
 		prev.retryAt = time.Time{}
-		switch {
-		case strings.Contains(err.Error(), "login rejected"):
-			prev.retryAt = time.Now().Add(loginRetry)
-		case prev.fails > 1:
-			// One miss may be a blip; after that, back off.
-			prev.retryAt = time.Now().Add(offlineHold(prev.fails))
+		if d := plugRetry(prev.fails, prev.refusals); d > 0 {
+			prev.retryAt = time.Now().Add(d)
 		}
 		p.plugs[host] = prev
 	} else {
@@ -222,16 +272,6 @@ func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 	for _, inst := range keys {
 		p.renderPlug(inst)
 	}
-}
-
-// offlineHold is how long to leave a plug that has failed fails reads in a row:
-// one poll's gap after the second, doubling from there up to offlineRetryMax.
-func offlineHold(fails int) time.Duration {
-	d := plugPoll
-	for i := 2; i < fails && d < offlineRetryMax; i++ {
-		d *= 2
-	}
-	return min(d, offlineRetryMax)
 }
 
 // renderPlug paints one Tapo key from what its plug last reported.
@@ -274,6 +314,8 @@ func (p *plugin) plugProblem(err error) string {
 		return "NOT SET UP"
 	case strings.Contains(err.Error(), "login rejected"):
 		return "BAD LOGIN"
+	case strings.Contains(err.Error(), "plug throttled"):
+		return "THROTTLED"
 	case !p.tapo.HasLogin():
 		return "NO LOGIN"
 	}
