@@ -27,6 +27,8 @@ type Proc struct {
 	pending map[int]chan reply
 	nextID  int
 	dead    chan struct{}
+	// answered is set once the process has replied to anything.
+	answered bool
 }
 
 type reply struct {
@@ -85,6 +87,7 @@ func (p *Proc) read(r io.Reader) {
 			continue
 		}
 		p.mu.Lock()
+		p.answered = true
 		ch := p.pending[rep.ID]
 		delete(p.pending, rep.ID)
 		p.mu.Unlock()
@@ -94,6 +97,19 @@ func (p *Proc) read(r io.Reader) {
 	}
 	_ = p.cmd.Wait()
 	close(p.dead)
+}
+
+// QuitUnanswered reports whether the process has exited without ever replying.
+// A helper that does that is almost always one whose Python packages are
+// missing or broken, so it is no use starting it again at once. One that
+// worked and then died is worth restarting straight away.
+func (p *Proc) QuitUnanswered() bool {
+	if p.Alive() {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.answered
 }
 
 // Call sends one request and waits for its reply. A reply that says not-ok

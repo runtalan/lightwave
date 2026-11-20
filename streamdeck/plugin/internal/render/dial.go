@@ -75,7 +75,7 @@ func kelvinPos(k int) float64 {
 func rgba(s Swatch) color.RGBA { return color.RGBA{uint8(s.R), uint8(s.G), uint8(s.B), 255} }
 
 // SwatchStrip renders a palette's colours as a touch-strip pixmap.
-func SwatchStrip(sw []Swatch) (string, error) {
+func swatchStrip(sw []Swatch) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	swatchBar(img, band, sw, 1)
 	return encode(img)
@@ -97,12 +97,12 @@ func PaletteStrip(sw []Swatch, lead int) (string, error) {
 }
 
 // SolidStrip renders the one colour every light shares.
-func SolidStrip(c Swatch) (string, error) {
+func solidStrip(c Swatch) (string, error) {
 	return SwatchStrip([]Swatch{c})
 }
 
 // WarmStrip renders the warmness range with a marker at the current setting.
-func WarmStrip(kelvin int) (string, error) {
+func warmStrip(kelvin int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	warmBar(img, band, 1)
 	marker(img, band.Min.X, band.Max.X, kelvinPos(kelvin), band.Min.Y-6, band.Max.Y+6)
@@ -117,7 +117,7 @@ const (
 
 // FrontStrip renders the front-light range with a marker at the current
 // setting. Cool sits on the left, as on WarmStrip.
-func FrontStrip(kelvin int) (string, error) {
+func frontStrip(kelvin int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	span := float64(MaxFrontKelvin - MinFrontKelvin)
 	for x := band.Min.X; x < band.Max.X; x++ {
@@ -130,7 +130,7 @@ func FrontStrip(kelvin int) (string, error) {
 }
 
 // LevelStrip renders a 0-100 level as a bar filled from the left.
-func LevelStrip(pct int) (string, error) {
+func levelStrip(pct int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	pct = max(0, min(100, pct))
 	fillRect(img, band.Min.X, band.Min.Y, band.Dx(), band.Dy(), dim, 0.35)
@@ -146,7 +146,7 @@ func LevelStrip(pct int) (string, error) {
 // PositionStrip marks place i of n along a dim track, for a list too long to
 // draw item by item. i counts from 1; anything outside 1..n draws the bare
 // track.
-func PositionStrip(i, n int) (string, error) {
+func positionStrip(i, n int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	positionBar(img, band, i, n)
 	return encode(img)
@@ -174,7 +174,7 @@ var sceneIcon = image.Rect(StripW-12-132, 56, StripW-12, 188)
 
 // SceneStrip draws a scene's place in the list beside its icon. A nil icon
 // leaves the track the full width.
-func SceneStrip(icon image.Image, i, n int) (string, error) {
+func sceneStrip(icon image.Image, i, n int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	if icon == nil {
 		positionBar(img, band, i, n)
@@ -224,7 +224,7 @@ func shrink(src image.Image, size int) *image.RGBA {
 
 // ModeStrip shows the three modes side by side as small previews of what each
 // looks like, with the current one lit and the others dimmed.
-func ModeStrip(mode string, sw []Swatch, kelvin int) (string, error) {
+func modeStrip(mode string, sw []Swatch, kelvin int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, StripW, StripH))
 	modePills(img, band, mode, sw, kelvin)
 	return encode(img)
@@ -232,7 +232,7 @@ func ModeStrip(mode string, sw []Swatch, kelvin int) (string, error) {
 
 // WarmKey renders a palette key while Lightwave is in Warmness mode. Like the
 // palette keys it shows where a press lands: the temperature it will set.
-func WarmKey(kelvin int, warmer bool) (string, error) {
+func warmKey(kelvin int, warmer bool) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	grid(img)
 	drawArrow(img, warmer)
@@ -255,7 +255,7 @@ func WarmKey(kelvin int, warmer bool) (string, error) {
 // ModeKey renders the mode switch: the current mode's name and a preview of
 // its colours, the three modes in order beneath with the current one lit, and
 // the mode a press moves to.
-func ModeKey(mode, next string, sw []Swatch, kelvin int) (string, error) {
+func modeKey(mode, next string, sw []Swatch, kelvin int) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	grid(img)
 	drawText(img, "MODE", (Size-textWidth("MODE", 1))/2, 8, 1, dim, 1.0)

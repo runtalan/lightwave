@@ -10,6 +10,7 @@ package dreame
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -59,6 +60,9 @@ const (
 
 // ErrNotSetUp means there is no Python environment with the Dreame client.
 var ErrNotSetUp = errors.New("Dreame support is not set up; run streamdeck/setup-dreame.sh")
+
+// errQuit is why a helper that exits before answering is not restarted at once.
+var errQuit = fmt.Errorf("%w (its helper quit without answering; the plugin log has its error)", ErrNotSetUp)
 
 // Client talks to one helper process, starting and restarting it as needed.
 type Client struct {
@@ -155,7 +159,11 @@ func (c *Client) call(req map[string]any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.Call(req, callTimeout)
+	raw, err := p.Call(req, callTimeout)
+	if err != nil && p.QuitUnanswered() {
+		return nil, errQuit
+	}
+	return raw, err
 }
 
 // proc returns the running helper, starting it if it is not.
@@ -165,6 +173,13 @@ func (c *Client) proc() (*helper.Proc, error) {
 		p := c.p
 		c.mu.Unlock()
 		return p, nil
+	}
+	if c.p != nil {
+		// Starting again straight away would only spawn Python on every poll.
+		if c.p.QuitUnanswered() {
+			c.failure, c.failedAt = errQuit, time.Now()
+		}
+		c.p = nil
 	}
 	if c.failure != nil && time.Since(c.failedAt) < restartBackoff {
 		err := c.failure

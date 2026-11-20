@@ -29,7 +29,7 @@ type Infobar struct {
 
 // InfobarImage draws the vacuum's info bar: what it is doing on top, and below
 // that the battery and how much of the run is done.
-func InfobarImage(v Infobar) (string, error) {
+func infobarImage(v Infobar) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, InfobarW, InfobarH))
 	for y := 0; y < InfobarH; y++ {
 		for x := 0; x < InfobarW; x++ {

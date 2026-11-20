@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,15 +20,54 @@ import (
 const plugPoll = 3 * time.Second
 
 // A plug that refused the login is left alone this long before trying again,
-// doubling each time it refuses again, up to refusedRetry. Retrying every few
-// seconds does nothing but get the plug to throttle logins (TPAP answers
-// STAT_ACCESS_ERROR), and every attempt during the lockout seems to extend it,
-// so a plug that keeps refusing is given longer and longer to recover. It is
-// asked again at once when the login or the key changes.
+// doubling each time it refuses again, up to refusedRetry. A Tapo plug counts
+// every rejected login and locks itself after 15 (TPAP answers DEVICE_BLOCKED
+// until the lockout ends), so retrying soon does nothing but use them up. It is
+// asked again at once when the login changes.
 const (
 	loginRetry   = time.Minute
 	refusedRetry = 10 * time.Minute
 )
+
+// A plug that says it has this few attempts left before it locks is not asked
+// again by itself at all, only when the login changes or its key is pressed.
+// The rest are for someone fixing the login, not for polling.
+const reserveAttempts = 10
+
+var (
+	attemptsLeftRE = regexp.MustCompile(`\((\d+) attempts? left`)
+	lockedForRE    = regexp.MustCompile(`retry in (\d+) minute`)
+)
+
+// attemptsLeft is how many more rejected logins the plug will take before it
+// locks, when it said.
+func attemptsLeft(err error) (int, bool) {
+	m := attemptsLeftRE.FindStringSubmatch(err.Error())
+	if m == nil {
+		return 0, false
+	}
+	n, convErr := strconv.Atoi(m[1])
+	return n, convErr == nil
+}
+
+// lockedFor is how long a plug that has locked itself says it will stay
+// locked, or 0 when it did not say or is not locked.
+func lockedFor(err error) time.Duration {
+	if !isLocked(err) {
+		return 0
+	}
+	m := lockedForRE.FindStringSubmatch(err.Error())
+	if m == nil {
+		return 0
+	}
+	n, convErr := strconv.Atoi(m[1])
+	if convErr != nil {
+		return 0
+	}
+	return time.Duration(n) * time.Minute
+}
+
+func isLocked(err error) bool { return strings.Contains(err.Error(), "plug locked") }
 
 // A plug that stops answering is asked less often the longer it stays away, up
 // to this. Each attempt is a login, and a plug that does answer again is
@@ -48,18 +89,28 @@ type plugView struct {
 	// fails counts failed reads in a row, and refusals how many of them were
 	// the plug refusing the login.
 	fails, refusals int
+	// parked means the plug is down to its last few logins, and is left alone
+	// until the login changes or its key is pressed.
+	parked bool
+	// lockedUntil is when a plug that locked itself said it would let logins
+	// in again. Nothing is sent before then: it would only refuse.
+	lockedUntil time.Time
+}
+
+// held reports whether the poll should skip the plug at now.
+func (v plugView) held(now time.Time) bool {
+	return v.parked || now.Before(v.retryAt) || now.Before(v.lockedUntil)
 }
 
 // isRefusal reports whether a failure is the plug refusing the login, either
 // as wrong or because it has had too many.
 func isRefusal(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "login rejected") || strings.Contains(msg, "plug throttled")
+	return strings.Contains(err.Error(), "login rejected") || isLocked(err)
 }
 
 // plugRetry is how long to hold a plug off after a failure. The first failure
 // keeps the normal pace. Once a plug has refused the login, every failure until
-// it answers again is held off on the refusal schedule: a throttled plug that
+// it answers again is held off on the refusal schedule: a refusing plug that
 // lets one login through can still fail the read, and asking again soon after
 // would only lock it out again.
 func plugRetry(fails, refusals int) time.Duration {
@@ -112,7 +163,7 @@ func (p *plugin) applyGlobals(raw json.RawMessage) {
 	p.haveGlobals = true
 	p.mu.Unlock()
 	if changed {
-		p.clearBackoff("")
+		p.clearBackoff()
 	}
 	p.wakePlugs()
 
@@ -140,16 +191,28 @@ func (p *plugin) applyGlobals(raw json.RawMessage) {
 	p.renderBars()
 }
 
-// clearBackoff lets a held-off plug be tried again now: every plug for "", or
-// just one. A new login or a re-pointed key is a reason to retry.
-func (p *plugin) clearBackoff(host string) {
+// clearBackoff lets every held-off plug be tried again now, because the login
+// changed: a new login deserves one try even at a plug that refused the old
+// one. A plug that has locked itself is still left until it said, since it
+// would refuse any login before then.
+func (p *plugin) clearBackoff() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for h, v := range p.plugs {
-		if host == "" || h == host {
-			v.retryAt, v.refusals = time.Time{}, 0
-			p.plugs[h] = v
-		}
+		v.retryAt, v.refusals, v.parked = time.Time{}, 0, false
+		p.plugs[h] = v
+	}
+}
+
+// releaseOffline lets a plug held off for not answering be asked again now, as
+// when its key comes back on screen. A plug refusing the login keeps its hold:
+// pages and profiles change often, and every one would be another login.
+func (p *plugin) releaseOffline(host string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if v, ok := p.plugs[host]; ok && v.refusals == 0 && !v.parked && !time.Now().Before(v.lockedUntil) {
+		v.retryAt = time.Time{}
+		p.plugs[host] = v
 	}
 }
 
@@ -189,7 +252,7 @@ func (p *plugin) plugLoop() {
 		}
 		for _, host := range p.plugHosts() {
 			p.mu.Lock()
-			held := now.Before(p.plugs[host].retryAt)
+			held := p.plugs[host].held(now)
 			p.mu.Unlock()
 			if held || busy[host] {
 				continue
@@ -225,6 +288,16 @@ func (p *plugin) togglePlug(context, host string) {
 		p.sd.ShowAlert(context)
 		return
 	}
+	p.mu.Lock()
+	locked := time.Now().Before(p.plugs[host].lockedUntil)
+	p.mu.Unlock()
+	if locked {
+		// It would refuse, and a login during the lockout may extend it.
+		p.sd.ShowAlert(context)
+		return
+	}
+	// A press is a deliberate try, so it goes through even to a plug held off
+	// for refusing the login: that is how a fixed login gets picked up.
 	r, err := p.tapo.Toggle(host)
 	if err != nil {
 		log.Printf("tapo toggle %s: %v", host, err)
@@ -235,6 +308,11 @@ func (p *plugin) togglePlug(context, host string) {
 
 // setPlug records a plug's latest reading (or failure) and repaints its keys.
 func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
+	if errors.Is(err, tapo.ErrLoginChanged) {
+		// Asked under the old login; the answer under the new one is what counts.
+		p.wakePlugs()
+		return
+	}
 	p.mu.Lock()
 	prev := p.plugs[host]
 	// Log a failure when it starts or changes, not on every poll: the key shows
@@ -249,9 +327,22 @@ func (p *plugin) setPlug(host string, r tapo.Reading, err error) {
 		if isRefusal(err) {
 			prev.refusals++
 		}
+		now := time.Now()
 		prev.retryAt = time.Time{}
 		if d := plugRetry(prev.fails, prev.refusals); d > 0 {
-			prev.retryAt = time.Now().Add(d)
+			prev.retryAt = now.Add(d)
+		}
+		if isLocked(err) {
+			// Ask again a minute after it said it would open; when it did not
+			// say, at the longest refusal pace.
+			d := refusedRetry
+			if m := lockedFor(err); m > 0 {
+				d = m + time.Minute
+			}
+			prev.lockedUntil = now.Add(d)
+		}
+		if n, ok := attemptsLeft(err); ok && n <= reserveAttempts {
+			prev.parked = true
 		}
 		p.plugs[host] = prev
 	} else {
@@ -307,10 +398,10 @@ func (p *plugin) plugProblem(err error) string {
 	switch {
 	case errors.Is(err, tapo.ErrNotSetUp):
 		return "NOT SET UP"
+	case isLocked(err):
+		return "LOCKED"
 	case strings.Contains(err.Error(), "login rejected"):
 		return "BAD LOGIN"
-	case strings.Contains(err.Error(), "plug throttled"):
-		return "THROTTLED"
 	case !p.tapo.HasLogin():
 		return "NO LOGIN"
 	}

@@ -266,6 +266,11 @@ type App struct {
 	// each model's scene library. See barscene.go.
 	barScene    string
 	barSceneGen int
+	// warmPace and frontPace pace the warmth sliders' repaints; saveTimer
+	// holds back the settings write until a drag rests.
+	warmPace  pacer
+	frontPace pacer
+	saveTimer *time.Timer
 	// While a scene plays, front-light writes are throttled (frontSentAt,
 	// frontPending) and frontSceneTimer starts the scene again once the dial
 	// rests.
@@ -468,6 +473,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	stopGlobalNumpad()
+	a.flushSettings()
 	select {
 	case <-a.stop:
 	default:
@@ -1218,14 +1224,19 @@ func (a *App) danceLoop(gen int) {
 }
 
 // dockReopenLoop restores the HUD when the user activates Lightwave while it
-// has no visible window — which is what clicking the Dock tile does. Polling
-// at 300ms keeps the response feeling immediate without measurable cost.
+// has no visible window — which is what clicking the Dock tile does. Where
+// the platform reports activation changes it waits on those; elsewhere it
+// polls every 300ms.
 func (a *App) dockReopenLoop() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("dock reopen recovered: %v", r)
 		}
 	}()
+	if events := watchActivation(); events != nil {
+		a.dockReopenOnActivation(events)
+		return
+	}
 	t := time.NewTicker(300 * time.Millisecond)
 	defer t.Stop()
 	// Edge-triggered: activation only counts as a summon if the app was first
@@ -1268,6 +1279,35 @@ func (a *App) dockReopenLoop() {
 				log.Printf("dock: reopen detected, showing HUD")
 				a.ShowHUD()
 			}
+		}
+	}
+}
+
+// dockReopenOnActivation is dockReopenLoop driven by activation changes, so a
+// hidden Lightwave does no work until the user switches apps. A summon is an
+// activation that follows a spell inactive, at least a second after the hide:
+// hideApp can bounce activation for a beat, and macOS sometimes leaves a
+// frameless window's app active after hide:, neither of which is a Dock click.
+func (a *App) dockReopenOnActivation(events <-chan bool) {
+	active := appFrontmost()
+	for {
+		select {
+		case <-a.stop:
+			return
+		case now := <-events:
+			wasInactive := !active
+			active = now
+			if !now || !wasInactive {
+				continue
+			}
+			a.mu.Lock()
+			hidden, hiding, hiddenAt := a.hidden, a.hiding, a.hiddenAt
+			a.mu.Unlock()
+			if !hidden || hiding || time.Since(hiddenAt) < time.Second {
+				continue
+			}
+			log.Printf("dock: reopen detected, showing HUD")
+			a.ShowHUD()
 		}
 	}
 }
@@ -2050,6 +2090,12 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 	}
 
 	const steps = 4
+	type ramp struct {
+		d        lampDest
+		from, to color.RGBK
+		rgbOnly  bool
+	}
+	var ramps []ramp
 	next := make([]color.RGBK, len(dests))
 	painted := make([]bool, len(dests))
 	for i, d := range dests {
@@ -2106,10 +2152,16 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 			reassertLevel(d)
 			continue
 		}
-		for s := 1; s <= steps; s++ {
-			mix := color.Lerp(from, c, float64(s)/float64(steps))
+		ramps = append(ramps, ramp{d: d, from: from, to: c, rgbOnly: rgbOnly})
+	}
+	// The ramps run side by side: every lamp takes step s before any takes
+	// step s+1. One lamp after another made the room change as a ripple and
+	// held the caller for 30ms × 3 per lamp.
+	for s := 1; s <= steps && len(ramps) > 0; s++ {
+		for _, r := range ramps {
+			mix := color.Lerp(r.from, r.to, float64(s)/float64(steps))
 			k := mix.Kelvin
-			if rgbOnly {
+			if r.rgbOnly {
 				k = 0
 			}
 			// Lerp only blends Kelvin when both ends carry one, so a ramp
@@ -2117,14 +2169,16 @@ func (a *App) paintSceneOnly(turnOn bool, only func(lampDest) bool) {
 			// leave a white-capable lamp dim. The last step is the target:
 			// send it exactly, temperature included.
 			if s == steps {
-				k = c.Kelvin
+				k = r.to.Kelvin
 			}
-			_ = govee.SendColor(d.IP, mix.R, mix.G, mix.B, k)
-			if s < steps {
-				time.Sleep(30 * time.Millisecond)
-			}
+			_ = govee.SendColor(r.d.IP, mix.R, mix.G, mix.B, k)
 		}
-		reassertLevel(d)
+		if s < steps {
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
+	for _, r := range ramps {
+		reassertLevel(r.d)
 	}
 	a.mu.Lock()
 	if a.lastColor == nil {
@@ -2324,10 +2378,8 @@ func (a *App) SetWarmness(kelvin int) HUDState {
 	s.Warmness = a.warmness
 	a.settings = s
 	a.mu.Unlock()
-	if err := config.SaveSettings(s); err != nil {
-		log.Printf("persist warmness: %v", err)
-	}
-	a.paintWarmness(true)
+	a.saveSettingsSoon()
+	a.warmPace.kick(frontWarmthEvery, func() { a.paintWarmness(true) })
 	a.emitState()
 	return a.snapshot()
 }
@@ -2341,15 +2393,10 @@ func (a *App) SetFrontWarmth(kelvin int) HUDState {
 	s := a.settings
 	s.FrontWarmth = a.frontWarmth
 	a.settings = s
-	warm, dancing := a.warmMode, a.dancing
 	_, scene := a.barSceneLocked()
 	a.mu.Unlock()
-	if err := config.SaveSettings(s); err != nil {
-		log.Printf("persist front warmth: %v", err)
-	}
-	frontOnly := func(d lampDest) bool { return govee.HasFrontLight(d.Model) }
-	switch {
-	case scene:
+	a.saveSettingsSoon()
+	if scene {
 		// The Kelvin write whitens the back light as well and stops its scene.
 		// The front light follows the dial as it turns; the scene, a burst of
 		// frames, is started again once, after the dial rests.
@@ -2361,6 +2408,24 @@ func (a *App) SetFrontWarmth(kelvin int) HUDState {
 			a.frontSceneTimer.Reset(barSceneSettle)
 		}
 		a.mu.Unlock()
+	} else {
+		a.frontPace.kick(frontWarmthEvery, a.paintFrontWarmth)
+	}
+	a.emitState()
+	return a.snapshot()
+}
+
+// paintFrontWarmth brings the front lights to frontWarmth outside a scene.
+// SetFrontWarmth paces it, so it reads the mode afresh each time it runs.
+func (a *App) paintFrontWarmth() {
+	a.mu.Lock()
+	warm, dancing := a.warmMode, a.dancing
+	_, scene := a.barSceneLocked()
+	a.mu.Unlock()
+	frontOnly := func(d lampDest) bool { return govee.HasFrontLight(d.Model) }
+	switch {
+	case scene:
+		// A scene was chosen since; its own path owns the bar now.
 	case warm:
 		// In Warmness mode the bar's whole lamp takes this temperature, so it
 		// alone is repainted; the rest of the room keeps the main warmth.
@@ -2374,8 +2439,6 @@ func (a *App) SetFrontWarmth(kelvin int) HUDState {
 			a.paintSceneOnly(false, frontOnly)
 		}
 	}
-	a.emitState()
-	return a.snapshot()
 }
 
 // frontWarmthEvery spaces front-light writes while a dial turns, as

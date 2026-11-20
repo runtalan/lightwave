@@ -20,7 +20,7 @@ type Vacuum struct {
 
 // VacuumKey draws a robot vacuum key: its name, the battery in large type, what
 // it is doing underneath, and a bar along the bottom that is the battery level.
-func VacuumKey(v Vacuum) (string, error) {
+func vacuumKey(v Vacuum) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	grid(img)
 

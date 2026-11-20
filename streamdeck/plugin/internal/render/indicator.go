@@ -11,9 +11,11 @@ import (
 	"encoding/base64"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"math"
 	"strings"
+	"sync"
 )
 
 // Size is the key resolution. 144 is the @2x size Stream Deck expects; it
@@ -66,25 +68,11 @@ func blend(dst, src color.RGBA, a float64) color.RGBA {
 	return color.RGBA{f(dst.R, src.R), f(dst.G, src.G), f(dst.B, src.B), 255}
 }
 
-// Indicator renders the status key as a base64 PNG ready for setImage.
-func Indicator(st Status) (string, error) {
+// indicator draws the status key; Indicator is its cached front.
+func indicator(st Status) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
-
 	// Background: near-black with a faint purple grid, matching the app.
-	for y := 0; y < Size; y++ {
-		for x := 0; x < Size; x++ {
-			c := bg
-			// Subtle vertical falloff so the key has depth.
-			c = blend(c, color.RGBA{18, 8, 32, 255}, 0.5*(1-float64(y)/Size))
-			const cell = 24
-			gx := math.Abs(math.Mod(float64(x), cell) - cell/2)
-			gy := math.Abs(math.Mod(float64(y), cell) - cell/2)
-			if gx > cell/2-1.2 || gy > cell/2-1.2 {
-				c = blend(c, neon, 0.10)
-			}
-			img.Set(x, y, c)
-		}
-	}
+	grid(img)
 
 	drawWave(img, st)
 	drawHeadline(img, st)
@@ -95,12 +83,7 @@ func Indicator(st Status) (string, error) {
 	drawPattern(img, st)
 	drawFader(img, st)
 	border(img)
-
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return "", err
-	}
-	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	return encode(img)
 }
 
 // drawWave paints the neon wave across the middle of the key. The wave's phase
@@ -428,7 +411,7 @@ type Nav struct {
 }
 
 // NavKey renders a palette next/previous key as a base64 PNG.
-func NavKey(n Nav) (string, error) {
+func navKey(n Nav) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	grid(img)
 	drawArrow(img, n.Forward)
@@ -461,7 +444,7 @@ func NavKey(n Nav) (string, error) {
 
 // PaletteKey renders a jump-straight-to-palette key: just the name and its
 // swatches, with no arrow or NEXT/PREV kicker since the key doesn't cycle.
-func PaletteKey(name string, swatches []Swatch) (string, error) {
+func paletteKey(name string, swatches []Swatch) (string, error) {
 	img := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	grid(img)
 	drawNavName(img, name)
@@ -543,7 +526,7 @@ func drawNavName(img *image.RGBA, name string) {
 
 // Level renders a read-only brightness key: the level as a big number inside a
 // filled arc. It is a readout, not a control — the app's slider owns the value.
-func Level(pct int, live bool) (string, error) {
+func level(pct int, live bool) (string, error) {
 	if pct < 0 {
 		pct = 0
 	}
@@ -605,24 +588,47 @@ func Level(pct int, live bool) (string, error) {
 
 // grid paints the shared background: near-black with a faint purple grid.
 func grid(img *image.RGBA) {
-	for y := 0; y < Size; y++ {
-		for x := 0; x < Size; x++ {
-			c := blend(bg, color.RGBA{18, 8, 32, 255}, 0.5*(1-float64(y)/Size))
-			const cell = 24
-			gx := math.Abs(math.Mod(float64(x), cell) - cell/2)
-			gy := math.Abs(math.Mod(float64(y), cell) - cell/2)
-			if gx > cell/2-1.2 || gy > cell/2-1.2 {
-				c = blend(c, neon, 0.10)
+	gridOnce.Do(func() {
+		gridImg = image.NewRGBA(image.Rect(0, 0, Size, Size))
+		for y := 0; y < Size; y++ {
+			for x := 0; x < Size; x++ {
+				// Subtle vertical falloff so the key has depth.
+				c := blend(bg, color.RGBA{18, 8, 32, 255}, 0.5*(1-float64(y)/Size))
+				const cell = 24
+				gx := math.Abs(math.Mod(float64(x), cell) - cell/2)
+				gy := math.Abs(math.Mod(float64(y), cell) - cell/2)
+				if gx > cell/2-1.2 || gy > cell/2-1.2 {
+					c = blend(c, neon, 0.10)
+				}
+				gridImg.SetRGBA(x, y, c)
 			}
-			img.Set(x, y, c)
 		}
-	}
+	})
+	// The background never changes, so it is drawn once and copied.
+	draw.Draw(img, gridImg.Bounds(), gridImg, image.Point{}, draw.Src)
 }
+
+// pngEncoder reuses its compression buffers between keys.
+var pngEncoder = png.Encoder{BufferPool: &pngPool{}}
+
+type pngPool struct{ p sync.Pool }
+
+func (p *pngPool) Get() *png.EncoderBuffer {
+	b, _ := p.p.Get().(*png.EncoderBuffer)
+	return b
+}
+
+func (p *pngPool) Put(b *png.EncoderBuffer) { p.p.Put(b) }
+
+var (
+	gridOnce sync.Once
+	gridImg  *image.RGBA
+)
 
 // encode turns a finished key into the data URI setImage expects.
 func encode(img *image.RGBA) (string, error) {
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	if err := pngEncoder.Encode(&buf, img); err != nil {
 		return "", err
 	}
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
